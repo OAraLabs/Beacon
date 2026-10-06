@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in Beacon is broken or behaves wrongly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security problems don't belong here:** see [SECURITY.md](https://github.com/OAraLabs/beacon/blob/main/SECURITY.md) to report them privately.
+
+        This issue will be public. Before you paste anything, remove API tokens, pairing codes, private host names or addresses, and conversation content you don't want published.
+
+  - type: input
+    id: version
+    attributes:
+      label: Beacon version
+      description: "macOS: Beacon → About Beacon. Linux: the version in the AppImage's file name, or `dpkg -s beacon-desktop` for the .deb."
+      placeholder: "0.3.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed from
+      options:
+        - macOS .dmg (Apple Silicon)
+        - Linux AppImage
+        - Linux .deb
+        - Other (say below)
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      placeholder: "macOS 15.5 (M2) · Ubuntu 24.04 · Fedora 41 …"
+    validations:
+      required: true
+
+  - type: input
+    id: daemon
+    attributes:
+      label: Prometheus daemon version, and where it runs
+      description: "`oara --version` on the daemon machine, and whether it's this machine, another one on your LAN, or over Tailscale."
+      placeholder: "oara 1.2.3 · on another Mac over Tailscale"
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and crash records
+      description: |
+        Beacon doesn't write a log file. Any of these helps:
+
+        - **Terminal output.** Quit Beacon, start it from a terminal, reproduce the problem, and paste what it prints.
+          - macOS: `/Applications/Beacon.app/Contents/MacOS/Beacon`
+          - AppImage: `./Beacon-<version>-x86_64.AppImage`
+          - .deb: `beacon-desktop`
+        - **Renderer crash record:** `renderer-crashes.json` in Beacon's data folder: `~/Library/Application Support/beacon-desktop/` on macOS, `~/.config/beacon-desktop/` on Linux. It holds only times, crash reasons and app versions.
+        - **macOS crash reports** for a full crash: files starting with `Beacon` in `~/Library/Logs/DiagnosticReports/`.
+
+        **Don't attach `beacon.db`** from the data folder: it holds a cache of your conversations.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, how often it happens, whether it started after an update.
