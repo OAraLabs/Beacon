@@ -1,7 +1,23 @@
 Beacon Preview Terms
+Copyright (c) 2026 OAra Labs, LLC. All rights reserved.
 
-Copyright © 2026 OAraLabs. All rights reserved.
+Beacon is free to download and use, personally or commercially, with Prometheus or any
+compatible daemon you run. You may install it on as many of your own or your
+organization's devices as you like.
 
-Beacon is free to download and use. You may not redistribute, resell or reverse-engineer it. All rights reserved by OAraLabs. Beacon's source code is not published at this time; we haven't ruled out opening it in the future, and these terms may change in later versions.
+You may not sell, redistribute, or publicly host copies of Beacon, or modify, decompile,
+or reverse engineer it, except where applicable law or the open-source licenses below
+allow it.
 
-Questions: support@oara.ai
+Beacon connects only to the daemon and services you configure, the sites you open in its
+browser pane, and github.com/OAraLabs/Beacon to download and install updates
+automatically. It sends no analytics.
+
+Beacon is preview software provided "AS IS", without warranty of any kind. In no event
+shall the copyright holder be liable for any claim, damages or other liability arising
+from its use.
+
+Beacon includes open-source components under their own licenses, listed in
+THIRD_PARTY_NOTICES. Nothing in these terms limits your rights under those licenses.
+
+These terms may change with new releases.

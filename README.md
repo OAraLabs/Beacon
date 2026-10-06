@@ -45,4 +45,4 @@ Already have a configured daemon and its API token? Use the **API token** tab in
 
 ## License
 
-Beacon is free to download and use. It is not open source; redistribution and reverse engineering are not permitted. See [LICENSE](LICENSE).
+Free to use · closed source · beta. See [LICENSE](LICENSE).
