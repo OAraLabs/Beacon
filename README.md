@@ -13,8 +13,9 @@ Get the newest build from **[Releases → Latest](https://github.com/OAraLabs/be
 | macOS, Apple Silicon | `Beacon-<version>-arm64.dmg`: open it and drag Beacon to Applications |
 | Linux, x86_64 | `Beacon-<version>-x86_64.AppImage`: `chmod +x` it and run it |
 | Debian / Ubuntu, amd64 | `Beacon-<version>-amd64.deb`: `sudo apt install ./Beacon-*.deb` |
+| Windows | Coming soon |
 
-The macOS app is signed and notarized. Beacon updates itself from this repository; see [updates](docs/SETUP.md#updates).
+The macOS app is signed and notarized; the Linux packages are unsigned, which is normal for Linux. All three update themselves from this repository; see [install](docs/SETUP.md#install) and [updates](docs/SETUP.md#updates).
 
 ## Requirements
 

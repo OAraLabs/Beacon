@@ -17,9 +17,32 @@ This page covers connecting Beacon to a Prometheus daemon in detail, how updates
   ```
 
 - **Ports 8005 (REST) and 8010 (WebSocket)** reachable from Beacon. Setup always connects on these two ports, and ignores any port typed into the address.
-- **macOS on Apple Silicon**, or **64-bit x86 Linux**.
+- **macOS on Apple Silicon**, or **64-bit x86 Linux**. Windows: coming soon.
 
 The daemon's command is `oara`. Older documentation and some Beacon versions say `prometheus daemon` and `prometheus setup`: `prometheus` is still an alias for `oara`, so either works.
+
+## Install
+
+Download the file for your computer from [Releases → Latest](https://github.com/OAraLabs/beacon/releases/latest).
+
+- **macOS, Apple Silicon:** open `Beacon-<version>-arm64.dmg`, agree to the license, and drag Beacon to Applications.
+- **Linux, AppImage (x86_64):** make it executable, then run it:
+
+  ```sh
+  chmod +x Beacon-<version>-x86_64.AppImage
+  ./Beacon-<version>-x86_64.AppImage
+  ```
+
+  If your desktop has zenity, Xdialog or kdialog, the first run shows the license for you to agree to. Keep the AppImage somewhere you can write to, such as your home folder: it updates itself in place.
+- **Debian / Ubuntu, amd64:**
+
+  ```sh
+  sudo apt install ./Beacon-<version>-amd64.deb
+  ```
+
+- **Windows:** coming soon.
+
+The macOS app is signed and notarized by Apple. The Linux packages are not signed, which is normal for Linux.
 
 ## First time: pair with a code
 
@@ -69,7 +92,11 @@ The address is stored on this computer. The token the daemon sends back when you
 
 Beacon keeps itself up to date from this repository's releases. It checks about 30 seconds after launch and every 4 hours after that, downloads a new version in the background, and installs it when you quit. In **Settings → Updates** you can check now with **Check for updates**, and install a downloaded update straight away with **Restart & install**.
 
-The macOS app and the AppImage update themselves. The `.deb` does not; install new versions of it from [Releases](https://github.com/OAraLabs/beacon/releases).
+All three builds update themselves:
+
+- **macOS:** the new version installs when you quit.
+- **AppImage:** the new version replaces the AppImage file when you quit, so it has to be in a folder you can write to.
+- **`.deb`:** when you quit, Beacon asks for your administrator password to install the new package. If no password prompt can appear (for example, over SSH), install it yourself from [Releases](https://github.com/OAraLabs/beacon/releases): `sudo apt install ./Beacon-<version>-amd64.deb`.
 
 ## When something goes wrong
 
