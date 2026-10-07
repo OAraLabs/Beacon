@@ -46,4 +46,4 @@ Already have a configured daemon and its API token? Use the **API token** tab in
 
 ## License
 
-Free to use · closed source · beta. See [LICENSE](LICENSE).
+Free to use · closed source · beta. See the [license](https://github.com/OAraLabs/beacon?tab=License-1-ov-file).
