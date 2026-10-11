@@ -5,7 +5,7 @@ Beacon is free to download and use, personally or commercially, with Prometheus 
 
 You may not sell, redistribute, or publicly host copies of Beacon, or modify, decompile, or reverse engineer it, except where applicable law or the open-source licenses below allow it.
 
-Beacon connects only to the daemon and services you configure, the sites you open in its browser pane, and github.com/OAraLabs/Beacon to download and install updates automatically. It sends no analytics.
+Beacon connects only to the daemon and services you configure, the sites you open in its browser pane, and github.com/OAraLabs/Beacon to download and install updates automatically. If you ask Beacon to set up Prometheus on your Mac, it also connects to github.com/OAraLabs/Prometheus to download it, and checks that the download is genuine before it runs it. If you choose to sign in with OpenRouter, Beacon opens openrouter.ai in your browser and connects to openrouter.ai to exchange that sign-in for a key, which it hands to Prometheus and does not store. It sends no analytics.
 
 Beacon is preview software provided "AS IS", without warranty of any kind. In no event shall the copyright holder be liable for any claim, damages or other liability arising from its use.
 
