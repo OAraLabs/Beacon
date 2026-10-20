@@ -1,6 +1,6 @@
 # OAra Beacon
 
-The native desktop cockpit for **[Prometheus](https://github.com/OAraLabs/Prometheus)** — a local-first AI agent daemon. Beacon is a pure client (Electron + React): no bundled backend, no model keys on disk; the daemon stays the single source of truth. It pairs with a 6-digit code, talks REST (`:8005`) + an authenticated WebSocket (`:8010`), and works the same whether the daemon is on `localhost` or across your tailnet.
+The native desktop cockpit for **[Prometheus](https://github.com/OAraLabs/Prometheus)** — a local-first AI agent daemon. Beacon is a pure client (Electron + React): no bundled backend, no model keys on disk; the daemon stays the single source of truth. It joins a Prometheus by approval or a one-time code, talks REST (`:8005`) + an authenticated WebSocket (`:8010`), and works the same whether the daemon is on `localhost` or across your tailnet.
 
 ![Beacon's Mission home — Armilla telemetry, first-flight checklist, agent HUD, and the chat composer](docs/shots/install-9-mission-home.png)
 
@@ -22,7 +22,7 @@ connecting. To build from source, see [Commands](#commands) and
 - **Linux (deb)** — `sudo apt install ./Beacon-<version>-amd64.deb` (or
   `sudo dpkg -i` + `apt -f install`).
 
-On first launch Beacon opens the **setup wizard** — eight steps from a bare daemon to a working chat. Run `prometheus daemon` on the host; in setup mode it prints a one-time pairing line (`address <host>:8005 · code ######`). Enter the host and the 6-digit code, and the wizard walks connect → model detection → identity → gateways → apply & wake → a real smoke-test round-trip. Already have a token? The **Quick connect (advanced)** escape hatch takes `address + token` directly.
+On first launch Beacon asks one question: set Prometheus up on this Mac, or join a computer that already runs it. On a Mac, setting it up is one click: Beacon downloads the notarized Prometheus app, checks it, puts it in Applications, starts it and connects. Joining finds the computers on your home network (or takes an address you type) and asks to be approved there. The older **setup wizard** is still there, under **Connect another way**, for a daemon you started yourself: run `oara daemon` on the host; in setup mode it prints a one-time pairing line (`address <host>:8005 · code ######`), and the wizard walks connect → model detection → identity → gateways → apply & wake → a real smoke-test round-trip. Already have a token? **Quick connect (advanced)** takes `address + token` directly.
 
 ![The Connect step — pair with a 6-digit code or an API token; Test diagnoses the connection before anything is saved](docs/shots/install-2-pairing.png)
 
@@ -98,9 +98,9 @@ healthy, lapis for a pending permission or a secondary link, sanguine for error)
 ### Config → Models
 
 The backend registry is a table — host · runtime/model · endpoint · window · latency · state ·
-fresh · Probe — with reachability and freshness in separate cells, a `N pulled` chip that
-expands, and one summary line up top (`2 backends stale · 3 providers without a key`) with a
-**Show only problems** filter. Providers are one row each (name · model · key state · Add /
+Probe — where a row reads UP or DOWN from a fresh check (an old reading is re-checked, never shown
+as a state), a `N pulled` chip expands, and one summary line up top
+(`1 backend down · 1 provider without a key`) comes with a **Show only problems** filter. Providers are one row each (name · model · key state · Add /
 Replace key); the key field opens only on demand.
 
 ### The dock: an inspector, a browser and a terminal beside the conversation
@@ -160,13 +160,13 @@ In the menu bar, the tray icon is the **Pulse** mark — a Retina template icon 
 
 ## Connection setup
 
-First run asks for the gateway address (host/IP; ports are fixed `:8005` REST / `:8010` WS)
-and the optional `PROMETHEUS_API_TOKEN`. **Test** probes `GET /api/status` and the WS
-first-frame handshake with the typed values before anything is saved; **Connect** stores the
-address in app-data and the token in the OS keychain (via `safeStorage`) — the token value
+Settings (`⌘,`) keeps the connection's address and token under **Advanced** (REST `:8005` and
+WebSocket `:8010`; a home-network Prometheus also serves TLS on `:8006` / `:8011`). **Test**
+probes `GET /api/status` and the WS first-frame handshake with the typed values before anything
+is saved; **Save & test** stores the address in app-data and the token in the OS keychain (via
+`safeStorage`) — the token value
 never reaches the renderer again. Beacon presents the token on the WebSocket's first frame;
-current daemons require it (close code 4401 otherwise). Reconfigure anytime with `⌘,`
-(Settings…), which has the same Test/Save-and-test flow and reports REST and WS as distinct
+current daemons require it (close code 4401 otherwise). Test reports REST and WS as distinct
 results.
 
 The link also can't lie about being alive. A half-open socket — the machine slept, a NAT or
@@ -230,8 +230,9 @@ npm run dev            # electron-vite dev (needs a display)
 npm run build          # build main + preload + renderer into out/
 npm run typecheck      # tsc for the node (main/preload) and web (renderer) projects
 npm run lint:tokens    # design-token lint — no hardcoded colors outside theme/tokens.css
-npm run verify         # typecheck + lint:tokens + build (the per-change gate)
-npm run rebuild        # manual better-sqlite3 rebuild (only if postinstall was skipped)
+npm run verify:quick   # typecheck, lints and a few fast smokes: the edit loop
+npm run verify         # typecheck, lints, build and every smoke: run it before a pull request
+npm run rebuild        # manual native-module rebuild (better-sqlite3, node-pty), if postinstall was skipped
 npm run sqlite:proof   # headless proof that better-sqlite3 loads under Electron's ABI
 npm run dist           # package a distributable for the current platform — see Packaging below
 npm run dist:mac       # build + package the macOS .dmg explicitly
@@ -240,16 +241,16 @@ npm run dist:linux     # build + package the Linux AppImage + .deb explicitly
 
 ### Smokes
 
-**36 `smoke:*` scripts** — headless proofs (`ELECTRON_RUN_AS_NODE`), run after
-`npm run build`. Beacon has no component-test framework, so shared logic (timeline
+**Over a hundred `smoke:*` scripts** — headless proofs (`ELECTRON_RUN_AS_NODE`), run after
+`npm run build`; `npm run smoke:all` runs every one, and `verify` runs it. Beacon has no component-test framework, so shared logic (timeline
 batching, session grouping, attention ranking, presence) is written pure specifically
 to be provable headless. Most smokes are pure/stubbed; `step2`/`step4` exercise the
 LIVE daemon end-to-end and need a bearer + a patient timeout when the model backend
 is slow:
 
 ```bash
-set -a; . ~/.config/prometheus/env; set +a       # exports PROMETHEUS_API_TOKEN for live smokes
-BEACON_SMOKE_REPLY_TIMEOUT_MS=420000 npm run smoke:step2
+BEACON_GATEWAY_HOST=<host> BEACON_SMOKE_TOKEN=<token> npm run smoke:all   # the live smokes too
+BEACON_SMOKE_REPLY_TIMEOUT_MS=420000 npm run smoke:step2                 # one live smoke, patiently
 npm run smoke:step4 / step5 / step6              # cache, creds, tray/unread
 npm run smoke:parts / approval / attachment / forget / panels
 npm run smoke:trust / timeline / palette
@@ -298,10 +299,10 @@ no preload. The user drives it; the agent cannot navigate it, click in it, read 
 script into it, and `smoke:browser-invariant` fails the build if a path from a chat frame to
 `loadURL` / `executeJavaScript` / `sendInputEvent` ever appears.
 
-**No runtime network fetch for assets.** The three typefaces (Cormorant Garamond, Outfit,
-IBM Plex Mono) are bundled OFL variable fonts loaded from inside the app — Beacon never
-requests a font, script, or stylesheet from a CDN at runtime. The only host it talks to is
-your daemon.
+**No runtime network fetch for assets.** The typefaces (Cormorant Garamond, EB Garamond, Inter,
+JetBrains Mono, IBM Plex Mono) are bundled OFL fonts loaded from inside the app — Beacon never
+requests a font, script, or stylesheet from a CDN at runtime. Everything it does connect to is
+listed under [Privacy](#privacy).
 
 **The gateway address is never hardcoded.** It is configurable and defaults to the local
 daemon; a private gateway IP must never appear in committed source, which is enforced as an
@@ -317,9 +318,9 @@ current platform: a `.dmg` on macOS, an `.AppImage` + `.deb` on Linux, all emitt
 makes an unpacked `.app` (no installer) for a quick check. better-sqlite3's native addon is
 `asarUnpack`ed so it loads at runtime on both platforms.
 
-CI (`.github/workflows/release.yml`) builds both platforms on a `v*` tag and attaches the
-artifacts to a **draft** release on the public repo OAraLabs/beacon — nothing ships until the
-draft is published by a human. The macOS CI build is signed and notarized when the signing secrets
+Releases are built by `.github/workflows/release.yml` on a `v*` tag, in the maintainers' build
+repository, and attached to a **draft** release here — nothing ships until a human publishes the
+draft. The macOS CI build is signed and notarized when the signing secrets
 are configured, and unsigned (with a warning) when they are not.
 
 **Unsigned (personal use).** With no Apple credentials the `.dmg` is unsigned — fine for your own
@@ -343,10 +344,11 @@ are read from the environment only — **never** committed.
 
 ## Status & known limits
 
-Beacon is at **v0.2** and moves fast alongside the daemon. Shipped and verified hands-on
+Beacon is **in beta** and moves fast alongside Prometheus; the current version is on the
+[Releases](https://github.com/OAraLabs/beacon/releases/latest) page. Shipped and verified hands-on
 (macOS over Tailscale and Linux against a live daemon): the setup wizard + pairing, streaming
 chat with the tool timeline + ActivityLine + artifact download chips, the sessions sidebar
-with recency groups and the Automated fold, all 13 views, the Attention inbox, coding runs +
+with recency groups and the Automated fold, every view, the Attention inbox, coding runs +
 Loop Manager, Documents with AI redlines, the Models key manager + SuperGrok OAuth, the
 Memory editor, half-open-socket liveness detection, themes, palette, quick capture, the
 Pulse tray + HUD, notifications, and the offline outbox.
