@@ -1,0 +1,193 @@
+{
+  "recorded": "2026-10-10",
+  "app_version": "0.9.6",
+  "macos": "15.6.1",
+  "requirement": "anchor apple generic and identifier \"com.oaralabs.prometheus\" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and (certificate leaf[subject.OU] = \"53JM8W47RL\")",
+  "tools": {
+    "real": {
+      "verify": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "display": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "Executable=/private<scratch>/src/Prometheus.app/Contents/MacOS/Prometheus\nIdentifier=com.oaralabs.prometheus\nFormat=app bundle with Mach-O thin (arm64)\nCodeDirectory v=20500 size=1635 flags=0x10000(runtime) hashes=44+3 location=embedded\nSignature size=9049\nAuthority=Developer ID Application: Example Developer (53JM8W47RL)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 8, 2026 at 12:44:23 PM\nNotarization Ticket=stapled\nInfo.plist entries=15\nTeamIdentifier=53JM8W47RL\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=9569\nInternal requirements count=1 size=184\n"
+      },
+      "spctl": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "<scratch>/src/Prometheus.app: accepted\nsource=Notarized Developer ID\norigin=Developer ID Application: Example Developer (53JM8W47RL)\n"
+      },
+      "syspolicy": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "App passed all pre-distribution checks and is ready for distribution.\n"
+      }
+    },
+    "tampered": {
+      "verify": {
+        "exit": 1,
+        "stdout": "",
+        "stderr": "<scratch>/tampered/Prometheus.app: a sealed resource is missing or invalid\n"
+      },
+      "display": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "Executable=/private<scratch>/tampered/Prometheus.app/Contents/MacOS/Prometheus\nIdentifier=com.oaralabs.prometheus\nFormat=app bundle with Mach-O thin (arm64)\nCodeDirectory v=20500 size=1635 flags=0x10000(runtime) hashes=44+3 location=embedded\nSignature size=9049\nAuthority=Developer ID Application: Example Developer (53JM8W47RL)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 8, 2026 at 12:44:23 PM\nNotarization Ticket=stapled\nInfo.plist entries=15\nTeamIdentifier=53JM8W47RL\nRuntime Version=26.2.0\nSealed Resources version=2 rules=13 files=9569\nInternal requirements count=1 size=184\n"
+      },
+      "spctl": {
+        "exit": 1,
+        "stdout": "",
+        "stderr": "<scratch>/tampered/Prometheus.app: a sealed resource is missing or invalid\n"
+      },
+      "syspolicy": {
+        "exit": 70,
+        "stdout": "---------------------------------------------------------------\nCodesign Error\n    File: \n        <scratch>/tampered/Prometheus.app/Contents/Resources/python/lib/python3.12/site-packages/prometheus/__init__.py \n    Severity: Fatal \n    Full Error: File modified after outer app bundle was codesigned. \n    Type: Notary Error \n\n---------------------------------------------------------------\n",
+        "stderr": "App has failed one or more pre-distribution checks.\n"
+      }
+    },
+    "adhoc": {
+      "verify": {
+        "exit": 3,
+        "stdout": "",
+        "stderr": "test-requirement: code failed to satisfy specified code requirement(s)\n"
+      },
+      "display": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "Executable=/private<scratch>/adhoc/Prometheus.app/Contents/MacOS/Prometheus\nIdentifier=com.oaralabs.prometheus\nFormat=app bundle with Mach-O thin (arm64)\nCodeDirectory v=20400 size=1616 flags=0x2(adhoc) hashes=44+3 location=embedded\nSignature=adhoc\nNotarization Ticket=stapled\nInfo.plist entries=15\nTeamIdentifier=not set\nSealed Resources version=2 rules=13 files=9569\nInternal requirements count=0 size=12\n"
+      },
+      "spctl": {
+        "exit": 3,
+        "stdout": "",
+        "stderr": "<scratch>/adhoc/Prometheus.app: rejected\n"
+      },
+      "syspolicy": {
+        "exit": 70,
+        "stdout": "---------------------------------------------------------------\nCodesign Error\n    File: <scratch>/adhoc/Prometheus.app \n    Severity: Fatal \n    Full Error: Gatekeeper rejected this file. If there isn't a more \n        descriptive error elsewhere in this output, please file a Feedback \n        through Feedback Assistant.app so we can continue to improve \n        syspolicy_check. Please include the app bundle you are checking and a \n        sysdiagnose taken immediately after running syspolicy_check. \n    Type: Notary Error \n\n---------------------------------------------------------------\n",
+        "stderr": "App has failed one or more pre-distribution checks.\n"
+      }
+    },
+    "calculator": {
+      "verify": {
+        "exit": 3,
+        "stdout": "",
+        "stderr": "test-requirement: code failed to satisfy specified code requirement(s)\n"
+      },
+      "display": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "Executable=/System/Applications/Calculator.app/Contents/MacOS/Calculator\nIdentifier=com.apple.calculator\nFormat=app bundle with Mach-O universal (x86_64 arm64e)\nCodeDirectory v=20400 size=13037 flags=0x0(none) hashes=397+7 location=embedded\nPlatform identifier=16\nSignature size=4442\nAuthority=Software Signing\nAuthority=Apple Code Signing Certification Authority\nAuthority=Apple Root CA\nSigned Time=Jul 12, 2025 at 2:34:05 AM\nInfo.plist entries=34\nTeamIdentifier=not set\nSealed Resources version=2 rules=2 files=0\nInternal requirements count=1 size=68\n"
+      },
+      "spctl": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "/System/Applications/Calculator.app: accepted\nsource=Apple System\norigin=Software Signing\n"
+      },
+      "syspolicy": {
+        "exit": 70,
+        "stdout": "---------------------------------------------------------------\nNotary Ticket Missing\n    File: Calculator.app \n    Severity: Fatal \n    Full Error: A Notarization ticket is not stapled to this application. \n    Type: Distribution Error \n\n---------------------------------------------------------------\n",
+        "stderr": "App has failed one or more pre-distribution checks.\n"
+      }
+    },
+    "beacon": {
+      "verify": {
+        "exit": 3,
+        "stdout": "",
+        "stderr": "test-requirement: code failed to satisfy specified code requirement(s)\n"
+      },
+      "display": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "Executable=/Applications/Beacon.app/Contents/MacOS/Beacon\nIdentifier=com.oaralabs.beacon\nFormat=app bundle with Mach-O thin (arm64)\nCodeDirectory v=20500 size=447 flags=0x10000(runtime) hashes=3+7 location=embedded\nSignature size=8979\nAuthority=Developer ID Application: Example Developer (53JM8W47RL)\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 7, 2026 at 8:54:36 AM\nNotarization Ticket=stapled\nInfo.plist entries=33\nTeamIdentifier=53JM8W47RL\nRuntime Version=26.5.0\nSealed Resources version=2 rules=13 files=236\nInternal requirements count=1 size=180\n"
+      },
+      "spctl": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "/Applications/Beacon.app: accepted\nsource=Notarized Developer ID\norigin=Developer ID Application: Example Developer (53JM8W47RL)\n"
+      },
+      "syspolicy": {
+        "exit": 0,
+        "stdout": "",
+        "stderr": "App passed all pre-distribution checks and is ready for distribution.\n"
+      }
+    }
+  },
+  "daemon": {
+    "api_port": "<ephemeral>",
+    "ws_port": "<ephemeral>",
+    "setup_status": {
+      "status": 200,
+      "json": {
+        "setup_mode": true,
+        "configured": false,
+        "pairing": "available",
+        "version": "0.9.6"
+      }
+    },
+    "secret_shape": {
+      "bytes": 44,
+      "trimmed": 43,
+      "base64url": true
+    },
+    "setup_pair": {
+      "status": 200,
+      "json": {
+        "token": "<string 43>",
+        "api_base_port": "<the port it was reached on>",
+        "ws_port": "<its ws port>"
+      }
+    },
+    "setup_pair_again": {
+      "status": 401,
+      "json": {
+        "error": "invalid_code",
+        "attempts_remaining": 5,
+        "detail": "wrong or already-used pairing secret"
+      }
+    },
+    "configured_setup_status": {
+      "status": 401,
+      "json": {
+        "error": "unauthorized — set Authorization: Bearer <token>"
+      }
+    },
+    "configured_status": {
+      "status": 401,
+      "json": {
+        "error": "unauthorized — set Authorization: Bearer <token>"
+      }
+    },
+    "launcher_pair": {
+      "exit": 0,
+      "lines": 1,
+      "escapes_slashes": true,
+      "json": {
+        "agent": "com.oaralabs.prometheus.daemon",
+        "app_version": "0.9.6",
+        "detail": "",
+        "ok": true,
+        "path": "<home>/Library/Application Support/Prometheus/pairing/pair.secret",
+        "state": "pair_secret_written"
+      }
+    },
+    "pair_local": {
+      "status": 200,
+      "json": {
+        "token": "<string 43>",
+        "api_base_port": "<the port it was reached on>",
+        "ws_port": "<its ws port>"
+      },
+      "is_the_daemons_own_token": true
+    },
+    "pair_local_again": {
+      "status": 401,
+      "json": {
+        "error": "invalid_code",
+        "detail": "wrong or already-used pairing secret"
+      }
+    }
+  }
+}

@@ -1,0 +1,91 @@
+name: CI
+
+# The per-change gate. Until this existed, `npm run verify` was enforced by local
+# discipline only — and discipline is exactly what failed: the June audit recorded
+# that lint:tokens sat RED ON MAIN FOR WEEKS with nothing catching it, because no
+# check ran on a pull request at all. release.yml triggers on `tags: ['v*']`, so it
+# proves an artifact can be built at release time, not that a change is sound.
+#
+# MERGEABLE is not the same thing as CHECKED. `gh pr checks` on a branch with no
+# workflow reports "no checks reported" while GitHub still shows MERGEABLE — that
+# is a conflict-free merge, not a verified one. The distinction matters because it
+# is the one that let a red main through.
+#
+# WHY macos-latest AND NOT ubuntu-latest. Two smokes are bound to the platform they
+# test, and on Linux they cannot be made to pass:
+#
+#   smoke:install-guard  drives the REAL scripts/install-local.sh, which refuses at
+#                        line 42 — `[[ "$(uname -s)" == "Darwin" ]] || die "macOS
+#                        only (this packages a .app bundle)"`. That refusal IS the
+#                        behaviour under test, so making the smoke pass on Linux
+#                        would mean deleting the assertion it exists to make.
+#   smoke:terminal       spawns a real pty at a hardcoded /bin/zsh
+#                        (src/main/terminal-smoke.ts:164) and asserts the tab title
+#                        is 'zsh'. zsh is installable on Linux, but see below.
+#
+# The alternative — ubuntu plus an exclusion list — is rejected deliberately. A gate
+# that is permanently red is noise, and the repo already says so about its own
+# runner ("A runner with permanent failures teaches people to ignore it"). But
+# excluding the two from the workflow is a carve-out nobody reads, and the excluded
+# smoke stops being tested anywhere: install-guard would then run on NO runner at
+# all, which is how it went stale and installed an Aug-1 bundle on 2026-08-17.
+# macOS is where both run for real, where the app is developed, and where it is
+# shipped — and release.yml already runs a macos-latest leg, so this adds no new
+# runner kind to the repo.
+#
+# WHY ONE JOB AND ONE COMMAND. verify already ends with smoke:all, which discovers
+# its suite dynamically from package.json (`Object.keys(pkg.scripts).filter(...)`)
+# rather than from a hardcoded list. That is load-bearing: a prior attempt at this
+# gate (local branch chore/ci-gate, cae21fb, 2026-08-15) enumerated 25 smoke names
+# by hand. The suite is 75 now, so that list would have silently stopped covering
+# 50 of them — the same drift this repo already paid for once when nav-smoke pinned
+# NAV_VIEWS at 17 while integrations-smoke pinned 15. Re-running `npm run verify`
+# and nothing else means the CI signal and the local signal cannot diverge.
+#
+# The cost of that is macOS minutes at the 10x multiplier on a private repo. That is
+# a real cost, named here rather than hidden in a runner choice nobody would notice.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege, set explicitly rather than inherited. The default for a private
+# repo's GITHUB_TOKEN is permissive (write), and this job needs to do exactly one
+# thing: read the checkout and run a script against it. It publishes no artifact,
+# opens no PR and writes no status beyond its own conclusion.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # node 20 matches release.yml's setup-node, so the gate builds with the same
+      # toolchain that produces shipped artifacts rather than a newer one that only
+      # CI has ever seen.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm ci`, not `npm install`: the lockfile is the contract, and a resolved
+      # tree that drifted from it is a different codebase than the one reviewed.
+      # This matters here specifically — node-pty is a native module built by a
+      # postinstall script, and a node_modules tree that predates the dependency
+      # fails typecheck with "Cannot find module 'node-pty'" while looking healthy.
+      - name: Install dependencies
+        run: npm ci
+
+      # Non-zero exit fails the job. `npm run verify` propagates smoke:all's
+      # `process.exit(failed.length || overBroad.length ? 1 : 0)`, so a single
+      # failing OR over-broad smoke turns this check red — not merely logged.
+      - name: Verify (typecheck + 4 lints + build + every smoke)
+        run: npm run verify

@@ -1,0 +1,348 @@
+{
+ "about": "Real OWNER-side exchanges recorded 2026-10-08 against the real Prometheus #698 app (head e99053f) over real HTTP on an ephemeral 127.0.0.1 port with a temporary home (see pairing_wire_698.json). Tokens in the daemon were throwaway.",
+ "exchanges": [
+  {
+   "name": "list_pending_four",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "requests": [
+      {
+       "request_id": "e7fca5b7bef9c10b7d86e91b20d9fbd4",
+       "device_name": "No Body Approve",
+       "platform": "android",
+       "source_ip": "127.0.0.1",
+       "match_code": "7023",
+       "created_at": 1791484330,
+       "expires_at": 1791484630,
+       "ttl_seconds": 300
+      },
+      {
+       "request_id": "73fbe148b678ffce17c6ae4480cbab0d",
+       "device_name": "Denied Device",
+       "platform": "windows",
+       "source_ip": "127.0.0.1",
+       "match_code": "8337",
+       "created_at": 1791484330,
+       "expires_at": 1791484630,
+       "ttl_seconds": 300
+      },
+      {
+       "request_id": "819ac0f34c90af36b645bd769f10d202",
+       "device_name": "Sam's MacBook",
+       "platform": "macos",
+       "source_ip": "127.0.0.1",
+       "match_code": "0761",
+       "created_at": 1791484330,
+       "expires_at": 1791484630,
+       "ttl_seconds": 300
+      },
+      {
+       "request_id": "9e0a425697cf9c55ba563610836138f0",
+       "device_name": "Sam's MacBook",
+       "platform": "macos",
+       "source_ip": "127.0.0.1",
+       "match_code": "1438",
+       "created_at": 1791484322,
+       "expires_at": 1791484622,
+       "ttl_seconds": 300
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "list_after_cancel_only_r1_remains",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "requests": [
+      {
+       "request_id": "9e0a425697cf9c55ba563610836138f0",
+       "device_name": "Sam's MacBook",
+       "platform": "macos",
+       "source_ip": "127.0.0.1",
+       "match_code": "1438",
+       "created_at": 1791484322,
+       "expires_at": 1791484622,
+       "ttl_seconds": 300
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "list_pending_after_decisions_empty",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "date": "Thu, 08 Oct 2026 18:32:10 GMT",
+    "body": {
+     "requests": []
+    }
+   }
+  },
+  {
+   "name": "list_no_token",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests",
+    "body": null
+   },
+   "response": {
+    "status": 401,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "error": "unauthorized \u2014 set Authorization: Bearer <token>"
+    }
+   }
+  },
+  {
+   "name": "scoped_list",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests",
+    "body": null
+   },
+   "response": {
+    "status": 403,
+    "date": "Thu, 08 Oct 2026 18:32:13 GMT",
+    "body": {
+     "error": "operator_only",
+     "detail": "only the owner (the master token or an owner device) may do this"
+    }
+   }
+  },
+  {
+   "name": "scoped_approve",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/2a4ec207f60b914c9a156137c670e465/approve",
+    "body": {}
+   },
+   "response": {
+    "status": 403,
+    "date": "Thu, 08 Oct 2026 18:32:13 GMT",
+    "body": {
+     "error": "operator_only",
+     "detail": "only the owner (the master token or an owner device) may do this"
+    }
+   }
+  },
+  {
+   "name": "scoped_deny",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/2a4ec207f60b914c9a156137c670e465/deny",
+    "body": null
+   },
+   "response": {
+    "status": 403,
+    "date": "Thu, 08 Oct 2026 18:32:13 GMT",
+    "body": {
+     "error": "operator_only",
+     "detail": "only the owner (the master token or an owner device) may do this"
+    }
+   }
+  },
+  {
+   "name": "approve_wrong_match_code",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/819ac0f34c90af36b645bd769f10d202/approve",
+    "body": {
+     "match_code": "0000"
+    }
+   },
+   "response": {
+    "status": 422,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "error": "code_mismatch"
+    }
+   }
+  },
+  {
+   "name": "approve_unknown_key_owner_true",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/819ac0f34c90af36b645bd769f10d202/approve",
+    "body": {
+     "owner": true
+    }
+   },
+   "response": {
+    "status": 400,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "owner"
+     ],
+     "detail": "approve accepts only name and match_code"
+    }
+   }
+  },
+  {
+   "name": "approve_Ra_right_code_and_rename",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/819ac0f34c90af36b645bd769f10d202/approve",
+    "body": {
+     "name": "Sam's MacBook (kitchen)",
+     "match_code": "0761"
+    }
+   },
+   "response": {
+    "status": 200,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "request_id": "819ac0f34c90af36b645bd769f10d202",
+     "status": "approved",
+     "device_id": "b5958635628a4c7eadca6fc8b615c72c",
+     "name": "Sam's MacBook (kitchen)",
+     "platform": "macos"
+    }
+   }
+  },
+  {
+   "name": "approve_Ra_twice_409",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/819ac0f34c90af36b645bd769f10d202/approve",
+    "body": {}
+   },
+   "response": {
+    "status": 409,
+    "date": "Thu, 08 Oct 2026 18:32:10 GMT",
+    "body": {
+     "error": "not_pending",
+     "status": "approved"
+    }
+   }
+  },
+  {
+   "name": "deny_Rd",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/73fbe148b678ffce17c6ae4480cbab0d/deny",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "date": "Thu, 08 Oct 2026 18:32:10 GMT",
+    "body": {
+     "request_id": "73fbe148b678ffce17c6ae4480cbab0d",
+     "status": "denied"
+    }
+   }
+  },
+  {
+   "name": "deny_Rd_twice_409",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/73fbe148b678ffce17c6ae4480cbab0d/deny",
+    "body": null
+   },
+   "response": {
+    "status": 409,
+    "date": "Thu, 08 Oct 2026 18:32:10 GMT",
+    "body": {
+     "error": "not_pending",
+     "status": "denied"
+    }
+   }
+  },
+  {
+   "name": "slow_approve_A_after_ttl_410",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/d88b5d850eb524d89128e936b140215f/approve",
+    "body": {}
+   },
+   "response": {
+    "status": 410,
+    "date": "Thu, 08 Oct 2026 18:33:02 GMT",
+    "body": {
+     "error": "expired"
+    }
+   }
+  },
+  {
+   "name": "approve_unknown_id",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/ffffffffffffffffffffffffffffffff/approve",
+    "body": {}
+   },
+   "response": {
+    "status": 404,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "error": "unknown_request"
+    }
+   }
+  },
+  {
+   "name": "deny_unknown_id",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/ffffffffffffffffffffffffffffffff/deny",
+    "body": null
+   },
+   "response": {
+    "status": 404,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "error": "unknown_request"
+    }
+   }
+  },
+  {
+   "name": "approve_no_token",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests/9e0a425697cf9c55ba563610836138f0/approve",
+    "body": null
+   },
+   "response": {
+    "status": 401,
+    "date": "Thu, 08 Oct 2026 18:32:09 GMT",
+    "body": {
+     "error": "unauthorized \u2014 set Authorization: Bearer <token>"
+    }
+   }
+  },
+  {
+   "name": "dead_token_list",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests",
+    "body": null
+   },
+   "response": {
+    "status": 401,
+    "date": "Thu, 08 Oct 2026 18:32:13 GMT",
+    "body": {
+     "error": "unauthorized \u2014 set Authorization: Bearer <token>"
+    }
+   }
+  }
+ ]
+}

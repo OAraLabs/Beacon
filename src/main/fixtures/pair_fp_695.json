@@ -1,0 +1,42 @@
+{
+  "daemon": "Prometheus #695 at 3090556, run as the app runs it (PROMETHEUS_INSTALL_KIND=app, --bind 127.0.0.1), scratch home",
+  "looks": [
+    {
+      "at": "fresh install, setup mode",
+      "hello_status": 200,
+      "hello_fp": "",
+      "hello_agent": "Prometheus",
+      "hello_pair": "code",
+      "pair_fp_file": null,
+      "equal_as_strings": true
+    },
+    {
+      "at": "setup mode, paired",
+      "hello_status": 200,
+      "hello_fp": "",
+      "hello_agent": "Prometheus",
+      "hello_pair": "code",
+      "pair_fp_file": null,
+      "equal_as_strings": true
+    },
+    {
+      "at": "after complete: the same process is the full daemon, /api/status 200",
+      "hello_status": 200,
+      "hello_fp": "0a595b31200b9b7a",
+      "hello_agent": "Prometheus",
+      "hello_pair": "token",
+      "pair_fp_file": "\"0a595b31200b9b7a\\n\"",
+      "equal_as_strings": true
+    },
+    {
+      "at": "the configured daemon restarted",
+      "hello_status": 200,
+      "hello_fp": "0a595b31200b9b7a",
+      "hello_agent": "Prometheus",
+      "hello_pair": "token",
+      "pair_fp_file": "\"0a595b31200b9b7a\\n\"",
+      "equal_as_strings": true
+    }
+  ],
+  "complete_reached_status_200": true
+}

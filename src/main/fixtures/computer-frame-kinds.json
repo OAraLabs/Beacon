@@ -1,0 +1,17 @@
+{
+  "_header": {
+    "source": "OAraLabs/Prometheus src/prometheus/computer/livestream.py, COMPUTER_FRAME_KINDS",
+    "branch": "claude/cu-v11-pr6-cockpit (draft PR OAraLabs/Prometheus#663, stacked on #662)",
+    "commit": "6be4020dcd4d0798e7a376e43e79ed3e55c11e85",
+    "promotion": "src/prometheus/web/ws_server.py::_computer_frame_kinds() promotes every kind in this tuple to a first-class frame type, so each arrives as {type: <kind>, timestamp, payload}, never wrapped in sentinel_signal.",
+    "note": "COPIED VERBATIM from the server's tuple, in the server's order. When the daemon adds a kind, copy the new tuple here FIRST: smoke:computer then fails until the client decodes it. Never edit this list to match the client.",
+    "not_in_the_tuple": "computer_task_stop_ack is ws_server.py's reply to a client's {type: computer_task_stop}. It is sent to the requesting socket only, is not a SignalBus kind, and is never persisted or backfilled, so it is not in COMPUTER_FRAME_KINDS. The client decodes it as well; smoke:computer pins it separately."
+  },
+  "COMPUTER_FRAME_KINDS": [
+    "computer_binding",
+    "computer_task_started",
+    "computer_step",
+    "computer_task_ended",
+    "computer_stream_error"
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "daemon": "Prometheus main (#694 + #696), real create_app",
+  "module": "<src>/prometheus/__init__.py",
+  "hello": {
+    "status": 200,
+    "json": {
+      "v": "0.1.0",
+      "name": "Pair-local Recorder",
+      "agent": "Prometheus",
+      "fp": "3a7f18cbd818fce7",
+      "pair": "token",
+      "tls": false
+    }
+  },
+  "secret_shape": {
+    "length": 43,
+    "base64url": true
+  },
+  "wrong": {
+    "error": "invalid_code",
+    "detail": "wrong or already-used pairing secret"
+  },
+  "first": {
+    "status": 200,
+    "json": {
+      "token": "<string 43>",
+      "revoked_previous": 0,
+      "api_base_port": 8005,
+      "ws_port": 58845
+    },
+    "is_the_global_token": false,
+    "file_after": false
+  },
+  "first_token_status": 200,
+  "again": {
+    "status": 401
+  },
+  "second": {
+    "status": 200,
+    "json": {
+      "token": "<string 43>",
+      "revoked_previous": 1,
+      "api_base_port": 8005,
+      "ws_port": 58845
+    }
+  },
+  "after_repair_first_token_status": 401,
+  "after_repair_second_token_status": 200,
+  "no_name": {
+    "token": "<string 43>",
+    "revoked_previous": 1,
+    "api_base_port": 8005,
+    "ws_port": 58845
+  }
+}

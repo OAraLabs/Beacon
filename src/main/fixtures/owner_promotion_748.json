@@ -1,0 +1,143 @@
+{
+  "recorded": "2026-10-12",
+  "daemon": "Prometheus main with #748 (4122b7e), configured, scratch home, loopback",
+  "mint": {
+    "status": 201,
+    "json": {
+      "code_id": "dcbad0eb490ab6757eba1b0ca5fc2926",
+      "code": "<8 digits>",
+      "expires_at": 1791767500,
+      "ttl_seconds": 300
+    }
+  },
+  "redeem": {
+    "wrong": {
+      "status": 401,
+      "json": {
+        "error": "invalid_code",
+        "detail": "wrong, expired or already-used owner code; run `oara pair --owner` on the machine Prometheus runs on for a new one"
+      }
+    },
+    "code_as_number": {
+      "status": 400,
+      "json": {
+        "error": "invalid_request",
+        "fields": [
+          "code"
+        ]
+      }
+    },
+    "no_name": {
+      "status": 400,
+      "json": {
+        "error": "invalid_request",
+        "fields": [
+          "device_name"
+        ]
+      }
+    },
+    "not_json": {
+      "status": 400,
+      "json": {
+        "error": "invalid_request",
+        "fields": [],
+        "detail": "body must be a JSON object"
+      }
+    },
+    "from_a_browser": {
+      "status": 400,
+      "json": {
+        "error": "browser_not_allowed",
+        "detail": "this route is for the app on this Mac, not for a web page"
+      }
+    },
+    "ok": {
+      "status": 200,
+      "json": {
+        "token": "<token>",
+        "device_id": "9716f3ca676d47b1bbba60deb82b9586",
+        "name": "Probe MacBook",
+        "owner": true,
+        "endpoints": {
+          "rest": "http://127.0.0.1:59144",
+          "ws": "ws://127.0.0.1:59145"
+        },
+        "tls": null
+      }
+    },
+    "again": {
+      "status": 401,
+      "json": {
+        "error": "invalid_code",
+        "detail": "wrong, expired or already-used owner code; run `oara pair --owner` on the machine Prometheus runs on for a new one"
+      }
+    },
+    "with_bearer": {
+      "status": 200,
+      "json": {
+        "token": "<token>",
+        "device_id": "f75c4b172a064654aabdcc4b62ad183b",
+        "name": "Probe MacBook",
+        "owner": true,
+        "endpoints": {
+          "rest": "http://127.0.0.1:59144",
+          "ws": "ws://127.0.0.1:59145"
+        },
+        "tls": null
+      }
+    }
+  },
+  "status_after": {
+    "status": 200,
+    "json": {
+      "code_id": "dcbad0eb490ab6757eba1b0ca5fc2926",
+      "status": "redeemed",
+      "expires_at": 1791767500,
+      "redeemed_by": {
+        "id": "9716f3ca676d47b1bbba60deb82b9586",
+        "name": "Probe MacBook",
+        "platform": "macos",
+        "source": "127.0.0.1"
+      }
+    }
+  },
+  "owner_reads_model": {
+    "status": 200
+  },
+  "owner_mints": {
+    "status": 403,
+    "json": {
+      "error": "global_token_only",
+      "detail": "owner codes are minted with the daemon's API token (oara pair --owner); a device, even an owner device, cannot enrol another"
+    }
+  },
+  "device_mints": {
+    "status": 403,
+    "json": {
+      "error": "operator_only",
+      "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+    }
+  },
+  "devices_after": {
+    "status": 200,
+    "owners_named": [
+      {
+        "name": "Probe MacBook",
+        "platform": "macos",
+        "owner": true,
+        "marked_by": "owner-code"
+      },
+      {
+        "name": "Probe MacBook",
+        "platform": "macos",
+        "owner": true,
+        "marked_by": "owner-code"
+      }
+    ]
+  },
+  "listened": [
+    "127.0.0.1:59145",
+    "127.0.0.1:59144"
+  ],
+  "tripwire": []
+}

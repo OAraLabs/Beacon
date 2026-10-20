@@ -1,0 +1,402 @@
+{
+  "_header": {
+    "captured": true,
+    "note": "CAPTURED VERBATIM from the live WebSocket via window.beacon.events.onGateway, upstream of every renderer filter. NOT written by hand. Re-capture; never hand-edit.",
+    "run": "coding:c941664a6 (managed a72ecb447) — SUCCEEDED, acceptance exit 0, 9 rounds, ~36s",
+    "repo": "/home/demo/projects/demo-todo-app",
+    "fired_from": "Beacon Loop Manager board, Step 3 'Fire & walk away'",
+    "daemon": "prometheus @ <daemon-host>:8005, ~/prometheus-deploy @ fd46e7c, process restarted 2026-09-17 21:53:42",
+    "beacon": "/Applications/Beacon.app 0.2.0, Electron 33.4.11",
+    "date": "2026-09-17",
+    "frame_counts_by_effective_kind": {
+      "coding_round": 10,
+      "coding_tool": 8,
+      "coding_acceptance": 1,
+      "coding_complete": 1,
+      "task_completed": 1
+    },
+    "proves": "Prometheus #503 (coding_acceptance + coding_tool promoted), #494 finally live (task_completed promoted, flat payload), #504 (env-override line is names-only). Zero sentinel_signal frames.",
+    "supersedes": "wire-capture-ca4c63d84.json, captured pre-fix, where coding_tool/coding_acceptance/task_completed all arrived wrapped as sentinel_signal",
+    "redaction": "tailnet IPs replaced with <daemon-host> — the repo's pre-commit hook blocks the CGNAT range Tailscale uses, correctly. No other alteration; the env-override line no longer carries value fragments."
+  },
+  "frames": [
+    {
+      "recvAt": 1789696486950,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 0,
+          "seq": 45832,
+          "outcome": "success",
+          "input_tokens": 634,
+          "output_tokens": 71,
+          "thinking": true,
+          "duration_ms": 2088.857889175415,
+          "stop_reason": "stop",
+          "timestamp": 1789696486.7399087
+        },
+        "ts": 1789696486912.7812
+      }
+    },
+    {
+      "recvAt": 1789696486956,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27721,
+          "round_index": 0,
+          "tool_name": "code_view",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 0.1592431217432022,
+          "timestamp": 1789696486.7428124
+        },
+        "ts": 1789696486915.3093
+      }
+    },
+    {
+      "recvAt": 1789696489629,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 1,
+          "seq": 45833,
+          "outcome": "success",
+          "input_tokens": 800,
+          "output_tokens": 119,
+          "thinking": true,
+          "duration_ms": 2794.9836254119873,
+          "stop_reason": "stop",
+          "timestamp": 1789696489.540851
+        },
+        "ts": 1789696489628.6536
+      }
+    },
+    {
+      "recvAt": 1789696489630,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27723,
+          "round_index": 1,
+          "tool_name": "code_view",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 0.17111492343246937,
+          "timestamp": 1789696489.5442824
+        },
+        "ts": 1789696489630.93
+      }
+    },
+    {
+      "recvAt": 1789696492034,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 2,
+          "seq": 45834,
+          "outcome": "success",
+          "input_tokens": 1064,
+          "output_tokens": 96,
+          "thinking": true,
+          "duration_ms": 2324.803590774536,
+          "stop_reason": "stop",
+          "timestamp": 1789696491.871789
+        },
+        "ts": 1789696492038.2385
+      }
+    },
+    {
+      "recvAt": 1789696493845,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 3,
+          "seq": 45835,
+          "outcome": "success",
+          "input_tokens": 1207,
+          "output_tokens": 70,
+          "thinking": true,
+          "duration_ms": 1732.008695602417,
+          "stop_reason": "stop",
+          "timestamp": 1789696493.6079698
+        },
+        "ts": 1789696493844.3247
+      }
+    },
+    {
+      "recvAt": 1789696493846,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27726,
+          "round_index": 3,
+          "tool_name": "code_view",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 0.16129715368151665,
+          "timestamp": 1789696493.610662
+        },
+        "ts": 1789696493847.3926
+      }
+    },
+    {
+      "recvAt": 1789696501072,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 4,
+          "seq": 45836,
+          "outcome": "success",
+          "input_tokens": 1426,
+          "output_tokens": 327,
+          "thinking": true,
+          "duration_ms": 7372.81608581543,
+          "stop_reason": "stop",
+          "timestamp": 1789696500.9863148
+        },
+        "ts": 1789696501075.6697
+      }
+    },
+    {
+      "recvAt": 1789696501073,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27728,
+          "round_index": 4,
+          "tool_name": "code_str_replace",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 0.35537383519113064,
+          "timestamp": 1789696500.9908247
+        },
+        "ts": 1789696501077.595
+      }
+    },
+    {
+      "recvAt": 1789696503789,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 5,
+          "seq": 45838,
+          "outcome": "success",
+          "input_tokens": 1840,
+          "output_tokens": 91,
+          "thinking": true,
+          "duration_ms": 2578.979730606079,
+          "stop_reason": "stop",
+          "timestamp": 1789696503.5767927
+        },
+        "ts": 1789696503787.115
+      }
+    },
+    {
+      "recvAt": 1789696503792,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27730,
+          "round_index": 5,
+          "tool_name": "code_run",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 74.85851412639022,
+          "timestamp": 1789696503.6985126
+        },
+        "ts": 1789696503789.75
+      }
+    },
+    {
+      "recvAt": 1789696507703,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 6,
+          "seq": 45839,
+          "outcome": "success",
+          "input_tokens": 1952,
+          "output_tokens": 165,
+          "thinking": true,
+          "duration_ms": 3823.716163635254,
+          "stop_reason": "stop",
+          "timestamp": 1789696507.526099
+        },
+        "ts": 1789696507707.495
+      }
+    },
+    {
+      "recvAt": 1789696509209,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27732,
+          "round_index": 6,
+          "tool_name": "code_run",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 1604.7317979391664,
+          "timestamp": 1789696509.1615367
+        },
+        "ts": 1789696509214.8281
+      }
+    },
+    {
+      "recvAt": 1789696512220,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 7,
+          "seq": 45841,
+          "outcome": "success",
+          "input_tokens": 2193,
+          "output_tokens": 99,
+          "thinking": true,
+          "duration_ms": 2882.6067447662354,
+          "stop_reason": "stop",
+          "timestamp": 1789696512.049391
+        },
+        "ts": 1789696512225.3167
+      }
+    },
+    {
+      "recvAt": 1789696514028,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27734,
+          "round_index": 7,
+          "tool_name": "code_run",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 1702.9265000019222,
+          "timestamp": 1789696513.7966
+        },
+        "ts": 1789696514031.802
+      }
+    },
+    {
+      "recvAt": 1789696517052,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 8,
+          "seq": 45843,
+          "outcome": "success",
+          "input_tokens": 2442,
+          "output_tokens": 109,
+          "thinking": true,
+          "duration_ms": 3003.7612915039062,
+          "stop_reason": "stop",
+          "timestamp": 1789696516.8047233
+        },
+        "ts": 1789696517042.6133
+      }
+    },
+    {
+      "recvAt": 1789696517341,
+      "ev": {
+        "type": "coding_tool",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 27736,
+          "round_index": 8,
+          "tool_name": "code_run",
+          "success": true,
+          "error_type": null,
+          "latency_ms": 349.0766449831426,
+          "timestamp": 1789696517.156654
+        },
+        "ts": 1789696517346.0947
+      }
+    },
+    {
+      "recvAt": 1789696520051,
+      "ev": {
+        "type": "coding_round",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "round_index": 9,
+          "seq": 45844,
+          "outcome": "success",
+          "input_tokens": 2562,
+          "output_tokens": 113,
+          "thinking": true,
+          "duration_ms": 2704.059362411499,
+          "stop_reason": "stop",
+          "timestamp": 1789696519.8635867
+        },
+        "ts": 1789696520055.9126
+      }
+    },
+    {
+      "recvAt": 1789696520354,
+      "ev": {
+        "type": "coding_acceptance",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "seq": 45845,
+          "outcome": "success",
+          "exit_code": 0,
+          "timed_out": false,
+          "output_tail": ".                                                                        [100%]\n1 passed in 0.00s\n",
+          "timestamp": 1789696520.1981785
+        },
+        "ts": 1789696520359.6062
+      }
+    },
+    {
+      "recvAt": 1789696520784,
+      "ev": {
+        "type": "coding_complete",
+        "payload": {
+          "session_id": "coding:c941664a6",
+          "outcome": "success",
+          "task_status": "completed",
+          "exit_code": 0,
+          "error": null
+        },
+        "ts": 1789696520540.8188
+      }
+    },
+    {
+      "recvAt": 1789696520852,
+      "ev": {
+        "type": "task_completed",
+        "payload": {
+          "task_id": "a72ecb447",
+          "type": "local_agent",
+          "status": "completed",
+          "description": "coding task c941664a6: [Bug] Fix pending() — it returns completed items instead of open ones",
+          "return_code": 0,
+          "exit_code": 0,
+          "error": null,
+          "artifact_path": null,
+          "session_id": "coding:c941664a6",
+          "notify_target": null,
+          "on_complete": "notify",
+          "reengage_prompt": null,
+          "output_tail": "2026-09-17 21:54:44,393 prometheus.config.env_override INFO Applied env overrides: PROMETHEUS_TELEGRAM_TOKEN, ANTHROPIC_API_KEY, QWEN_API_KEY\n2026-09-17 21:54:51,874 prometheus.engine.agent_loop WARNING tool-call markup stripped to nothing — the extractor could not parse an envelope the stripper could delete. This is a PARSE DISAGREEMENT, not an empty model response. pre-strip text (truncated): '<tool_call>\\n<function=code_view>\\n<parameter=path>\\n/home/demo/.prometheus/coding/c941664a6-1789696484/test_app.py\\n</parameter>\\n</function>\\n</tool_call>'\n2026-09-17 21:55:00,996 prometheus.engine.agent_loop INFO Microcompacted 1 old tool results at turn 5 (--96 chars) — the prompt prefix changed, so any provider cache is invalidated from this round on\n2026-09-17 21:55:09,165 prometheus.engine.agent_loop INFO Microcompacted 1 old tool results at turn 7 (--76 chars) — the prompt prefix changed, so any provider cache is invalidated from this round on\n2026-09-17 21:55:13,799 prometheus.engine.agent_loop INFO Microcompacted 1 old tool results at turn 8 (--101 chars) — the prompt prefix changed, so any provider cache is invalidated from this round on\n2026-09-17 21:55:20,340 prometheus.coding.session INFO coding task c941664a6: success (acceptance command exited 0) — 9 rounds, 1 episodes, 36s\n{\n  \"task_id\": \"c941664a6\",\n  \"status\": \"success\",\n  \"reason\": \"acceptance command exited 0\",\n  \"rounds_used\": 9,\n  \"episodes\": 1,\n  \"wall_seconds\": 35.61045655584894,\n  \"acceptance_exit\": 0,\n  \"acceptance_output_tail\": \".                                                                        [100%]\\n1 passed in 0.00s\\n\",\n  \"branch\": \"coding/c941664a6\",\n  \"diff_stat\": \"__pycache__/app.cpython-311.pyc                   | Bin 0 -> 943 bytes\\n __pycache__/test_app.cpython-311-pytest-9.1.1.pyc | Bin 0 -> 1600 bytes\\n app.py                                            |   3 +--\\n 3 files changed, 1 insertion(+), 2 deletions(-)\",\n  \"model_usage_note\": \"per-round tokens + thinking flag are in telemetry.subsystem_runs (subsystem='agent_loop', session_id=coding:<task_id>)\",\n  \"sandbox_root\": \"/home/demo/.prometheus/coding/c941664a6-1789696484\"\n}\n"
+        },
+        "ts": 1789696520538.5469
+      }
+    }
+  ]
+}

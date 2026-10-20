@@ -1,0 +1,34 @@
+# THE PROBE BUILD: `npm run pack:mac:probe` → dist-probe/mac-arm64/Beacon.app
+#
+# The packaged probes (window-guard, terminal-packaged, terminal-app, browser-pane, cdp-harness)
+# attach over CDP (--remote-debugging-port) and the Node inspector (--inspect). A release build
+# refuses both (electron-builder.yml), so the probes drive this build instead. It is the release
+# config with the fewest changes that let a probe in:
+#
+#   beaconBuild: probe                  main honours --remote-debugging-port (src/shared/release-gate.ts)
+#   enableNodeCliInspectArguments: true the Node inspector fuse
+#
+# Every other fuse, the entitlements and the signing identity are inherited unchanged, so what a
+# probe proves about native modules, library validation and the asar holds for the release too.
+# probe:hardening checks that: same fuses but one, same entitlements, same Team ID.
+#
+# And it must never pass for Beacon. A probe build is debuggable and, on a machine with the
+# Developer ID, signed by it, so it gets its own bundle id and name: macOS keys Keychain item
+# access and microphone grants to the code-signing identifier, and Electron keys the profile
+# directory and the Keychain item to the package name. A probe build launched without
+# --user-data-dir opens ~/Library/Application Support/beacon-desktop-probe, never the real profile,
+# and cannot read the release build's Keychain item without asking. Its own output directory keeps
+# it out of install-local's reach (which reads dist/), and audit:bundle refuses its flag anyway.
+extends: electron-builder.yml
+
+appId: com.oaralabs.beacon.probe
+
+directories:
+  output: dist-probe
+
+extraMetadata:
+  name: beacon-desktop-probe
+  beaconBuild: probe
+
+electronFuses:
+  enableNodeCliInspectArguments: true

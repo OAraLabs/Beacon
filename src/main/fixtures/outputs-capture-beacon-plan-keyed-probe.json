@@ -1,0 +1,73 @@
+{
+  "_header": {
+    "captured": true,
+    "note": "CAPTURED VERBATIM from the live daemon, not written by hand. Re-capture; never hand-edit.",
+    "route": "GET /api/sessions/beacon:plan-keyed-probe/messages?since=0",
+    "date": "2026-09-18",
+    "produced_by": "the BC-7 dispatch that proved the Task-ID filename convention (Prometheus#509) — a real story dispatched from the Board, one write_file, no synthetic content",
+    "why_it_is_the_fixture": "it is a REAL conversation containing exactly one agent file write, so 'what did this conversation produce' has a known, non-invented answer: one path under loops/. A hand-written fixture would have had a tidy tool_use block; this one carries the daemon's actual shape, including the unicode-escaped content and the tool_result that follows.",
+    "sha256": "ab9bc0edf487fddc7cf5870eff09d5bad98ee8efd580ed82cca10f239d51bbd5",
+    "bytes": 4111
+  },
+  "payload": {
+    "messages": [
+      {
+        "message_id": 19559,
+        "ordinal": 0,
+        "session_id": "beacon:plan-keyed-probe",
+        "role": "user",
+        "content": "**Task: Roll out the checklist panel**\nDraft a short plan for rolling out the checklist panel — three or four steps, each with a one-line acceptance note — and save it for later so I can open it in Beacon.\n_Task ID: BC-7_",
+        "content_json": "[{\"type\": \"text\", \"text\": \"**Task: Roll out the checklist panel**\\nDraft a short plan for rolling out the checklist panel \\u2014 three or four steps, each with a one-line acceptance note \\u2014 and save it for later so I can open it in Beacon.\\n_Task ID: BC-7_\"}]",
+        "provenance": "user",
+        "is_trusted": true,
+        "timestamp": 1789764392.949704
+      },
+      {
+        "message_id": 19560,
+        "ordinal": 1,
+        "session_id": "beacon:plan-keyed-probe",
+        "role": "assistant",
+        "content": "",
+        "content_json": "[{\"type\": \"tool_use\", \"id\": \"EA19yyCY7zBnCFM1vPDtzHAl4e9m2P2u\", \"name\": \"write_file\", \"input\": {\"path\": \"/home/demo/.prometheus/documents/loops/BC-7-checklist-panel-rollout.md\", \"content\": \"# BC-7 \\u2014 Roll out the checklist panel\\n\\n- [ ] Ship the checklist panel UI in Beacon \\u2014 panel renders an empty state with no errors in dev.\\n- [ ] Wire the daemon wire frame for checklists (emit + promote in ws_server) \\u2014 a real checklist frame arrives on the WS and shows in the panel.\\n- [ ] Persist checklist state (side table, not a column on lcm_messages) \\u2014 state survives a session restart.\\n- [ ] Add smoke tests for both halves \\u2014 daemon emission test and Beacon render test both green on CI.\\n\"}}]",
+        "provenance": "user",
+        "is_trusted": false,
+        "timestamp": 1789764407.9083073
+      },
+      {
+        "message_id": 19561,
+        "ordinal": 2,
+        "session_id": "beacon:plan-keyed-probe",
+        "role": "user",
+        "content": "",
+        "content_json": "[{\"type\": \"tool_result\", \"tool_use_id\": \"EA19yyCY7zBnCFM1vPDtzHAl4e9m2P2u\", \"content\": \"Wrote /home/demo/.prometheus/documents/loops/BC-7-checklist-panel-rollout.md\", \"is_error\": false}]",
+        "provenance": "user",
+        "is_trusted": false,
+        "timestamp": 1789764407.9110987
+      },
+      {
+        "message_id": 19562,
+        "ordinal": 3,
+        "session_id": "beacon:plan-keyed-probe",
+        "role": "assistant",
+        "content": "Saved to `~/.prometheus/documents/loops/BC-7-checklist-panel-rollout.md` — opens in Beacon under task BC-7 as a live four-step checklist:\n\n1. Ship the panel UI — renders empty state, no errors\n2. Wire daemon checklist frame — real frame arrives on WS and renders\n3. Persist state (side table) — survives session restart\n4. Smoke tests both halves — green on CI\n\nSteps 2–3 mirror the #496 side-table reasoning (transport/wire data doesn't belong in lcm_messages) — adjust if the checklist is purely client-side state, in which case step 3 drops and 2 becomes \"render from session data\".",
+        "content_json": "[{\"type\": \"text\", \"text\": \"Saved to `~/.prometheus/documents/loops/BC-7-checklist-panel-rollout.md` \\u2014 opens in Beacon under task BC-7 as a live four-step checklist:\\n\\n1. Ship the panel UI \\u2014 renders empty state, no errors\\n2. Wire daemon checklist frame \\u2014 real frame arrives on WS and renders\\n3. Persist state (side table) \\u2014 survives session restart\\n4. Smoke tests both halves \\u2014 green on CI\\n\\nSteps 2\\u20133 mirror the #496 side-table reasoning (transport/wire data doesn't belong in lcm_messages) \\u2014 adjust if the checklist is purely client-side state, in which case step 3 drops and 2 becomes \\\"render from session data\\\".\"}]",
+        "provenance": "user",
+        "is_trusted": false,
+        "timestamp": 1789764407.912849
+      },
+      {
+        "message_id": 19563,
+        "ordinal": 4,
+        "session_id": "beacon:plan-keyed-probe",
+        "role": "user",
+        "content": "[FILE MUTATION VERIFIER]\nFiles touched this turn:\n   ✓ /home/demo/.prometheus/documents/loops/BC-7-checklist-panel-rollout.md — write_file: created (+503 bytes)",
+        "content_json": "[{\"type\": \"text\", \"text\": \"[FILE MUTATION VERIFIER]\\nFiles touched this turn:\\n   \\u2713 /home/demo/.prometheus/documents/loops/BC-7-checklist-panel-rollout.md \\u2014 write_file: created (+503 bytes)\"}]",
+        "provenance": "file_mutation_verifier",
+        "is_trusted": true,
+        "timestamp": 1789764407.914538
+      }
+    ],
+    "watermark": 19563,
+    "has_more": false
+  }
+}

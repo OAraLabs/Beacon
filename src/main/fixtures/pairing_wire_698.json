@@ -1,0 +1,843 @@
+{
+ "about": "Real exchanges recorded 2026-10-19 by scripts/record-pair-wire.mjs against the real Prometheus app (08ab945) served by uvicorn on ephemeral 127.0.0.1 ports over one temporary home: setup mode, no API token, pairing off, the daemon's own limits, the probes' limits, and a 60 s TTL. Tokens in it belong to those throwaway daemons and are dead. expected_unseal is what Python's cryptography got by unsealing R1's answer with the private key in pairing_seal_v1.json.",
+ "expected_unseal": {
+  "request_id": "33bb1110b67ffbc30e785b63a20e7b22",
+  "plaintext": {
+   "token": "UO37ynY3vSMQZFdDk_8BMdKUHPSou45buO1frIYTLhc",
+   "device_id": "1bb3221ab2cc4dd6a893c5ebe0dbafe7",
+   "name": "Alex's MacBook"
+  }
+ },
+ "exchanges": [
+  {
+   "name": "hello_configured",
+   "request": {
+    "method": "GET",
+    "path": "/api/hello",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "v": "0.1.0",
+     "name": "Wire Test Prometheus",
+     "agent": "Prometheus",
+     "fp": "0b53d5dd8ce352b0",
+     "pair": "approve",
+     "tls": false
+    }
+   }
+  },
+  {
+   "name": "setup_hello",
+   "request": {
+    "method": "GET",
+    "path": "/api/hello",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "v": "0.1.0",
+     "name": "Setup Mode Test Mac",
+     "agent": "Prometheus",
+     "fp": "0b53d5dd8ce352b0",
+     "pair": "code",
+     "tls": false
+    }
+   }
+  },
+  {
+   "name": "noauth_hello",
+   "request": {
+    "method": "GET",
+    "path": "/api/hello",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "v": "0.1.0",
+     "name": "Wire Test Prometheus",
+     "agent": "Prometheus",
+     "fp": "0b53d5dd8ce352b0",
+     "pair": "none",
+     "tls": false
+    }
+   }
+  },
+  {
+   "name": "disabled_hello",
+   "request": {
+    "method": "GET",
+    "path": "/api/hello",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "v": "0.1.0",
+     "name": "Wire Test Prometheus",
+     "agent": "Prometheus",
+     "fp": "0b53d5dd8ce352b0",
+     "pair": "token",
+     "tls": false
+    }
+   }
+  },
+  {
+   "name": "create_valid_vector_key",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Alex's MacBook",
+     "platform": "macos",
+     "public_key": "J2Y0ojoxG2DgICAmK2kk18gPErYp82tclQNSDwQm7CM"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "33bb1110b67ffbc30e785b63a20e7b22",
+     "poll_secret": "IkSOygrzf8Pm7eZ3KNoTlQOgfFjeN7j-26R5x5X1Tpg",
+     "match_code": "9239",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434395,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "poll_pending",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/33bb1110b67ffbc30e785b63a20e7b22",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "pending",
+     "expires_at": 1792434395,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "poll_immediately_again_too_fast",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/33bb1110b67ffbc30e785b63a20e7b22",
+    "body": null
+   },
+   "response": {
+    "status": 429,
+    "retry_after": "1",
+    "body": {
+     "error": "rate_limited",
+     "reason": "poll_too_fast",
+     "retry_after_seconds": 1
+    }
+   }
+  },
+  {
+   "name": "poll_wrong_secret",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/33bb1110b67ffbc30e785b63a20e7b22",
+    "body": null
+   },
+   "response": {
+    "status": 404,
+    "retry_after": null,
+    "body": {
+     "error": "unknown_request"
+    }
+   }
+  },
+  {
+   "name": "poll_R1_approved_vector_key",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/33bb1110b67ffbc30e785b63a20e7b22",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "approved",
+     "device_id": "1bb3221ab2cc4dd6a893c5ebe0dbafe7",
+     "sealed": {
+      "alg": "x25519-hkdf-sha256-chacha20poly1305",
+      "ephemeral_public_key": "H-uZxSjOBRpAK30qWPWPewwxEyTOzxyRzNa9tEs0_Ug",
+      "nonce": "PCuETKrqToH3VlXw",
+      "ciphertext": "LnWsjGq-zYq6Bv7ySByYyI03VT-JB4WGc3QbkE344Oy4TmUx2TYwQ3QZ4ZLu8iKFusBfIa0_PdlurFcZUku33bIE3ahMCplrtOwgeZmf2psbYeGjOvusoePw9yMvcm49XqH9NTdAie0ZpcQ6r5BIu3Zh2F6Gdr71-AJW3_cWod_dqPKqcgn0SYPVYnfsmw"
+     },
+     "endpoints": {
+      "rest": "http://127.0.0.1:55671",
+      "ws": "ws://127.0.0.1:8010"
+     },
+     "tls": null,
+     "approved_at": 1792434096
+    }
+   }
+  },
+  {
+   "name": "poll_Rd_denied",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/677dfd7b70d2b65921d5317503c9caa4",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "denied"
+    }
+   }
+  },
+  {
+   "name": "poll_after_cancel",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/eb8e06fde7c812337b3910de3971ba89",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "canceled"
+    }
+   }
+  },
+  {
+   "name": "ra_poll_after_second_delete",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/2eaf2242e3fb6b5b70d0cfd90248ec0f",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "delivered"
+    }
+   }
+  },
+  {
+   "name": "slow_poll_A_after_ttl",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/f9c185e6da942d9f8067c3f2a1345de9",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "expired"
+    }
+   }
+  },
+  {
+   "name": "slow_poll_B_after_revoke",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/c9b34b3e9e4fa176f0190649838a8353",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "expired"
+    }
+   }
+  },
+  {
+   "name": "limits_second_same_source_per_source_pending",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "B second",
+     "platform": "macos",
+     "public_key": "ffk4NKccdDedh3hm0OBwz2DIXOGiK7AydnG7wLSqLXg"
+    }
+   },
+   "response": {
+    "status": 429,
+    "retry_after": "300",
+    "body": {
+     "error": "rate_limited",
+     "reason": "per_source_pending",
+     "retry_after_seconds": 300
+    }
+   }
+  },
+  {
+   "name": "limits_fourth_pending_full",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "B fourth",
+     "platform": "macos",
+     "public_key": "NTOcclAfy-5rkmkMrz7aHoSdNXeWH-ZvkugSDazoq2A"
+    }
+   },
+   "response": {
+    "status": 429,
+    "retry_after": "300",
+    "body": {
+     "error": "rate_limited",
+     "reason": "pending_full",
+     "retry_after_seconds": 300
+    }
+   }
+  },
+  {
+   "name": "limits_hourly_11th_refused",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "hourly 11",
+     "platform": "macos",
+     "public_key": "Mff29vcf1c9bk93BwJDFCfJCpzBcS_Bh5C-zWhNtEVs"
+    }
+   },
+   "response": {
+    "status": 429,
+    "retry_after": "3600",
+    "body": {
+     "error": "rate_limited",
+     "reason": "hourly",
+     "retry_after_seconds": 3600
+    }
+   }
+  },
+  {
+   "name": "limits_sixth_poll_wrong_secret_locked_out",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/3273a2d7a8ab7b32aa067002c2551ad0",
+    "body": null
+   },
+   "response": {
+    "status": 429,
+    "retry_after": "55",
+    "body": {
+     "error": "rate_limited",
+     "reason": "bad_secret",
+     "retry_after_seconds": 55
+    }
+   }
+  },
+  {
+   "name": "limits_poll_correct_secret_after_lockout",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/3273a2d7a8ab7b32aa067002c2551ad0",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "pending",
+     "expires_at": 1792434388,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "disabled_create",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "x",
+     "platform": "ios",
+     "public_key": "M10b0yy3d8XXSGNb7BJx_26Z74Dj9nBEHeKhMcpfbV8"
+    }
+   },
+   "response": {
+    "status": 403,
+    "retry_after": null,
+    "body": {
+     "error": "pairing_unavailable",
+     "detail": "this daemon is not offering to pair new devices"
+    }
+   }
+  },
+  {
+   "name": "noauth_create",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "x",
+     "platform": "ios",
+     "public_key": "47eId9Ea1UV20EhUnOI1hTk0Ciy-CIBSQFpP2ZyhSzg"
+    }
+   },
+   "response": {
+    "status": 403,
+    "retry_after": null,
+    "body": {
+     "error": "pairing_unavailable",
+     "detail": "this daemon is not offering to pair new devices"
+    }
+   }
+  },
+  {
+   "name": "setup_create",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "x",
+     "platform": "ios",
+     "public_key": "F9Z4sWEJcM-0RpBoix74J_Cot1Bhvopg7_KNRi1HAxU"
+    }
+   },
+   "response": {
+    "status": 403,
+    "retry_after": null,
+    "body": {
+     "error": "pairing_unavailable",
+     "detail": "this daemon is in setup mode: pair with the six-digit code, or finish setup first"
+    }
+   }
+  },
+  {
+   "name": "setup_poll",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "body": null
+   },
+   "response": {
+    "status": 403,
+    "retry_after": null,
+    "body": {
+     "error": "setup_mode",
+     "detail": "the daemon is in setup mode — only /api/setup/* is available. Finish `oara setup` on the host, then restart `oara daemon`."
+    }
+   }
+  },
+  {
+   "name": "create_missing_device_name",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "platform": "macos",
+     "public_key": "GfPzD62JD4iPOLg3Mx7NDJ5Opy7YwrAo9SYLfJfvtSw"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "device_name"
+     ]
+    }
+   }
+  },
+  {
+   "name": "create_missing_public_key",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Alex's MacBook",
+     "platform": "macos"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "public_key"
+     ]
+    }
+   }
+  },
+  {
+   "name": "hello_post_not_public",
+   "request": {
+    "method": "POST",
+    "path": "/api/hello",
+    "body": null
+   },
+   "response": {
+    "status": 401,
+    "retry_after": null,
+    "body": {
+     "error": "unauthorized — set Authorization: Bearer <token>"
+    }
+   }
+  },
+  {
+   "name": "poll_Re_approved_host_lan_ip",
+   "request": {
+    "method": "GET",
+    "path": "/api/pair/requests/0642d79805dc95e826843c7d03dc031c",
+    "body": null
+   },
+   "response": {
+    "status": 200,
+    "retry_after": null,
+    "body": {
+     "status": "approved",
+     "device_id": "26c3c9b5a53b4a2f99aa1abe2a100d7a",
+     "sealed": {
+      "alg": "x25519-hkdf-sha256-chacha20poly1305",
+      "ephemeral_public_key": "IHLWopy-ka9iqeGTeAV8Hr6lYMpMxD4KwBL6Piubk1c",
+      "nonce": "Lk1dddDqfc61qVPe",
+      "ciphertext": "D_xEHOxX80K5nZY4BXUcAMnXv9sBd78g1SAIhqyBycrAlNXjUcNLfWLeBEako2zSN9rP0LMhWvzGrvQnmw4_RA0CryrFU7ywDeY0ds9jQ2No28VbfeOcMdItUauRU7xc-_2-PEgVyAy4FFSsgVCaXzAxxaFkDmKveU6BLKJDZRai0U8s9iTYUenlGek"
+     },
+     "endpoints": {
+      "rest": "http://192.168.1.20:8005",
+      "ws": "ws://192.168.1.20:8010"
+     },
+     "tls": null,
+     "approved_at": 1792434099
+    }
+   }
+  },
+  {
+   "name": "create_name_with_newline",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Al\nex",
+     "platform": "macos",
+     "public_key": "MyVfvTboLu6D9eqFBPgapx-BPMU7H9VD06othQZKGHs"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "device_name"
+     ]
+    }
+   }
+  },
+  {
+   "name": "create_name_with_tab",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Mac\tbook",
+     "platform": "macos",
+     "public_key": "uW9vTZljex6SBsE-qc0ifdujSXMU07mDjonvoVBbNBI"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "device_name"
+     ]
+    }
+   }
+  },
+  {
+   "name": "create_name_with_rtl_override",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "evil‮gnp.exe",
+     "platform": "macos",
+     "public_key": "SZK2i5cvTE-4p2cZgZbpBeE9p9_eAfDv9kJbaPw_tkg"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "device_name"
+     ]
+    }
+   }
+  },
+  {
+   "name": "create_name_65_ascii",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "platform": "macos",
+     "public_key": "Q44OCki3uIhWXxTFUHRYL3LU8j-fgsmeW2ouwLiVp2A"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "device_name"
+     ]
+    }
+   }
+  },
+  {
+   "name": "create_name_64cp_with_emoji",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "😀aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "platform": "macos",
+     "public_key": "YTol1e6cKxNHB4Jag_V_hc2AUZGvY99UJwovjL5kzFI"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "eb8e06fde7c812337b3910de3971ba89",
+     "poll_secret": "6uo0gL30Dqx53vI-amhRRRwEGRM6s1sDVhQHLTavHh0",
+     "match_code": "3579",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434399,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "create_name_65cp_with_emoji",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "😀aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "platform": "macos",
+     "public_key": "zKJygiI0O_H1OuQuo4Z_t_b2Td0lEXqL_07rxSsXlk8"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "device_name"
+     ]
+    }
+   }
+  },
+  {
+   "name": "create_name_64_emoji",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+     "platform": "macos",
+     "public_key": "0Z3L34rVCqtpYqkO2JNjqv3O3JN6SCtCdlbvir-I5gY"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "8e38f287898c9c95f254c3c4ac8c7405",
+     "poll_secret": "YWlLH1i6bL4_zZrH9CzhezSEz9PfecobLZiqC5YuDsU",
+     "match_code": "7939",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434399,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "create_name_32_emoji",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+     "platform": "macos",
+     "public_key": "m2eCEPJBLKkARhvMIw-wpDJMTlb1kcN8dJLeW0EGMSo"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "23cd4430564da73cb528f7e191dc305a",
+     "poll_secret": "709vrDbNkUFsGHCJ7_DBxNgmpPVqHQKMdRWbCNDNdH8",
+     "match_code": "4223",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434399,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "create_name_zwj_emoji_family",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "👨‍👩‍👧",
+     "platform": "macos",
+     "public_key": "U1Lr7B2-4kxH2hlsghBd8_NTv4AXzztQ3SG9_371kXc"
+    }
+   },
+   "response": {
+    "status": 400,
+    "retry_after": null,
+    "body": {
+     "error": "invalid_request",
+     "fields": [
+      "device_name"
+     ]
+    }
+   }
+  },
+  {
+   "name": "create_name_variation_selector",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Alex ❤️",
+     "platform": "macos",
+     "public_key": "FOCtoCfY5N4nKazOTKtOdqNN92zb9p1Oq3cJSXVZ4Ug"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "b9598a13e2090919777703f9683b67b2",
+     "poll_secret": "1pYdbpympBm6jpQGAtNzTqKmv2uJPwOTgpF0uamTtC4",
+     "match_code": "9989",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434399,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "create_name_trailing_newline",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Padded Name\n",
+     "platform": "macos",
+     "public_key": "r6szKmWMwsvdnytbqXtweY2zWeP9f-EZVqVaGGQiDH8"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "6cefa39e00a1a6f682095ab85830f517",
+     "poll_secret": "xpPORxbhq90h7KNFvQsgyKmcDcxPUb_MWxDn1VxEKHg",
+     "match_code": "5712",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434399,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "create_name_nbsp_inside",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Al ex",
+     "platform": "macos",
+     "public_key": "_pIAMOykeA0LsOo15-BbGqkQ102GpwWbI_gWMdC7mFs"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "a83d7d556fa4bac6d8419cbc5d229061",
+     "poll_secret": "79wMNzgiiU_mQcI0Yw0Z1CtB3oLIybakZtaYEVLjTj4",
+     "match_code": "0528",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434399,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  },
+  {
+   "name": "create_name_curly_apostrophe_accents",
+   "request": {
+    "method": "POST",
+    "path": "/api/pair/requests",
+    "body": {
+     "device_name": "Alex’s Mac éè ü 日本",
+     "platform": "macos",
+     "public_key": "TnAqGBW4z-1Xte9eiL6xtzQm_hfiExOpMG27Q7C0pks"
+    }
+   },
+   "response": {
+    "status": 201,
+    "retry_after": null,
+    "body": {
+     "request_id": "9dd0479645b8713e26650e30830e5738",
+     "poll_secret": "rB2XgB0J2lO9nNx8S7fkh5T63Q2NMjk_lkB_NmhKh20",
+     "match_code": "3680",
+     "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEa4H9d5PEf-SSBXJCE8WwY0oEMB2mCSjbHZda5-tLAUJXDwEs8U_wAX4dRjvkym6XthdankaQv5h6PA6enYlAiQ",
+     "expires_at": 1792434399,
+     "ttl_seconds": 300,
+     "poll_interval_seconds": 2,
+     "notified": false
+    }
+   }
+  }
+ ]
+}

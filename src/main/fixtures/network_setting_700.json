@@ -1,0 +1,232 @@
+{
+  "recorded": "2026-10-11",
+  "network": {
+    "src": "Prometheus main d7af9e7 (#700 and #724 merged)",
+    "get_this_mac": {
+      "status": 200,
+      "json": {
+        "mode": "this_mac",
+        "bind": "127.0.0.1",
+        "bind_source": "config",
+        "tls": {
+          "enabled": false,
+          "spki_sha256": null
+        },
+        "advertising": false,
+        "advertising_reason": {
+          "code": "this_mac_only",
+          "message": "not advertising: the daemon listens on this machine only"
+        },
+        "applied": "live",
+        "warnings": [],
+        "can_change": true
+      }
+    },
+    "put_home_network": {
+      "status": 200,
+      "json": {
+        "mode": "home_network",
+        "bind": "0.0.0.0",
+        "bind_source": "config",
+        "tls": {
+          "enabled": false,
+          "spki_sha256": null
+        },
+        "advertising": false,
+        "advertising_reason": {
+          "code": "this_mac_only",
+          "message": "not advertising: the daemon listens on this machine only"
+        },
+        "applied": "on_restart",
+        "warnings": [
+          {
+            "code": "restart_required",
+            "message": "Saved. This takes effect when the daemon restarts; until then it is still this_mac on 127.0.0.1."
+          }
+        ],
+        "can_change": true
+      }
+    },
+    "get_pending": {
+      "status": 200,
+      "json": {
+        "mode": "this_mac",
+        "bind": "127.0.0.1",
+        "bind_source": "config",
+        "tls": {
+          "enabled": false,
+          "spki_sha256": null
+        },
+        "advertising": false,
+        "advertising_reason": {
+          "code": "this_mac_only",
+          "message": "not advertising: the daemon listens on this machine only"
+        },
+        "applied": "on_restart",
+        "warnings": [
+          {
+            "code": "restart_required",
+            "message": "A saved change is waiting for a restart: the daemon will come back as home_network on 0.0.0.0."
+          }
+        ],
+        "can_change": true,
+        "pending_mode": "home_network"
+      }
+    },
+    "put_this_mac_back": {
+      "status": 200,
+      "json": {
+        "mode": "this_mac",
+        "bind": "127.0.0.1",
+        "bind_source": "config",
+        "tls": {
+          "enabled": false,
+          "spki_sha256": null
+        },
+        "advertising": false,
+        "advertising_reason": {
+          "code": "this_mac_only",
+          "message": "not advertising: the daemon listens on this machine only"
+        },
+        "applied": "live",
+        "warnings": [],
+        "can_change": true
+      }
+    },
+    "get_after_back": {
+      "status": 200,
+      "json": {
+        "mode": "this_mac",
+        "bind": "127.0.0.1",
+        "bind_source": "config",
+        "tls": {
+          "enabled": false,
+          "spki_sha256": null
+        },
+        "advertising": false,
+        "advertising_reason": {
+          "code": "this_mac_only",
+          "message": "not advertising: the daemon listens on this machine only"
+        },
+        "applied": "live",
+        "warnings": [],
+        "can_change": true
+      }
+    },
+    "put_open": {
+      "status": 400,
+      "json": {
+        "error": "invalid_request",
+        "detail": "send {\"mode\": \"this_mac\"} or {\"mode\": \"home_network\"}, and nothing else"
+      }
+    },
+    "put_extra_key": {
+      "status": 400,
+      "json": {
+        "error": "invalid_request",
+        "detail": "send {\"mode\": \"this_mac\"} or {\"mode\": \"home_network\"}, and nothing else"
+      }
+    },
+    "get_no_token": {
+      "status": 401,
+      "json": {
+        "error": "unauthorized — set Authorization: Bearer <token>"
+      }
+    },
+    "get_scoped_device": {
+      "status": 403,
+      "json": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    "put_scoped_device": {
+      "status": 403,
+      "json": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    "restart_without_route": {
+      "status": 405,
+      "json": {
+        "detail": "Method Not Allowed"
+      },
+      "src": "Prometheus main 76134d6 (before #724)"
+    }
+  },
+  "restart": {
+    "src": "Prometheus main d7af9e7 (#700 and #724 merged)",
+    "network_before": {
+      "status": 200,
+      "json": {
+        "mode": "this_mac",
+        "bind": "127.0.0.1",
+        "bind_source": "config",
+        "tls": {
+          "enabled": false,
+          "spki_sha256": null
+        },
+        "advertising": false,
+        "advertising_reason": {
+          "code": "this_mac_only",
+          "message": "not advertising: the daemon listens on this machine only"
+        },
+        "applied": "live",
+        "warnings": [],
+        "can_change": true
+      }
+    },
+    "with_origin": {
+      "status": 400,
+      "json": {
+        "error": "browser_not_allowed",
+        "detail": "a restart is not accepted from a web page (the request carried an Origin header)"
+      }
+    },
+    "scoped_device": {
+      "status": 403,
+      "json": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    "no_token": {
+      "status": 401,
+      "json": {
+        "error": "unauthorized — set Authorization: Bearer <token>"
+      }
+    },
+    "operator": {
+      "status": 202,
+      "json": {
+        "restarting": true
+      }
+    },
+    "went_away": true,
+    "back_ms": 1000,
+    "back_same_fp": true,
+    "same_process": true,
+    "master_still_works": 200,
+    "network_after": {
+      "status": 200,
+      "json": {
+        "mode": "this_mac",
+        "bind": "127.0.0.1",
+        "bind_source": "config",
+        "tls": {
+          "enabled": false,
+          "spki_sha256": null
+        },
+        "advertising": false,
+        "advertising_reason": {
+          "code": "this_mac_only",
+          "message": "not advertising: the daemon listens on this machine only"
+        },
+        "applied": "live",
+        "warnings": [],
+        "can_change": true
+      }
+    }
+  }
+}

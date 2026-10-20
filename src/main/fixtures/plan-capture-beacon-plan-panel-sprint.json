@@ -1,0 +1,16 @@
+{
+  "_header": {
+    "captured": true,
+    "note": "CAPTURED VERBATIM from a live agent turn, not written by hand. DO NOT re-capture from the path below and DO NOT hand-edit — see superseded_on_host: that file no longer holds these bytes, so a re-capture would silently swap the untickable fixture for a checkbox one and gut the middle-state test this file exists to hold.",
+    "file": "~/.prometheus/documents/loops/beacon-plan-panel-sprint.md on the daemon host",
+    "date": "2026-09-18",
+    "produced_by": "one natural chat turn in session beacon:plan-probe-*, naming neither the tool nor the path",
+    "request": "Draft a short sprint plan for the Beacon plan-panel work — three or four steps, each with a one-line acceptance note — and save it for later so I can open it in Beacon.",
+    "tool_observed": "write_file (telemetry tool_calls: success=1, zero failed calls that turn)",
+    "why_it_is_the_fixture": "it is the FIRST real plan produced under the documents instruction, and it has ZERO GFM checkboxes — four numbered steps. parseTasks reports 0/0 on it. That is the untickable state, and a hand-written fixture would not have had it.",
+    "sha256": "440d0020a18f07306aecd75c9c7e2db0cacd3d821e73938e6ea94449bca4e164",
+    "bytes": 1091,
+    "superseded_on_host": "2026-09-18, after Prometheus#508 deployed: re-issuing the SAME request verbatim made the agent OVERWRITE this exact path with a GFM-checkbox plan (1091 B -> 1055 B, 0 checkbox lines -> 4). The zero-checkbox bytes recorded here are now the only surviving copy. The overwrite is itself the evidence that the prompt change works; this fixture is the evidence of what it replaced, and the two are only meaningful together."
+  },
+  "content": "# Beacon — Plan Panel Sprint\n\nScope: surface the agent's plan in a dedicated panel so a multi-step run is visible\nwhile it executes, not only as streamed tool chatter.\n\n## Steps\n\n1. **Wire the plan data path**\n   Acceptance: a plan emitted by the agent shows up in the panel within one WS\n   round-trip, with each step addressed by a stable id (not by index).\n\n2. **Render the panel**\n   Acceptance: steps render with status (pending / in-progress / done / failed),\n   update live as progress frames arrive, and an empty plan renders as empty\n   rather than a phantom first step.\n\n3. **Step navigation / focus**\n   Acceptance: clicking a step pins its output, and the panel auto-scrolls to the\n   active step only while the user isn't reading elsewhere.\n\n4. **Polish + verification pass**\n   Acceptance: `npm run verify` is green and a live end-to-end run shows the panel\n   tracking a real multi-step task from first plan frame to completion.\n\n## Notes\n\n- Reuse the existing WS frame pipeline — no new transport.\n- Keep the panel a read-only view; no step-level actions in this sprint.\n"
+}

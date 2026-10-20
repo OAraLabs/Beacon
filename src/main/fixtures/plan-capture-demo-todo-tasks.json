@@ -1,0 +1,12 @@
+{
+  "_header": {
+    "captured": true,
+    "note": "CAPTURED VERBATIM. Re-capture; never hand-edit.",
+    "file": "/home/demo/projects/demo-todo-app/TASKS.md on the daemon host",
+    "date": "2026-09-18",
+    "why_it_is_the_fixture": "a REAL checklist with real GFM task lines and leading [Tag] markers — the checklist state from a real payload rather than an invented one. Note the tags LEAD the text here, which parseTasks reads as part of the task text (its TAG_RE only strips a TRAILING tag).",
+    "sha256": "54afa0a1df6517713aa1af2cadf28f88295930035d1c9c86a36a60823d7297bb",
+    "bytes": 209
+  },
+  "content": "# Tasks\n\n- [x] [Core] Scaffold the todo module\n- [ ] [Bug] Fix pending() — it returns completed items instead of open ones\n- [ ] [Feature] Add a clear_completed() helper\n- [ ] [Docs] Write module docstrings\n"
+}

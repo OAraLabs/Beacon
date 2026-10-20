@@ -1,0 +1,66 @@
+{
+ "about": "How a real Prometheus daemon (#699, feat/pairing-channels 9f16284) reports `notified` on the pending poll, recorded 2026-10-08 by scripts/record-poll-notified.mjs against the real app on an ephemeral 127.0.0.1 port with a temporary home.",
+ "steps": [
+  {
+   "step": "create, no owner connected",
+   "status": 201,
+   "body": {
+    "notified": false,
+    "expires_at": 1791594373
+   }
+  },
+  {
+   "step": "poll: still nobody",
+   "status": 200,
+   "body": {
+    "status": "pending",
+    "expires_at": 1791594373,
+    "notified": false
+   }
+  },
+  {
+   "step": "poll: an owner connected after the request was made",
+   "status": 200,
+   "body": {
+    "status": "pending",
+    "expires_at": 1791594373,
+    "notified": true
+   }
+  },
+  {
+   "step": "poll: that owner has disconnected again",
+   "status": 200,
+   "body": {
+    "status": "pending",
+    "expires_at": 1791594373,
+    "notified": false
+   }
+  },
+  {
+   "step": "create, an owner connected",
+   "status": 201,
+   "body": {
+    "notified": true,
+    "expires_at": 1791594377
+   }
+  },
+  {
+   "step": "poll: owner still connected",
+   "status": 200,
+   "body": {
+    "status": "pending",
+    "expires_at": 1791594377,
+    "notified": true
+   }
+  },
+  {
+   "step": "poll: the owner who was told at creation has disconnected",
+   "status": 200,
+   "body": {
+    "status": "pending",
+    "expires_at": 1791594377,
+    "notified": true
+   }
+  }
+ ]
+}

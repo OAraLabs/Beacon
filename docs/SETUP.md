@@ -1,6 +1,6 @@
 # Setting up Beacon
 
-This page covers connecting Beacon to a Prometheus daemon in detail, how updates work, and what the common messages mean. For the short version, see the [README](../README.md#connect-in-3-steps).
+This page covers connecting Beacon to a Prometheus daemon in detail, how updates work, and what the common messages mean. For the short version, see the [README](../README.md#connection-setup).
 
 ## Before you start
 

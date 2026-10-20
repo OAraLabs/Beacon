@@ -1,0 +1,335 @@
+{
+ "about": "Pairing frames recorded 2026-10-08 from the REAL Prometheus app (#699, feat/pairing-channels 9f16284) over its real WebSocket bridge on an ephemeral 127.0.0.1 port with a temporary home, by scripts/record-pairing-frames.mjs. Tokens belong to throwaway daemons. recvAtMs is this machine's clock when the frame arrived; every frame's own `timestamp` is the daemon's clock at sending.",
+ "requests": {
+  "r1": "6a7bab85d4df682ba9a4d2e80a6ef9b2",
+  "r2": "15de8eb45bcf28bad69bc9960dc02e9d",
+  "r3": "c3510f8307ef0ada661d31051dcc5fd3",
+  "r4": "c5ac2d714e0c29051d66011c0f68f502",
+  "r5": "3fd0541f65e8b117fd0b7e188f280f9b"
+ },
+ "created": [
+  {
+   "notified": true,
+   "expires_at": 1791595953,
+   "ttl_seconds": 300
+  },
+  {
+   "notified": true,
+   "expires_at": 1791595954,
+   "ttl_seconds": 300
+  },
+  {
+   "notified": true,
+   "expires_at": 1791595955,
+   "ttl_seconds": 300
+  }
+ ],
+ "sockets": {
+  "ownerA": {
+   "framesBeforeAnyRequest": 0,
+   "frames": [
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595653.074104,
+     "payload": {
+      "request_id": "6a7bab85d4df682ba9a4d2e80a6ef9b2",
+      "device_name": "Alpha Laptop",
+      "platform": "windows",
+      "source_ip": "127.0.0.1",
+      "match_code": "0340",
+      "created_at": 1791595653,
+      "expires_at": 1791595953,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595653079
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595654.185416,
+     "payload": {
+      "request_id": "15de8eb45bcf28bad69bc9960dc02e9d",
+      "device_name": "Beta Phone",
+      "platform": "ios",
+      "source_ip": "127.0.0.1",
+      "match_code": "3094",
+      "created_at": 1791595654,
+      "expires_at": 1791595954,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595654187
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595655.294131,
+     "payload": {
+      "request_id": "c3510f8307ef0ada661d31051dcc5fd3",
+      "device_name": "Gamma Tablet",
+      "platform": "android",
+      "source_ip": "127.0.0.1",
+      "match_code": "6516",
+      "created_at": 1791595655,
+      "expires_at": 1791595955,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595655295
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595657.8108978,
+     "payload": {
+      "request_id": "6daa3f110a91edf391b98666a3ebb8bb",
+      "device_name": "Scoped Phone",
+      "platform": "ios",
+      "source_ip": "127.0.0.1",
+      "match_code": "0104",
+      "created_at": 1791595657,
+      "expires_at": 1791595957,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595657814
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595657.821148,
+     "payload": {
+      "request_id": "6daa3f110a91edf391b98666a3ebb8bb",
+      "resolution": "approved",
+      "by": "beacon",
+      "resolved_at": 1791595657
+     },
+     "recvAtMs": 1791595657822
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595658.742885,
+     "payload": {
+      "request_id": "c5ac2d714e0c29051d66011c0f68f502",
+      "device_name": "Delta Desktop",
+      "platform": "macos",
+      "source_ip": "127.0.0.1",
+      "match_code": "4619",
+      "created_at": 1791595658,
+      "expires_at": 1791595958,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595658743
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.552896,
+     "payload": {
+      "request_id": "6a7bab85d4df682ba9a4d2e80a6ef9b2",
+      "resolution": "approved",
+      "by": "beacon",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659553
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.557316,
+     "payload": {
+      "request_id": "15de8eb45bcf28bad69bc9960dc02e9d",
+      "resolution": "denied",
+      "by": "beacon",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659557
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.5597801,
+     "payload": {
+      "request_id": "c3510f8307ef0ada661d31051dcc5fd3",
+      "resolution": "canceled",
+      "by": "requester",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659560
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.565112,
+     "payload": {
+      "request_id": "c5ac2d714e0c29051d66011c0f68f502",
+      "resolution": "approved",
+      "by": "cli",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659565
+    }
+   ]
+  },
+  "ownerBLate": {
+   "frames": [
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595656.902678,
+     "payload": {
+      "request_id": "6a7bab85d4df682ba9a4d2e80a6ef9b2",
+      "device_name": "Alpha Laptop",
+      "platform": "windows",
+      "source_ip": "127.0.0.1",
+      "match_code": "0340",
+      "created_at": 1791595653,
+      "expires_at": 1791595953,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595656903
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595656.902758,
+     "payload": {
+      "request_id": "15de8eb45bcf28bad69bc9960dc02e9d",
+      "device_name": "Beta Phone",
+      "platform": "ios",
+      "source_ip": "127.0.0.1",
+      "match_code": "3094",
+      "created_at": 1791595654,
+      "expires_at": 1791595954,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595656903
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595656.902807,
+     "payload": {
+      "request_id": "c3510f8307ef0ada661d31051dcc5fd3",
+      "device_name": "Gamma Tablet",
+      "platform": "android",
+      "source_ip": "127.0.0.1",
+      "match_code": "6516",
+      "created_at": 1791595655,
+      "expires_at": 1791595955,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595656903
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595657.8108978,
+     "payload": {
+      "request_id": "6daa3f110a91edf391b98666a3ebb8bb",
+      "device_name": "Scoped Phone",
+      "platform": "ios",
+      "source_ip": "127.0.0.1",
+      "match_code": "0104",
+      "created_at": 1791595657,
+      "expires_at": 1791595957,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595657814
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595657.821148,
+     "payload": {
+      "request_id": "6daa3f110a91edf391b98666a3ebb8bb",
+      "resolution": "approved",
+      "by": "beacon",
+      "resolved_at": 1791595657
+     },
+     "recvAtMs": 1791595657822
+    },
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595658.742885,
+     "payload": {
+      "request_id": "c5ac2d714e0c29051d66011c0f68f502",
+      "device_name": "Delta Desktop",
+      "platform": "macos",
+      "source_ip": "127.0.0.1",
+      "match_code": "4619",
+      "created_at": 1791595658,
+      "expires_at": 1791595958,
+      "ttl_seconds": 300
+     },
+     "recvAtMs": 1791595658743
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.552896,
+     "payload": {
+      "request_id": "6a7bab85d4df682ba9a4d2e80a6ef9b2",
+      "resolution": "approved",
+      "by": "beacon",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659553
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.557316,
+     "payload": {
+      "request_id": "15de8eb45bcf28bad69bc9960dc02e9d",
+      "resolution": "denied",
+      "by": "beacon",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659557
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.5597801,
+     "payload": {
+      "request_id": "c3510f8307ef0ada661d31051dcc5fd3",
+      "resolution": "canceled",
+      "by": "requester",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659560
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595659.565112,
+     "payload": {
+      "request_id": "c5ac2d714e0c29051d66011c0f68f502",
+      "resolution": "approved",
+      "by": "cli",
+      "resolved_at": 1791595659
+     },
+     "recvAtMs": 1791595659565
+    }
+   ]
+  },
+  "scoped": {
+   "allTypes": [
+    "connected"
+   ],
+   "pairing": []
+  },
+  "ownerC": {
+   "frames": [
+    {
+     "type": "pairing_pending",
+     "timestamp": 1791595661.493981,
+     "payload": {
+      "request_id": "3fd0541f65e8b117fd0b7e188f280f9b",
+      "device_name": "Epsilon Watch",
+      "platform": "other",
+      "source_ip": "127.0.0.1",
+      "match_code": "7570",
+      "created_at": 1791595661,
+      "expires_at": 1791595721,
+      "ttl_seconds": 60
+     },
+     "recvAtMs": 1791595661494
+    },
+    {
+     "type": "pairing_resolved",
+     "timestamp": 1791595751.3524969,
+     "payload": {
+      "request_id": "3fd0541f65e8b117fd0b7e188f280f9b",
+      "resolution": "expired",
+      "by": "system",
+      "resolved_at": 1791595751
+     },
+     "recvAtMs": 1791595751353
+    }
+   ],
+   "requestId": "3fd0541f65e8b117fd0b7e188f280f9b"
+  }
+ }
+}

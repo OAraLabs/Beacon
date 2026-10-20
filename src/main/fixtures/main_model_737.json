@@ -1,0 +1,855 @@
+{
+  "recorded": "2026-10-12",
+  "daemon": "Prometheus main with #737 and #744 (70a52f7), configured for Anthropic, scratch home, stand-in provider",
+  "get_configured": {
+    "status": 200,
+    "json": {
+      "running": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "kind": "cloud"
+      },
+      "saved": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "kind": "cloud"
+      },
+      "pending": false,
+      "applied": "live",
+      "key": {
+        "env": "ANTHROPIC_API_KEY",
+        "present": true
+      },
+      "providers": [
+        {
+          "provider": "anthropic",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "default_model": "claude-sonnet-5",
+          "key_present": true,
+          "checkable": true
+        },
+        {
+          "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY",
+          "default_model": "gpt-5.6-luna",
+          "key_present": false,
+          "checkable": true
+        },
+        {
+          "provider": "deepseek",
+          "api_key_env": "DEEPSEEK_API_KEY",
+          "default_model": "deepseek-flash",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "kimi",
+          "api_key_env": "MOONSHOT_API_KEY",
+          "default_model": "kimi-k2.6",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "glm",
+          "api_key_env": "ZAI_API_KEY",
+          "default_model": "glm-5.3",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "mimo",
+          "api_key_env": "MIMO_API_KEY",
+          "default_model": "mimo-v2.6-pro",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "qwen",
+          "api_key_env": "QWEN_API_KEY",
+          "default_model": "qwen3.8-max",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "default_model": "anthropic/claude-sonnet-5",
+          "key_present": false,
+          "checkable": true
+        },
+        {
+          "provider": "gemini",
+          "api_key_env": "GEMINI_API_KEY",
+          "default_model": "gemini-2.5-flash",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "xai",
+          "api_key_env": "XAI_API_KEY",
+          "default_model": "grok-4.5",
+          "key_present": false,
+          "checkable": false
+        }
+      ],
+      "warnings": [],
+      "can_change": true
+    }
+  },
+  "get_as_device": {
+    "status": 403,
+    "json": {
+      "error": "operator_only",
+      "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+    }
+  },
+  "check": {
+    "held": {
+      "status": 200,
+      "json": {
+        "result": "ok",
+        "status": 200,
+        "detail": "the provider accepted the key"
+      }
+    },
+    "ok_openrouter": {
+      "status": 200,
+      "json": {
+        "result": "ok",
+        "status": 200,
+        "detail": "the provider accepted the key"
+      }
+    },
+    "bad_anthropic": {
+      "status": 200,
+      "json": {
+        "result": "bad_key",
+        "status": 401,
+        "detail": "the provider refused the key"
+      }
+    },
+    "missing_openai": {
+      "status": 400,
+      "json": {
+        "error": "cloud_key_missing",
+        "detail": "no openai key is saved on this machine and none was sent; send api_key"
+      }
+    },
+    "not_json": {
+      "status": 400,
+      "json": {
+        "error": "invalid_request",
+        "detail": "expected a JSON object"
+      }
+    },
+    "unsupported": {
+      "status": 400,
+      "json": {
+        "error": "unsupported_provider",
+        "detail": "the key check knows anthropic, openai, openrouter"
+      }
+    },
+    "no_credit_openrouter": {
+      "status": 200,
+      "json": {
+        "result": "no_credit",
+        "status": 402,
+        "detail": "the key is valid but the account has no credit"
+      }
+    }
+  },
+  "put": {
+    "key_rejected": {
+      "status": 400,
+      "json": {
+        "error": "key_rejected",
+        "key_check": {
+          "result": "bad_key",
+          "status": 401,
+          "detail": "the provider refused the key"
+        },
+        "detail": "anthropic refused this key, so nothing was saved"
+      }
+    },
+    "unsupported": {
+      "status": 400,
+      "json": {
+        "error": "unsupported_provider",
+        "detail": "this route knows anthropic, openai, deepseek, kimi, glm, mimo, qwen, openrouter, gemini, xai"
+      }
+    },
+    "base_url": {
+      "status": 400,
+      "json": {
+        "error": "unexpected_base_url",
+        "detail": "each provider is called at its own address; this takes no base_url"
+      }
+    },
+    "missing_key": {
+      "status": 400,
+      "json": {
+        "error": "cloud_key_missing",
+        "detail": "no openai key is saved on this machine and none was sent; send api_key. Nothing was written"
+      }
+    },
+    "bad_model": {
+      "status": 400,
+      "json": {
+        "error": "bad_model",
+        "detail": "a model id has letters, digits and . _ : / @ + - only, and no spaces"
+      }
+    },
+    "as_device": {
+      "status": 403,
+      "json": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    "gemini_unchecked": {
+      "status": 200,
+      "json": {
+        "running": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "kind": "cloud"
+        },
+        "saved": {
+          "provider": "gemini",
+          "model": "gemini-2.5-flash",
+          "api_key_env": "GEMINI_API_KEY",
+          "kind": "cloud"
+        },
+        "pending": true,
+        "applied": "on_restart",
+        "key": {
+          "env": "GEMINI_API_KEY",
+          "present": true
+        },
+        "providers": [
+          {
+            "provider": "anthropic",
+            "api_key_env": "ANTHROPIC_API_KEY",
+            "default_model": "claude-sonnet-5",
+            "key_present": true,
+            "checkable": true
+          },
+          {
+            "provider": "openai",
+            "api_key_env": "OPENAI_API_KEY",
+            "default_model": "gpt-5.6-luna",
+            "key_present": false,
+            "checkable": true
+          },
+          {
+            "provider": "deepseek",
+            "api_key_env": "DEEPSEEK_API_KEY",
+            "default_model": "deepseek-flash",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "kimi",
+            "api_key_env": "MOONSHOT_API_KEY",
+            "default_model": "kimi-k2.6",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "glm",
+            "api_key_env": "ZAI_API_KEY",
+            "default_model": "glm-5.3",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "mimo",
+            "api_key_env": "MIMO_API_KEY",
+            "default_model": "mimo-v2.6-pro",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "qwen",
+            "api_key_env": "QWEN_API_KEY",
+            "default_model": "qwen3.8-max",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "openrouter",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "default_model": "anthropic/claude-sonnet-5",
+            "key_present": false,
+            "checkable": true
+          },
+          {
+            "provider": "gemini",
+            "api_key_env": "GEMINI_API_KEY",
+            "default_model": "gemini-2.5-flash",
+            "key_present": true,
+            "checkable": false
+          },
+          {
+            "provider": "xai",
+            "api_key_env": "XAI_API_KEY",
+            "default_model": "grok-4.5",
+            "key_present": false,
+            "checkable": false
+          }
+        ],
+        "warnings": [
+          {
+            "code": "restart_required",
+            "message": "A saved change is waiting for a restart: the daemon will come back with gemini (gemini-2.5-flash)."
+          },
+          {
+            "code": "key_unchecked",
+            "message": "The key was saved without being confirmed: gemini's keys cannot be checked from here."
+          }
+        ],
+        "can_change": true,
+        "changed": true,
+        "key_saved": true,
+        "key_check": null
+      }
+    },
+    "openrouter_no_credit": {
+      "status": 200,
+      "json": {
+        "running": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "kind": "cloud"
+        },
+        "saved": {
+          "provider": "openrouter",
+          "model": "anthropic/claude-sonnet-5",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "kind": "cloud"
+        },
+        "pending": true,
+        "applied": "on_restart",
+        "key": {
+          "env": "OPENROUTER_API_KEY",
+          "present": true
+        },
+        "providers": [
+          {
+            "provider": "anthropic",
+            "api_key_env": "ANTHROPIC_API_KEY",
+            "default_model": "claude-sonnet-5",
+            "key_present": true,
+            "checkable": true
+          },
+          {
+            "provider": "openai",
+            "api_key_env": "OPENAI_API_KEY",
+            "default_model": "gpt-5.6-luna",
+            "key_present": false,
+            "checkable": true
+          },
+          {
+            "provider": "deepseek",
+            "api_key_env": "DEEPSEEK_API_KEY",
+            "default_model": "deepseek-flash",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "kimi",
+            "api_key_env": "MOONSHOT_API_KEY",
+            "default_model": "kimi-k2.6",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "glm",
+            "api_key_env": "ZAI_API_KEY",
+            "default_model": "glm-5.3",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "mimo",
+            "api_key_env": "MIMO_API_KEY",
+            "default_model": "mimo-v2.6-pro",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "qwen",
+            "api_key_env": "QWEN_API_KEY",
+            "default_model": "qwen3.8-max",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "openrouter",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "default_model": "anthropic/claude-sonnet-5",
+            "key_present": true,
+            "checkable": true
+          },
+          {
+            "provider": "gemini",
+            "api_key_env": "GEMINI_API_KEY",
+            "default_model": "gemini-2.5-flash",
+            "key_present": true,
+            "checkable": false
+          },
+          {
+            "provider": "xai",
+            "api_key_env": "XAI_API_KEY",
+            "default_model": "grok-4.5",
+            "key_present": false,
+            "checkable": false
+          }
+        ],
+        "warnings": [
+          {
+            "code": "restart_required",
+            "message": "A saved change is waiting for a restart: the daemon will come back with openrouter (anthropic/claude-sonnet-5)."
+          },
+          {
+            "code": "key_no_credit",
+            "message": "The key works, but the account has no credit, so requests will fail until credit is added."
+          }
+        ],
+        "can_change": true,
+        "changed": true,
+        "key_saved": true,
+        "key_check": {
+          "result": "no_credit",
+          "status": 402,
+          "detail": "the key is valid but the account has no credit"
+        }
+      }
+    },
+    "openrouter": {
+      "status": 200,
+      "json": {
+        "running": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-5",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "kind": "cloud"
+        },
+        "saved": {
+          "provider": "openrouter",
+          "model": "anthropic/claude-sonnet-5",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "kind": "cloud"
+        },
+        "pending": true,
+        "applied": "on_restart",
+        "key": {
+          "env": "OPENROUTER_API_KEY",
+          "present": true
+        },
+        "providers": [
+          {
+            "provider": "anthropic",
+            "api_key_env": "ANTHROPIC_API_KEY",
+            "default_model": "claude-sonnet-5",
+            "key_present": true,
+            "checkable": true
+          },
+          {
+            "provider": "openai",
+            "api_key_env": "OPENAI_API_KEY",
+            "default_model": "gpt-5.6-luna",
+            "key_present": false,
+            "checkable": true
+          },
+          {
+            "provider": "deepseek",
+            "api_key_env": "DEEPSEEK_API_KEY",
+            "default_model": "deepseek-flash",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "kimi",
+            "api_key_env": "MOONSHOT_API_KEY",
+            "default_model": "kimi-k2.6",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "glm",
+            "api_key_env": "ZAI_API_KEY",
+            "default_model": "glm-5.3",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "mimo",
+            "api_key_env": "MIMO_API_KEY",
+            "default_model": "mimo-v2.6-pro",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "qwen",
+            "api_key_env": "QWEN_API_KEY",
+            "default_model": "qwen3.8-max",
+            "key_present": false,
+            "checkable": false
+          },
+          {
+            "provider": "openrouter",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "default_model": "anthropic/claude-sonnet-5",
+            "key_present": true,
+            "checkable": true
+          },
+          {
+            "provider": "gemini",
+            "api_key_env": "GEMINI_API_KEY",
+            "default_model": "gemini-2.5-flash",
+            "key_present": true,
+            "checkable": false
+          },
+          {
+            "provider": "xai",
+            "api_key_env": "XAI_API_KEY",
+            "default_model": "grok-4.5",
+            "key_present": false,
+            "checkable": false
+          }
+        ],
+        "warnings": [
+          {
+            "code": "restart_required",
+            "message": "A saved change is waiting for a restart: the daemon will come back with openrouter (anthropic/claude-sonnet-5)."
+          }
+        ],
+        "can_change": true,
+        "changed": false,
+        "key_saved": true,
+        "key_check": {
+          "result": "ok",
+          "status": 200,
+          "detail": "the provider accepted the key"
+        }
+      }
+    }
+  },
+  "get_after_gemini": {
+    "status": 200,
+    "json": {
+      "running": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "kind": "cloud"
+      },
+      "saved": {
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "api_key_env": "GEMINI_API_KEY",
+        "kind": "cloud"
+      },
+      "pending": true,
+      "applied": "on_restart",
+      "key": {
+        "env": "GEMINI_API_KEY",
+        "present": true
+      },
+      "providers": [
+        {
+          "provider": "anthropic",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "default_model": "claude-sonnet-5",
+          "key_present": true,
+          "checkable": true
+        },
+        {
+          "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY",
+          "default_model": "gpt-5.6-luna",
+          "key_present": false,
+          "checkable": true
+        },
+        {
+          "provider": "deepseek",
+          "api_key_env": "DEEPSEEK_API_KEY",
+          "default_model": "deepseek-flash",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "kimi",
+          "api_key_env": "MOONSHOT_API_KEY",
+          "default_model": "kimi-k2.6",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "glm",
+          "api_key_env": "ZAI_API_KEY",
+          "default_model": "glm-5.3",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "mimo",
+          "api_key_env": "MIMO_API_KEY",
+          "default_model": "mimo-v2.6-pro",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "qwen",
+          "api_key_env": "QWEN_API_KEY",
+          "default_model": "qwen3.8-max",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "default_model": "anthropic/claude-sonnet-5",
+          "key_present": false,
+          "checkable": true
+        },
+        {
+          "provider": "gemini",
+          "api_key_env": "GEMINI_API_KEY",
+          "default_model": "gemini-2.5-flash",
+          "key_present": true,
+          "checkable": false
+        },
+        {
+          "provider": "xai",
+          "api_key_env": "XAI_API_KEY",
+          "default_model": "grok-4.5",
+          "key_present": false,
+          "checkable": false
+        }
+      ],
+      "warnings": [
+        {
+          "code": "restart_required",
+          "message": "A saved change is waiting for a restart: the daemon will come back with gemini (gemini-2.5-flash)."
+        }
+      ],
+      "can_change": true
+    }
+  },
+  "get_pending": {
+    "status": 200,
+    "json": {
+      "running": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "kind": "cloud"
+      },
+      "saved": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-5",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "kind": "cloud"
+      },
+      "pending": true,
+      "applied": "on_restart",
+      "key": {
+        "env": "OPENROUTER_API_KEY",
+        "present": true
+      },
+      "providers": [
+        {
+          "provider": "anthropic",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "default_model": "claude-sonnet-5",
+          "key_present": true,
+          "checkable": true
+        },
+        {
+          "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY",
+          "default_model": "gpt-5.6-luna",
+          "key_present": false,
+          "checkable": true
+        },
+        {
+          "provider": "deepseek",
+          "api_key_env": "DEEPSEEK_API_KEY",
+          "default_model": "deepseek-flash",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "kimi",
+          "api_key_env": "MOONSHOT_API_KEY",
+          "default_model": "kimi-k2.6",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "glm",
+          "api_key_env": "ZAI_API_KEY",
+          "default_model": "glm-5.3",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "mimo",
+          "api_key_env": "MIMO_API_KEY",
+          "default_model": "mimo-v2.6-pro",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "qwen",
+          "api_key_env": "QWEN_API_KEY",
+          "default_model": "qwen3.8-max",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "default_model": "anthropic/claude-sonnet-5",
+          "key_present": true,
+          "checkable": true
+        },
+        {
+          "provider": "gemini",
+          "api_key_env": "GEMINI_API_KEY",
+          "default_model": "gemini-2.5-flash",
+          "key_present": true,
+          "checkable": false
+        },
+        {
+          "provider": "xai",
+          "api_key_env": "XAI_API_KEY",
+          "default_model": "grok-4.5",
+          "key_present": false,
+          "checkable": false
+        }
+      ],
+      "warnings": [
+        {
+          "code": "restart_required",
+          "message": "A saved change is waiting for a restart: the daemon will come back with openrouter (anthropic/claude-sonnet-5)."
+        }
+      ],
+      "can_change": true
+    }
+  },
+  "restart": {
+    "status": 202,
+    "json": {
+      "restarting": true
+    }
+  },
+  "get_after_restart": {
+    "status": 200,
+    "json": {
+      "running": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-5",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "kind": "cloud"
+      },
+      "saved": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-5",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "kind": "cloud"
+      },
+      "pending": false,
+      "applied": "live",
+      "key": {
+        "env": "OPENROUTER_API_KEY",
+        "present": true
+      },
+      "providers": [
+        {
+          "provider": "anthropic",
+          "api_key_env": "ANTHROPIC_API_KEY",
+          "default_model": "claude-sonnet-5",
+          "key_present": true,
+          "checkable": true
+        },
+        {
+          "provider": "openai",
+          "api_key_env": "OPENAI_API_KEY",
+          "default_model": "gpt-5.6-luna",
+          "key_present": false,
+          "checkable": true
+        },
+        {
+          "provider": "deepseek",
+          "api_key_env": "DEEPSEEK_API_KEY",
+          "default_model": "deepseek-flash",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "kimi",
+          "api_key_env": "MOONSHOT_API_KEY",
+          "default_model": "kimi-k2.6",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "glm",
+          "api_key_env": "ZAI_API_KEY",
+          "default_model": "glm-5.3",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "mimo",
+          "api_key_env": "MIMO_API_KEY",
+          "default_model": "mimo-v2.6-pro",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "qwen",
+          "api_key_env": "QWEN_API_KEY",
+          "default_model": "qwen3.8-max",
+          "key_present": false,
+          "checkable": false
+        },
+        {
+          "provider": "openrouter",
+          "api_key_env": "OPENROUTER_API_KEY",
+          "default_model": "anthropic/claude-sonnet-5",
+          "key_present": true,
+          "checkable": true
+        },
+        {
+          "provider": "gemini",
+          "api_key_env": "GEMINI_API_KEY",
+          "default_model": "gemini-2.5-flash",
+          "key_present": true,
+          "checkable": false
+        },
+        {
+          "provider": "xai",
+          "api_key_env": "XAI_API_KEY",
+          "default_model": "grok-4.5",
+          "key_present": false,
+          "checkable": false
+        }
+      ],
+      "warnings": [],
+      "can_change": true
+    }
+  },
+  "listened": [
+    "127.0.0.1:50372",
+    "127.0.0.1:50371"
+  ],
+  "tripwire": []
+}

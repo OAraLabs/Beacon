@@ -1,0 +1,168 @@
+{
+  "about": "Real exchanges with a real Prometheus app served the way a home-network daemon serves it (plain HTTP and its bridge, plus the same app and bridge over TLS with the instance certificate, app.state.lan_tls set), every listener on 127.0.0.1, by scripts/record-pair-tls.mjs. The requester key is pairing_seal_v1.json's. The daemon, its token and the device are throwaway and deleted.",
+  "recorded": "2026-10-19",
+  "daemon": {
+    "source": "08ab9453d1bfdfeaf9cc354bb6dffd588ffef1f2",
+    "module": "<prometheus>/src/prometheus/__init__.py"
+  },
+  "ports": {
+    "plain": 55802,
+    "ws": 55799,
+    "tls": 55800,
+    "tls_ws": 55801
+  },
+  "pin": "869b58d2aff4628a48c8f88dc1e4ed9d2f8891218cb8018e50e2cd7a299b6bd7",
+  "fp": "869b58d2aff4628a",
+  "exchanges": [
+    {
+      "name": "hello_tls",
+      "listener": "tls",
+      "request": {
+        "method": "GET",
+        "path": "/api/hello",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "retry_after": null,
+        "body": {
+          "v": "0.1.0",
+          "name": "TLS Record Prometheus",
+          "agent": "Prometheus",
+          "fp": "869b58d2aff4628a",
+          "pair": "approve",
+          "tls": true
+        },
+        "pinned": true,
+        "protocol": "TLSv1.3"
+      }
+    },
+    {
+      "name": "create_tls",
+      "listener": "tls",
+      "request": {
+        "method": "POST",
+        "path": "/api/pair/requests",
+        "body": {
+          "device_name": "Alex's MacBook",
+          "platform": "macos",
+          "public_key": "J2Y0ojoxG2DgICAmK2kk18gPErYp82tclQNSDwQm7CM"
+        }
+      },
+      "response": {
+        "status": 201,
+        "retry_after": null,
+        "body": {
+          "request_id": "64810c1609becc5d207cd54de1d2c38e",
+          "poll_secret": "BkezVtwLxIm35L4oyfxTlEef1ftTb5K_bSMWIkS3qXM",
+          "match_code": "0698",
+          "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4SuV41yrya7xP7UuUqtNR6Aw9W5ghVtmznBwP3fdYn4e0_MO1jhjI-Wm90KZUe0-hF321fhq74RmgyCxYRUycA",
+          "expires_at": 1792434703,
+          "ttl_seconds": 300,
+          "poll_interval_seconds": 2,
+          "notified": false
+        },
+        "pinned": true,
+        "protocol": "TLSv1.3"
+      }
+    },
+    {
+      "name": "owner_approve",
+      "listener": "plain",
+      "request": {
+        "method": "POST",
+        "path": "/api/pair/requests/64810c1609becc5d207cd54de1d2c38e/approve",
+        "body": {}
+      },
+      "response": {
+        "status": 200,
+        "retry_after": null,
+        "body": {
+          "request_id": "64810c1609becc5d207cd54de1d2c38e",
+          "status": "approved",
+          "device_id": "a326b754d0e94529bc743fc8e84a6564",
+          "name": "Alex's MacBook",
+          "platform": "macos"
+        }
+      }
+    },
+    {
+      "name": "poll_approved_tls",
+      "listener": "tls",
+      "request": {
+        "method": "GET",
+        "path": "/api/pair/requests/64810c1609becc5d207cd54de1d2c38e",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "retry_after": null,
+        "body": {
+          "status": "approved",
+          "device_id": "a326b754d0e94529bc743fc8e84a6564",
+          "sealed": {
+            "alg": "x25519-hkdf-sha256-chacha20poly1305",
+            "ephemeral_public_key": "Xx1yu5eNeL4jyQK07G_AuVJgKWATlF2-hRFlCyy9m0Y",
+            "nonce": "5psqQoEAAzLX2EfA",
+            "ciphertext": "qsob51tUgB93nwJJiMlt3yesR7LesRdTlqXEVAdL5nSrO04BBPpUgBMCuQHG695ZSgZITrEtqIKUCPNY3q-h_lO8eJeR0HH2-_vmYg3Ed3qx5UtAfek5Hn5tXMGdTRHTiFqkPPd9kHCQiuQreIdJSXLEXXyA1-rYnChlveorGvOHB3d0YgZZtcj8WfCRrA"
+          },
+          "endpoints": {
+            "rest": "https://127.0.0.1:55800",
+            "ws": "wss://127.0.0.1:55801"
+          },
+          "tls": {
+            "spki_sha256": "869b58d2aff4628a48c8f88dc1e4ed9d2f8891218cb8018e50e2cd7a299b6bd7"
+          },
+          "approved_at": 1792434403
+        },
+        "pinned": true,
+        "protocol": "TLSv1.3"
+      }
+    },
+    {
+      "name": "poll_approved_plain",
+      "listener": "plain",
+      "request": {
+        "method": "GET",
+        "path": "/api/pair/requests/64810c1609becc5d207cd54de1d2c38e",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "retry_after": null,
+        "body": {
+          "status": "approved",
+          "device_id": "a326b754d0e94529bc743fc8e84a6564",
+          "sealed": {
+            "alg": "x25519-hkdf-sha256-chacha20poly1305",
+            "ephemeral_public_key": "Xx1yu5eNeL4jyQK07G_AuVJgKWATlF2-hRFlCyy9m0Y",
+            "nonce": "5psqQoEAAzLX2EfA",
+            "ciphertext": "qsob51tUgB93nwJJiMlt3yesR7LesRdTlqXEVAdL5nSrO04BBPpUgBMCuQHG695ZSgZITrEtqIKUCPNY3q-h_lO8eJeR0HH2-_vmYg3Ed3qx5UtAfek5Hn5tXMGdTRHTiFqkPPd9kHCQiuQreIdJSXLEXXyA1-rYnChlveorGvOHB3d0YgZZtcj8WfCRrA"
+          },
+          "endpoints": {
+            "rest": "http://127.0.0.1:55802",
+            "ws": "ws://127.0.0.1:55799"
+          },
+          "tls": null,
+          "approved_at": 1792434403
+        }
+      }
+    },
+    {
+      "name": "acknowledge_tls",
+      "listener": "tls",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/pair/requests/64810c1609becc5d207cd54de1d2c38e",
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "retry_after": null,
+        "body": null,
+        "pinned": true,
+        "protocol": "TLSv1.3"
+      }
+    }
+  ]
+}

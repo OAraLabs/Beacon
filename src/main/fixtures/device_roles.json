@@ -1,0 +1,102 @@
+{
+  "about": "Real answers from Prometheus (scripts/lib/serve_real_daemon.py, a throwaway home and token on 127.0.0.1) to GET /api/devices for the three kinds of credential Beacon can hold, and GET /api/status as a scoped and an owner device. Recorded by scripts/record-device-roles.mjs; device ids replaced, times fixed, no token kept.",
+  "source": "v0.9.13",
+  "recorded": "2026-10-17",
+  "answers": {
+    "global_token": {
+      "status": 200,
+      "body": [
+        {
+          "id": "<scoped-device-id>",
+          "name": "Sam’s MacBook",
+          "platform": "macos",
+          "created_at": 1760000000,
+          "last_seen_at": null,
+          "last_push_at": null,
+          "last_push_status": null,
+          "revoked_at": null,
+          "is_self": false,
+          "computer": false,
+          "owner": false,
+          "owner_source": null
+        },
+        {
+          "id": "<owner-device-id>",
+          "name": "Beacon on this Mac",
+          "platform": "macos",
+          "created_at": 1760000000,
+          "last_seen_at": null,
+          "last_push_at": null,
+          "last_push_status": null,
+          "revoked_at": null,
+          "is_self": false,
+          "computer": false,
+          "owner": true,
+          "owner_source": "same-mac-mint"
+        }
+      ]
+    },
+    "scoped_device": {
+      "status": 200,
+      "body": [
+        {
+          "id": "<scoped-device-id>",
+          "name": "Sam’s MacBook",
+          "platform": "macos",
+          "created_at": 1760000000,
+          "last_seen_at": 1760000000,
+          "last_push_at": null,
+          "last_push_status": null,
+          "revoked_at": null,
+          "is_self": true,
+          "computer": false,
+          "owner": false,
+          "owner_source": null
+        }
+      ]
+    },
+    "owner_device": {
+      "status": 200,
+      "body": [
+        {
+          "id": "<scoped-device-id>",
+          "name": "Sam’s MacBook",
+          "platform": "macos",
+          "created_at": 1760000000,
+          "last_seen_at": 1760000000,
+          "last_push_at": null,
+          "last_push_status": null,
+          "revoked_at": null,
+          "is_self": false,
+          "computer": false,
+          "owner": false,
+          "owner_source": null
+        },
+        {
+          "id": "<owner-device-id>",
+          "name": "Beacon on this Mac",
+          "platform": "macos",
+          "created_at": 1760000000,
+          "last_seen_at": 1760000000,
+          "last_push_at": null,
+          "last_push_status": null,
+          "revoked_at": null,
+          "is_self": true,
+          "computer": false,
+          "owner": true,
+          "owner_source": "same-mac-mint"
+        }
+      ]
+    },
+    "status_as_scoped_device": {
+      "status": 403,
+      "body": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    "status_as_owner_device": {
+      "status": 200
+    }
+  }
+}

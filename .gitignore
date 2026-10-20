@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# build output
+out/
+dist/
+dist-probe/
+.vite/
+*.tsbuildinfo
+
+# native build artifacts (node-gyp output lives under node_modules/<mod>/build/, already ignored
+# via node_modules/). NOTE: the root build/ dir is electron-builder's buildResources (committed
+# app icon + entitlements) — do NOT ignore it.
+prebuilds/
+
+# local env / secrets (creds + gateway address live in the OS keychain / app-data DB, never git — spec §3.4/§8)
+.env
+.env.local
+.env.*.local
+
+# local SQLite cache (app-data; never committed)
+*.db
+*.db-journal
+*.sqlite
+data/
+
+# logs / os
+*.log
+.DS_Store
+Thumbs.db
+
+# local Claude Code workspace (launch.json dev-preview helper + agent memory; never committed)
+.claude/

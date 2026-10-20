@@ -1,0 +1,235 @@
+{
+ "help": {
+  "session_id": "probe-verify:20310d61-591e-4fa7-8575-c03684fbdfe6",
+  "dropped_chat_delta": 0,
+  "frames": [
+   {
+    "t": 0.0,
+    "type": "connected",
+    "payload": {
+     "version": "0.1.0"
+    }
+   },
+   {
+    "t": 0.0,
+    "type": "chat_message",
+    "payload": {
+     "session_id": "probe-verify:20310d61-591e-4fa7-8575-c03684fbdfe6",
+     "role": "user",
+     "content": "/help",
+     "content_json": "[{\"type\": \"text\", \"text\": \"/help\"}]",
+     "message_id": "cmd-user-1787029326807",
+     "client_msg_id": null,
+     "created_at": 1787029326.8072164,
+     "transient": true
+    }
+   },
+   {
+    "t": 0.0,
+    "type": "chat_message",
+    "payload": {
+     "session_id": "probe-verify:20310d61-591e-4fa7-8575-c03684fbdfe6",
+     "role": "assistant",
+     "content": "Prometheus \u2014 Sovereign AI Agent\n\nCommands:\n/status    \u2014 Model, uptime, tools, memory, SENTINEL, queues\n/model     \u2014 Current model name and provider\n/profile   \u2014 Show/switch agent profiles\n/anatomy   \u2014 Hardware, GPU, VRAM, infrastructure\n/doctor    \u2014 Diagnostic health check against model registry\n/wiki      \u2014 Wiki stats and recent entries\n/note      \u2014 Save a manual fact: /note [@entity] <text>\n/sentinel  \u2014 SENTINEL subsystem status\n/events    \u2014 Recent signal-bus events (recent | skills | memory | curator | show <id>)\n/steer     \u2014 Inject mid-turn guidance (arrives after next tool call)\n/queue     \u2014 Queue a follow-up turn for after the current one ends\n/unqueue   \u2014 Drop the most recently queued prompt\n/clearsteers \u2014 Drop all pending steers without surfacing them\n/benchmark \u2014 Run a quick smoke test\n/context   \u2014 Context window usage\n/skills    \u2014 List available skills\n/reset     \u2014 Clear conversation context\n/help      \u2014 This message\n\nSend any message to chat with the agent.",
+     "content_json": "[{\"type\": \"text\", \"text\": \"Prometheus \\u2014 Sovereign AI Agent\\n\\nCommands:\\n/status    \\u2014 Model, uptime, tools, memory, SENTINEL, queues\\n/model     \\u2014 Current model name and provider\\n/profile   \\u2014 Show/switch agent profiles\\n/anatomy   \\u2014 Hardware, GPU, VRAM, infrastructure\\n/doctor    \\u2014 Diagnostic health check against model registry\\n/wiki      \\u2014 Wiki stats and recent entries\\n/note      \\u2014 Save a manual fact: /note [@entity] <text>\\n/sentinel  \\u2014 SENTINEL subsystem status\\n/events    \\u2014 Recent signal-bus events (recent | skills | memory | curator | show <id>)\\n/steer     \\u2014 Inject mid-turn guidance (arrives after next tool call)\\n/queue     \\u2014 Queue a follow-up turn for after the current one ends\\n/unqueue   \\u2014 Drop the most recently queued prompt\\n/clearsteers \\u2014 Drop all pending steers without surfacing them\\n/benchmark \\u2014 Run a quick smoke test\\n/context   \\u2014 Context window usage\\n/skills    \\u2014 List available skills\\n/reset     \\u2014 Clear conversation context\\n/help      \\u2014 This message\\n\\nSend any message to chat with the agent.\"}]",
+     "message_id": "cmd-asst-1787029326807",
+     "created_at": 1787029326.8072164,
+     "transient": true,
+     "command": true
+    }
+   },
+   {
+    "t": 0.0,
+    "type": "command_done",
+    "payload": {
+     "session_id": "probe-verify:20310d61-591e-4fa7-8575-c03684fbdfe6",
+     "message_id": "cmd-asst-1787029326807",
+     "command_name": "help",
+     "transient": true
+    }
+   }
+  ]
+ },
+ "steer": {
+  "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+  "dropped_chat_delta": 401,
+  "frames": [
+   {
+    "t": 0.02,
+    "type": "connected",
+    "payload": {
+     "version": "0.1.0"
+    }
+   },
+   {
+    "t": 0.02,
+    "type": "chat_message",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "role": "user",
+     "content": "Count from 1 to 40 slowly, one number per line, with a short comment on each.",
+     "content_json": "[{\"type\": \"text\", \"text\": \"Count from 1 to 40 slowly, one number per line, with a short comment on each.\"}]",
+     "message_id": 8315,
+     "ordinal": 0,
+     "client_msg_id": null,
+     "created_at": 1787029352.923856
+    }
+   },
+   {
+    "t": 0.02,
+    "type": "agent_state",
+    "payload": {
+     "state": "thinking",
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1"
+    }
+   },
+   {
+    "t": 3.02,
+    "type": "agent_progress",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "message_id": "asst-1787029352924",
+     "phase": "thinking",
+     "tool_name": null,
+     "round": 1,
+     "chars": 0,
+     "tool_calls": 0,
+     "elapsed_s": 3.0
+    }
+   },
+   {
+    "t": 5.52,
+    "type": "chat_delta",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "content": "1",
+     "message_id": "asst-1787029352924"
+    }
+   },
+   {
+    "t": 5.55,
+    "type": "chat_delta",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "content": " \u2014",
+     "message_id": "asst-1787029352924"
+    }
+   },
+   {
+    "t": 5.57,
+    "type": "chat_delta",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "content": " starting",
+     "message_id": "asst-1787029352924"
+    }
+   },
+   {
+    "t": 5.6,
+    "type": "chat_delta",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "content": " the",
+     "message_id": "asst-1787029352924"
+    }
+   },
+   {
+    "t": 6.01,
+    "type": "chat_message",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "role": "user",
+     "content": "/steer be terse",
+     "content_json": "[{\"type\": \"text\", \"text\": \"/steer be terse\"}]",
+     "message_id": "cmd-user-1787029358926",
+     "client_msg_id": null,
+     "created_at": 1787029358.926983,
+     "transient": true
+    }
+   },
+   {
+    "t": 6.01,
+    "type": "chat_message",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "role": "assistant",
+     "content": "\ud83d\udccd Steered: be terse\n   Arrives after the next tool call. Pending: 1.",
+     "content_json": "[{\"type\": \"text\", \"text\": \"\\ud83d\\udccd Steered: be terse\\n   Arrives after the next tool call. Pending: 1.\"}]",
+     "message_id": "cmd-asst-1787029358926",
+     "created_at": 1787029358.926983,
+     "transient": true,
+     "command": true
+    }
+   },
+   {
+    "t": 6.01,
+    "type": "command_done",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "message_id": "cmd-asst-1787029358926",
+     "command_name": "steer",
+     "transient": true
+    }
+   },
+   {
+    "t": 6.02,
+    "type": "agent_progress",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "message_id": "asst-1787029352924",
+     "phase": "generating",
+     "tool_name": null,
+     "round": 1,
+     "chars": 78,
+     "tool_calls": 0,
+     "elapsed_s": 6.0
+    }
+   },
+   {
+    "t": 9.02,
+    "type": "agent_progress",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "message_id": "asst-1787029352924",
+     "phase": "generating",
+     "tool_name": null,
+     "round": 1,
+     "chars": 482,
+     "tool_calls": 0,
+     "elapsed_s": 9.0
+    }
+   },
+   {
+    "t": 12.02,
+    "type": "agent_progress",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "message_id": "asst-1787029352924",
+     "phase": "generating",
+     "tool_name": null,
+     "round": 1,
+     "chars": 807,
+     "tool_calls": 0,
+     "elapsed_s": 12.0
+    }
+   },
+   {
+    "t": 14.81,
+    "type": "chat_done",
+    "payload": {
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1",
+     "message_id": "asst-1787029352924"
+    }
+   },
+   {
+    "t": 14.81,
+    "type": "agent_state",
+    "payload": {
+     "state": "idle",
+     "session_id": "probe-verify:650d6168-0d79-4e1c-9b9f-fc9566b76fb1"
+    }
+   }
+  ]
+ },
+ "_README": "Captured off the wire from the Prometheus daemon on 2026-08-18 (RE-captured after the command -> command_name rename) by connecting a websocket client to ws://127.0.0.1:8010 and sending /help (scenario 'help') and a long turn interrupted by /steer (scenario 'steer'). Order and payloads are verbatim; all but the first 4 chat_delta frames per scenario were dropped as noise. NEVER hand-edit this to match a documented shape \u2014 re-capture. The previous version caught a design flaw a hand-written fixture could not: the wire order is progress -> cmd-asst chat_message -> command_done, so the reply always re-arms immediately before its own terminator."
+}

@@ -1,0 +1,575 @@
+name: Release
+
+# Tag `vX.Y.Z` → build Beacon on macOS and Linux → attach everything to a DRAFT release on the PUBLIC
+# repo OAraLabs/beacon. That repo holds installers, the update feed and a landing README, never
+# source. Nothing is published automatically: the draft stays invisible until a human publishes it,
+# and publishing it is what every installed Beacon (0.3.0 on) sees as the next update.
+#
+#   macOS  → Beacon-<version>-arm64.dmg + -arm64-mac.zip (+ latest-mac.yml)     arm64 only (#197)
+#   Linux  → Beacon-<version>-x86_64.AppImage + -amd64.deb (+ latest-linux.yml)
+#
+# SIGNING follows the secrets, per run, and says which it did:
+#   CSC_LINK (+ CSC_KEY_PASSWORD)                         → signed with the Developer ID in the .p12
+#   … and APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD
+#     + APPLE_TEAM_ID                                      → also notarized and stapled (scripts/notarize.cjs)
+#   none of them                                           → UNSIGNED, and the run stays green
+# The mode is printed in the job summary and written into the draft's notes, so nobody publishes an
+# unsigned build without being told. When signing was expected, the run checks the signature (and
+# the staple) on the built .app rather than trusting electron-builder's exit code.
+#
+# PUBLISHING uses BEACON_RELEASES_TOKEN (a token that can write releases on OAraLabs/beacon). The
+# build jobs never see it: only publish-draft does. On a tag push, a missing token FAILS the run in
+# preflight, before twenty minutes of builds; there is no path where a tag build skips the upload and
+# goes green. workflow_dispatch runs build and upload workflow artifacts only, and say so.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# Read-only for this repo: the release goes to ANOTHER repo, with its own token. The default
+# GITHUB_TOKEN only needs to check the source out.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_REPO: OAraLabs/beacon
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # The artifacts carry package.json's version, not the tag's: latest-*.yml says `version: X`, and
+      # that is what installed clients compare against. A tag v0.3.1 on a package still at 0.3.0 would
+      # ship a release whose feed says 0.3.0, and every 0.3.0 client would call itself up to date.
+      # A suffix is allowed (v0.3.0-rc.1, v0.3.0-dryrun.1); such a draft is marked prerelease, which
+      # the updater ignores even if someone publishes it by mistake.
+      - name: The tag matches package.json's version
+        id: version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Not a tag ($GITHUB_REF_NAME): package.json is $version; nothing to match."
+            exit 0
+          fi
+          tag=${GITHUB_REF_NAME#v}
+          core=${tag%%-*}
+          if [ "$core" != "$version" ]; then
+            echo "::error title=Tag does not match package.json::tag $GITHUB_REF_NAME, package.json $version. Bump package.json (and package-lock.json) to $core, or tag v$version."
+            exit 1
+          fi
+          if [ "$tag" != "$core" ]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+          echo "Tag $GITHUB_REF_NAME matches package.json $version."
+
+      - name: The releases token exists and reaches the release repo
+        shell: bash
+        env:
+          BEACON_RELEASES_TOKEN: ${{ secrets.BEACON_RELEASES_TOKEN }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            if [ -z "$BEACON_RELEASES_TOKEN" ]; then
+              echo "::warning title=BEACON_RELEASES_TOKEN missing::Not needed for this build-only run, but a tag push will fail without it."
+            fi
+            echo "### Build only" >> "$GITHUB_STEP_SUMMARY"
+            echo "Triggered by $GITHUB_EVENT_NAME on $GITHUB_REF_NAME: artifacts are uploaded to this run only. No draft release is created; push a v* tag for that." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -z "$BEACON_RELEASES_TOKEN" ]; then
+            echo "::error title=BEACON_RELEASES_TOKEN is missing::This tag cannot be released. Add a repository secret BEACON_RELEASES_TOKEN (a fine-grained token with Contents: read and write on $RELEASE_REPO only), then re-run this workflow."
+            exit 1
+          fi
+          export GH_TOKEN="$BEACON_RELEASES_TOKEN"
+          if ! name=$(gh api "repos/$RELEASE_REPO" --jq .full_name 2>err.txt); then
+            echo "::error title=BEACON_RELEASES_TOKEN cannot read $RELEASE_REPO::$(head -c 300 err.txt)"
+            exit 1
+          fi
+          # A release's tag has to point at a commit, so an empty repository cannot hold one.
+          if ! gh api "repos/$RELEASE_REPO/commits?per_page=1" --jq '.[0].sha' >/dev/null 2>err.txt; then
+            echo "::error title=$RELEASE_REPO has no commits::GitHub cannot attach a release to an empty repository ($(head -c 200 err.txt)). Push the source to it first."
+            exit 1
+          fi
+          # Never touch a release someone already published: its files are what users downloaded.
+          published=$(gh api "repos/$RELEASE_REPO/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\" and .draft == false) | .html_url")
+          if [ -n "$published" ]; then
+            echo "::error title=$GITHUB_REF_NAME is already published::$published. A published release is never modified; tag a new version."
+            exit 1
+          fi
+          echo "Token reaches $name; $GITHUB_REF_NAME has no published release there."
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            dist-script: dist:mac
+            unpacked: dist/mac-arm64/Beacon.app
+            asar: dist/mac-arm64/Beacon.app/Contents/Resources/app.asar
+            license-targets: dist/mac-arm64/Beacon.app dist/*-mac.zip dist/*.dmg
+            artifacts: |
+              dist/*.dmg
+              dist/*.zip
+              dist/latest-mac.yml
+              dist/*.blockmap
+              dist/build-mode-*.txt
+          - os: ubuntu-latest
+            dist-script: dist:linux
+            unpacked: dist/linux-unpacked
+            asar: dist/linux-unpacked/resources/app.asar
+            license-targets: dist/linux-unpacked dist/*.deb dist/*.AppImage
+            artifacts: |
+              dist/*.AppImage
+              dist/*.deb
+              dist/latest-linux.yml
+              dist/*.blockmap
+              dist/build-mode-*.txt
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # SHA-1 of the Developer ID Application certificate in CSC_LINK (public: it is in every signed
+      # binary). Owner decision 2026-10-06: CI keeps this certificate; it expires 2027-02-01, and the
+      # "Signing certificate expiry" step warns from 60 days out. Change this when CSC_LINK changes.
+      SIGN_FINGERPRINT: C84D33644F6141D9982E584DC1014FBDF91234D4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+
+      # One step decides the mode AND builds, so the decision and the environment electron-builder
+      # sees cannot drift apart. Secrets that are not used are unset, never passed as empty strings.
+      # Values are never echoed; only the mode is.
+      - name: Build distributable
+        id: build
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          mode=unsigned
+          missing=()
+          if [ "$RUNNER_OS" = macOS ]; then
+            [ -n "$CSC_LINK" ] || missing+=(CSC_LINK)
+            [ -n "$CSC_KEY_PASSWORD" ] || missing+=(CSC_KEY_PASSWORD)
+            for v in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || missing+=("$v"); done
+            if [ -n "$CSC_LINK" ]; then
+              mode=signed
+              if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then mode=notarized; fi
+            fi
+          else
+            mode=unsigned-linux
+          fi
+          case "$mode" in
+            notarized) ;;
+            signed) unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID ;;
+            *)
+              # No identity: do not let electron-builder hunt the keychain for one, and make sure
+              # scripts/notarize.cjs (afterSign) has nothing to notarize with.
+              export CSC_IDENTITY_AUTO_DISCOVERY=false
+              unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID ;;
+          esac
+          if [ "$RUNNER_OS" = macOS ] && [ "$mode" != notarized ]; then
+            echo "::warning title=macOS build is $mode::Missing secret(s): ${missing[*]}. Gatekeeper will block this build on other Macs."
+          fi
+          if [ "$mode" = signed ] || [ "$mode" = notarized ]; then
+            # Import the certificate into a keychain of our own, and let electron-builder discover the
+            # identity there, instead of handing it CSC_LINK. electron-builder 26's own import
+            # (app-builder-lib codeSign/macCodeSign.js, importCerts) creates its keychain with a random
+            # password and then passes the .p12 password to `security set-key-partition-list -k` as the
+            # KEYCHAIN password, so on macos-latest it dies with "SecKeychainUnlock: The user name or
+            # passphrase you entered is not correct" (observed 2026-10-06, run 37408203007). This is the
+            # sequence GitHub documents for installing an Apple certificate on a runner.
+            kc="$RUNNER_TEMP/beacon-signing.keychain-db"
+            kcpass=$(openssl rand -base64 24)
+            echo "::add-mask::$kcpass"
+            p12="$RUNNER_TEMP/beacon-signing.p12"
+            if ! printf '%s' "$CSC_LINK" | base64 --decode > "$p12" 2>/dev/null || [ ! -s "$p12" ]; then
+              echo "::error title=CSC_LINK is not usable::CSC_LINK must be the base64 of the Developer ID Application .p12 (base64 -i cert.p12 | pbcopy)."
+              exit 1
+            fi
+            security create-keychain -p "$kcpass" "$kc"
+            security set-keychain-settings -lut 21600 "$kc"
+            security unlock-keychain -p "$kcpass" "$kc"
+            if ! security import "$p12" -P "$CSC_KEY_PASSWORD" -A -t cert -f pkcs12 -k "$kc" >/dev/null; then
+              rm -f "$p12"
+              echo "::error title=Certificate import failed::security import refused the .p12: check CSC_KEY_PASSWORD matches CSC_LINK."
+              exit 1
+            fi
+            rm -f "$p12"
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpass" "$kc" >/dev/null
+            security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+            ids=$(security find-identity -v -p codesigning "$kc" | grep -c '"Developer ID Application: ' || true)
+            if [ "$ids" -lt 1 ]; then
+              echo "::error title=No Developer ID Application identity::CSC_LINK imported, but holds no valid Developer ID Application certificate with its private key."
+              exit 1
+            fi
+            echo "Imported $ids Developer ID Application identity into the build keychain."
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+          if [ "$mode" = notarized ]; then
+            # Ask Apple whether it accepts the notarization credentials BEFORE the build, so a bad
+            # secret costs seconds, not a build, and the run says which secret looks wrong. Nothing
+            # here prints a value: only whether each one has the shape Apple issues it in.
+            for v in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+              t=$(printf '%s' "${!v}" | tr -d '[:space:]')
+              [ "$t" = "${!v}" ] || echo "::warning title=$v had whitespace::Stripped it. Apple IDs, app-specific passwords and team IDs never contain whitespace; re-save the secret without it."
+              export "$v=$t"
+            done
+            [[ $APPLE_ID =~ ^[^@]+@[^@]+\.[^@]+$ ]] || echo "::warning title=APPLE_ID shape::APPLE_ID does not look like an email address (it must be the Apple ID's email)."
+            [[ $APPLE_APP_SPECIFIC_PASSWORD =~ ^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$ ]] || echo "::warning title=APPLE_APP_SPECIFIC_PASSWORD shape::Not the xxxx-xxxx-xxxx-xxxx form appleid.apple.com issues. It must be an app-specific password, not the Apple ID's own password."
+            [[ $APPLE_TEAM_ID =~ ^[A-Z0-9]{10}$ ]] || echo "::warning title=APPLE_TEAM_ID shape::Not a 10-character team ID."
+            if ! security find-identity -v -p codesigning "$kc" | grep -qF "($APPLE_TEAM_ID)\""; then
+              echo "::warning title=APPLE_TEAM_ID does not match the certificate::The Developer ID certificate in CSC_LINK belongs to a different team than APPLE_TEAM_ID."
+            fi
+            if ! out=$(xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --output-format json 2>&1 >/dev/null); then
+              echo "::error title=Apple rejected the notarization credentials::$(printf '%s' "$out" | grep -m1 -iE 'error|status|invalid' | cut -c1-300). Check APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD (an app-specific password from appleid.apple.com) and APPLE_TEAM_ID together; the warnings above say which looks malformed."
+              exit 1
+            fi
+            echo "Apple accepts the notarization credentials."
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          mkdir -p dist
+          echo "$mode" > "dist/build-mode-$RUNNER_OS.txt"
+          echo "### $RUNNER_OS: $mode" >> "$GITHUB_STEP_SUMMARY"
+          npm run ${{ matrix.dist-script }} -- --publish never
+
+      # The .dmg is what people download, so it is signed (electron-builder.yml dmg.sign), notarized and
+      # stapled in its own right, not only the app inside it. electron-builder's afterSign hook
+      # (scripts/notarize.cjs) notarizes the .app alone. Stapling appends the ticket to the dmg, which
+      # changes its bytes after electron-builder hashed it, so the dmg's blockmap and its latest-mac.yml
+      # entry are regenerated afterwards (publish-draft re-checks every sha512 the feed names).
+      - name: Notarize and staple the dmg (macOS)
+        if: runner.os == 'macOS' && steps.build.outputs.mode == 'notarized'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            export "$v=$(printf '%s' "${!v}" | tr -d '[:space:]')"
+          done
+          shopt -s nullglob
+          dmgs=(dist/*.dmg)
+          [ ${#dmgs[@]} -eq 1 ] || { echo "::error::expected exactly one dmg, found ${#dmgs[@]}"; exit 1; }
+          dmg=${dmgs[0]}
+          team=$(codesign -dv "$dmg" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+          if [ -z "$team" ] || [ "$team" = "not set" ]; then
+            echo "::error::$dmg is not signed with a Developer ID (TeamIdentifier: ${team:-none}); check dmg.sign in electron-builder.yml."
+            exit 1
+          fi
+          # electron-builder signs the dmg without --timestamp. If codesign did not add a secure
+          # timestamp on its own, re-sign with one: the dmg is re-hashed below anyway.
+          if ! codesign -dvv "$dmg" 2>&1 | grep -q '^Timestamp='; then
+            hash=$(security find-identity -v -p codesigning "$RUNNER_TEMP/beacon-signing.keychain-db" | awk '/"Developer ID Application: /{print $2; exit}')
+            codesign --force --sign "$hash" --timestamp "$dmg"
+            echo "Re-signed the dmg with a secure timestamp."
+          fi
+          out=$(xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --output-format json)
+          status=$(printf '%s' "$out" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.status+" "+j.id)})')
+          echo "notarytool: $status"
+          if [ "${status%% *}" != Accepted ]; then
+            xcrun notarytool log "${status#* }" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
+            echo "::error::Apple did not accept the dmg (${status%% *}); its log is above."
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          node scripts/rehash-update-file.mjs "$dmg" dist/latest-mac.yml
+
+      - name: Remove the build keychain (macOS)
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: security delete-keychain "$RUNNER_TEMP/beacon-signing.keychain-db" 2>/dev/null || true
+
+      - name: Check the signature matches the mode (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MODE: ${{ steps.build.outputs.mode }}
+          APP: ${{ matrix.unpacked }}
+        run: |
+          case "$MODE" in
+            unsigned) echo "Unsigned build: nothing to verify."; exit 0 ;;
+          esac
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          team=$(codesign -dv "$APP" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+          if [ -z "$team" ] || [ "$team" = "not set" ]; then
+            echo "::error::$APP is not signed with a Developer ID (TeamIdentifier: ${team:-none}), but the run was in '$MODE' mode."
+            exit 1
+          fi
+          if [ "$MODE" = notarized ]; then
+            xcrun stapler validate "$APP"
+            spctl --assess --type execute --verbose=4 "$APP"
+            # The whole-bundle check (macOS 14+). spctl on a NESTED executable (ShipIt, crashpad) says
+            # "does not seem to be an app" even when it is notarized, so per-binary spctl is not one;
+            # the app's ticket covers every nested CDHash, and this is what checks that.
+            syspolicy_check distribution "$APP"
+          fi
+          # The dmg: signed in both signed modes, and notarized + stapled when the app is.
+          dmg=$(ls dist/*.dmg)
+          codesign --verify --verbose=2 "$dmg"
+          dteam=$(codesign -dv "$dmg" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+          if [ "$dteam" != "$team" ]; then
+            echo "::error::$dmg is signed by team '${dteam:-none}', the app by '$team'."
+            exit 1
+          fi
+          if [ "$MODE" = notarized ]; then
+            xcrun stapler validate "$dmg"
+            verdict=$(spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg" 2>&1) || { echo "$verdict"; exit 1; }
+            echo "$verdict"
+            case "$verdict" in
+              *"source=Notarized Developer ID"*) ;;
+              *) echo "::error::Gatekeeper accepts $dmg but not as notarized"; exit 1 ;;
+            esac
+          fi
+          echo "Signature checks pass for $MODE (app and dmg)." >> "$GITHUB_STEP_SUMMARY"
+
+      # Prints the fingerprint and validity dates of the certificate that ACTUALLY signed the app (read
+      # off the bundle, not the keychain), and warns from 60 days before it expires: after notAfter, CI
+      # can no longer sign. Prints nothing else about the certificate.
+      - name: Signing certificate expiry (macOS)
+        if: runner.os == 'macOS' && steps.build.outputs.mode != 'unsigned'
+        shell: bash
+        env:
+          APP: ${{ matrix.unpacked }}
+        run: |
+          d="$RUNNER_TEMP/signing-cert"
+          rm -rf "$d"; mkdir -p "$d"
+          codesign -d --extract-certificates="$d/c" "$APP" 2>/dev/null
+          [ -s "$d/c0" ] || { echo "::error::could not read the signing certificate off $APP"; exit 1; }
+          fp=$(openssl x509 -inform DER -in "$d/c0" -noout -fingerprint -sha1 | sed 's/^[^=]*=//; s/://g')
+          nb=$(openssl x509 -inform DER -in "$d/c0" -noout -startdate | sed 's/^notBefore=//')
+          na=$(openssl x509 -inform DER -in "$d/c0" -noout -enddate | sed 's/^notAfter=//')
+          echo "Signing certificate $fp, valid $nb to $na"
+          echo "Signing certificate \`$fp\`, valid $nb to **$na**" >> "$GITHUB_STEP_SUMMARY"
+          if ! openssl x509 -inform DER -in "$d/c0" -noout -checkend $((60 * 86400)) >/dev/null; then
+            echo "::warning title=Signing certificate expires within 60 days::$fp expires $na. CI cannot sign after that date; put a new certificate in CSC_LINK (and SIGN_FINGERPRINT) before then."
+          fi
+          if [ "$fp" != "$SIGN_FINGERPRINT" ]; then
+            echo "::warning title=Signing certificate is not the pinned one::signed by $fp, SIGN_FINGERPRINT is $SIGN_FINGERPRINT. Update one of them."
+          fi
+          rm -rf "$d"
+
+      # PR 205's verifier, on the app AND on the dmg people download. It checks:
+      #   - every Mach-O is signed by the pinned leaf, a Developer ID Application certificate;
+      #   - hardened runtime and timestamps;
+      #   - entitlements match electron-builder.yml (always the config of the commit that built it).
+      # On notarized runs, --notarized adds stapler, Gatekeeper on the app (or on the dmg, --type open)
+      # and syspolicy_check distribution. --dmg mounts the image read-only and also verifies the one app
+      # at its root. The dmg is checked AFTER it was notarized, stapled and re-hashed above.
+      # A missing script FAILS: the gate is on main since PR 205, and a rename must not switch it off.
+      - name: Verify the signature by fingerprint (macOS)
+        if: runner.os == 'macOS' && steps.build.outputs.mode != 'unsigned'
+        shell: bash
+        env:
+          APP: ${{ matrix.unpacked }}
+          MODE: ${{ steps.build.outputs.mode }}
+        run: |
+          if [ ! -f scripts/sign-by-fingerprint.mjs ]; then
+            echo "::error title=Fingerprint verification cannot run::scripts/sign-by-fingerprint.mjs is missing from this tree."
+            exit 1
+          fi
+          app_args=(--verify-only --app "$APP")
+          [ "$MODE" = notarized ] && app_args+=(--notarized)
+          node scripts/sign-by-fingerprint.mjs "$SIGN_FINGERPRINT" "${app_args[@]}"
+          shopt -s nullglob
+          dmgs=(dist/*.dmg)
+          [ ${#dmgs[@]} -eq 1 ] || { echo "::error::expected exactly one dmg, found ${#dmgs[@]}"; exit 1; }
+          dmg_args=(--verify-only --dmg "${dmgs[0]}")
+          [ "$MODE" = notarized ] && dmg_args+=(--notarized)
+          node scripts/sign-by-fingerprint.mjs "$SIGN_FINGERPRINT" "${dmg_args[@]}"
+          echo "sign-by-fingerprint: app and dmg pass ($MODE${MODE:+, }pinned $SIGN_FINGERPRINT)." >> "$GITHUB_STEP_SUMMARY"
+
+      # The packager reads disk, not git (check-bundle.mjs says why that matters).
+      - name: Audit the bundle
+        run: node scripts/check-bundle.mjs "${{ matrix.asar }}"
+
+      # The AppImage has to start on a stock Ubuntu 22.04+, which no longer installs libfuse2. The legacy
+      # runtime dlopens libfuse.so.2; electron-builder.yml pins the static type2 runtime (toolsets.appimage).
+      - name: The AppImage runtime starts without libfuse2 (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: node scripts/check-appimage-runtime.mjs dist/*.AppImage
+
+      - name: The packaged update feed is OAraLabs/beacon, with no token
+        run: node scripts/check-update-feed.mjs "${{ matrix.unpacked }}"
+
+      # Beacon is MIT. The license field surfaces in the app's bundled package.json, the .deb's control
+      # `License:` field and (macOS) the About box's copyright line: MIT, and LICENSE's copyright line, which reserves
+      # nothing. Every artifact carries LICENSE.txt and THIRD_PARTY_NOTICES.txt identical
+      # to the repo's, and Chromium's licenses; the dmg carries no agreement and the AppImage asks for none.
+      # Checked on what this job just built (the dmg after stapling), before anything is uploaded.
+      - name: The license and the notices ship, MIT everywhere, and no install-time agreement
+        shell: bash
+        run: node scripts/check-license-metadata.mjs ${{ matrix.license-targets }}
+
+      # THIRD_PARTY_NOTICES.txt lists what this build ships: the production dependencies and every package
+      # the bundle inlined (recorded by this job's own electron-vite build). Stale, or anything shipped
+      # under GPL/LGPL/AGPL with no permissive option, fails the release.
+      - name: The third-party notices list what this build ships, and nothing is copyleft
+        run: node scripts/third-party-notices.mjs
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: beacon-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+
+  publish-draft:
+    needs: [preflight, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          pattern: beacon-*
+          merge-multiple: true
+
+      # Everything the release needs, exactly once, before anything is uploaded. latest-*.yml are not
+      # optional extras: they are the feed. Without one, that platform's installed clients cannot see
+      # the release at all, and report "up to date" forever. And every file a feed names must be in
+      # the release, or the update is found and then fails to download.
+      - name: The release set is complete and self-consistent
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          cd dist
+          shopt -s nullglob
+          fail() { echo "::error::$*"; exit 1; }
+          for want in "*.dmg" "*-mac.zip" "*.AppImage" "*.deb"; do
+            set -- $want
+            [ $# -eq 1 ] || fail "expected exactly one $want, found $#: $*"
+          done
+          for y in latest-mac.yml latest-linux.yml; do
+            [ -f "$y" ] || fail "$y is missing: that platform's installed clients could not see this release"
+          done
+          for y in latest-mac.yml latest-linux.yml; do
+            v=$(sed -n 's/^version: *//p' "$y")
+            [ "$v" = "$VERSION" ] || fail "$y says version '$v', package.json says $VERSION"
+            urls=$(sed -n -e 's/^ *- url: *//p' -e 's/^path: *//p' "$y" | sort -u)
+            [ -n "$urls" ] || fail "$y names no files"
+            for u in $urls; do [ -f "$u" ] || fail "$y names $u, which this release does not contain"; done
+            # The hashes too, not just the names: a file changed after electron-builder hashed it (a
+            # stapled dmg) leaves an entry that names the right file with the wrong sha512.
+            checked=0
+            while read -r u h z; do
+              [ "$(openssl dgst -sha512 -binary "$u" | base64 | tr -d '\n')" = "$h" ] || fail "$y: the sha512 for $u does not match the file"
+              [ "$(wc -c < "$u" | tr -d ' ')" = "$z" ] || fail "$y: the size for $u does not match the file"
+              checked=$((checked + 1))
+            done < <(awk '/^  - url: /{u=$3} /^    sha512: /{h=$2} /^    size: /{print u, h, $2}' "$y")
+            [ "$checked" -gt 0 ] || fail "$y: no files[] entries could be read to check"
+            p=$(sed -n 's/^path: *//p' "$y"); ph=$(sed -n 's/^sha512: *//p' "$y")
+            [ "$(openssl dgst -sha512 -binary "$p" | base64 | tr -d '\n')" = "$ph" ] || fail "$y: the top-level sha512 does not match $p"
+            echo "$y: $checked entries, sha512 and size match the files"
+          done
+          ls -l
+
+      - name: The update feed in the SHIPPED artifacts is OAraLabs/beacon, with no token
+        run: node scripts/check-update-feed.mjs dist/*-mac.zip dist/*.deb dist/*.AppImage
+
+      - name: Create or update the draft on ${{ env.RELEASE_REPO }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.BEACON_RELEASES_TOKEN }}
+          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          [ -n "$GH_TOKEN" ] || { echo "::error::BEACON_RELEASES_TOKEN is missing"; exit 1; }
+          tag=$GITHUB_REF_NAME
+          mac_mode=$(cat dist/build-mode-macOS.txt)
+          case "$mac_mode" in
+            notarized) mac_line="app and dmg signed, notarized and stapled (Developer ID)" ;;
+            signed)    mac_line="signed, NOT notarized: Gatekeeper will warn" ;;
+            *)         mac_line="UNSIGNED: Gatekeeper will block it on other Macs" ;;
+          esac
+          cat > notes.md <<EOF
+          Beacon $VERSION
+
+          | Platform | File |
+          |---|---|
+          | macOS (Apple Silicon) | \`$(basename dist/*.dmg)\` |
+          | Linux (AppImage, x86_64) | \`$(basename dist/*.AppImage)\` |
+          | Linux (Debian/Ubuntu, amd64) | \`$(basename dist/*.deb)\` |
+
+          <!-- Before publishing: replace or keep the lines above, then delete this block.
+          Built by release.yml from tag $tag (source commit ${GITHUB_SHA::7}).
+          macOS: $mac_line.
+          Linux: AppImage and deb are not signed.
+          Publishing this makes it the update every installed Beacon 0.3.0+ downloads. -->
+          EOF
+
+          existing=$(gh api "repos/$RELEASE_REPO/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name == \"$tag\") | (.draft|tostring)")
+          if [ "$(printf '%s' "$existing" | grep -c .)" -gt 1 ]; then
+            echo "::error::$RELEASE_REPO has more than one release for $tag ($(echo $existing)); delete the extra drafts, then re-run."
+            exit 1
+          fi
+          case "$existing" in
+            "")
+              flags=(--draft --title "Beacon $tag" --notes-file notes.md)
+              [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+              gh release create "$tag" -R "$RELEASE_REPO" "${flags[@]}"
+              ;;
+            true)
+              echo "A draft for $tag already exists on $RELEASE_REPO: replacing its files."
+              gh release edit "$tag" -R "$RELEASE_REPO" --notes-file notes.md
+              ;;
+            *)
+              echo "::error::$tag is already PUBLISHED on $RELEASE_REPO; refusing to modify it."
+              exit 1
+              ;;
+          esac
+          gh release upload "$tag" -R "$RELEASE_REPO" --clobber \
+            dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb dist/latest-mac.yml dist/latest-linux.yml dist/*.blockmap
+
+      # Read back what the draft actually holds and compare it to what was meant to go up. The upload
+      # command succeeding is not the same claim as the draft containing these files.
+      - name: The draft holds exactly the release set
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.BEACON_RELEASES_TOKEN }}
+        run: |
+          tag=$GITHUB_REF_NAME
+          (cd dist && ls *.dmg *.zip *.AppImage *.deb latest-mac.yml latest-linux.yml *.blockmap) | sort > want.txt
+          gh api "repos/$RELEASE_REPO/releases?per_page=100" --paginate \
+            --jq ".[] | select(.tag_name == \"$tag\") | .assets[] | .name" | sort > have.txt
+          {
+            echo "### Draft $tag on $RELEASE_REPO"
+            echo '```'
+            gh api "repos/$RELEASE_REPO/releases?per_page=100" --paginate \
+              --jq ".[] | select(.tag_name == \"$tag\") | .assets[] | \"\(.size)\t\(.name)\""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if ! diff -u want.txt have.txt; then
+            echo "::error::the draft's assets differ from the release set (- missing, + unexpected)"
+            exit 1
+          fi
+          echo "Draft holds all $(wc -l < have.txt) files. Publish it by hand after review."

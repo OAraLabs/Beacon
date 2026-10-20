@@ -1,0 +1,352 @@
+{
+  "_header": {
+    "captured": false,
+    "note": "WRITTEN, NOT CAPTURED. Each payload is built key-for-key from the payload builders in OAraLabs/Prometheus src/prometheus/computer/livestream.py (ComputerLiveStream.binding / task_started / step / task_ended / _emit's stream-error path) and the reply in src/prometheus/web/ws_server.py (computer_task_stop -> computer_task_stop_ack), at 6be4020 on claude/cu-v11-pr6-cockpit (draft PR #663). The envelope is ws_server's {type, timestamp (epoch seconds), payload}. No daemon running #663 was reachable when this was written. Replace it with a capture taken at window.beacon.events.onGateway once one is, as src/main/fixtures/coding-wire-c941664a6.json was. The computer_step_thumbnail frame and the thumbnail/thumbnail_skip_reason fields on computer_step are likewise WRITTEN, key-for-key from OAraLabs/Prometheus src/prometheus/computer/thumbnails.py (build_frame/FRAME_KEYS) and livestream.py step(), at PR #701 (merged 1b87e2e). Still not captured from a live daemon: computer_use is off, and re-capturing is plan step 2.1.",
+    "layer1": "Layer-1 frames (tool_call_start/end for computer_task and computer_<verb>, agent_progress, chat_done) also arrive while a task runs. They are already decoded by the chat path and are not computer_* kinds, so the scenarios leave them out. task_layer1_end holds the two that close the 'task' scenario (livestream.py task_ended), so smoke:computer can check they stay out of the computer state: the chat_done carries message_id \"computer:<task_id>\", a string handle and never a rowid (no row_id key), since 6be4020.",
+    "scenarios": {
+      "task": "A whole task: the person's app pick turns on for one task, the task starts, a click runs under the pick, a Return press waits on an approval and then runs, the chooser finds nothing more to do, the task ends done, and the pick turns off.",
+      "stopped": "A Stop mid-task: this socket sends computer_task_stop, gets the ack, the click already dispatched lands after the stop (in_flight_at_stop), and the task ends stopped.",
+      "log_failed": "One step's frame was not delivered. The daemon numbered it (seq 2) before the emit failed, so seq 2 never arrives and a computer_stream_error names the task instead. The task itself carries on."
+    }
+  },
+  "task": {
+    "session_id": "desktop:7c1e9a40-cu-fixture",
+    "task_id": "a1b2c3d4",
+    "frames": [
+      {
+        "type": "computer_binding",
+        "timestamp": 1791144900.012,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "state": "on",
+          "target": "local",
+          "app": "gedit",
+          "scope": "task",
+          "set_by": { "surface": "beacon" },
+          "expires_at": 1791145500.012,
+          "describes": "Prometheus may click and press Tab/Escape in gedit on local, for this task only. Anything else asks you first.",
+          "covers": ["click", "press_key:tab", "press_key:escape"]
+        }
+      },
+      {
+        "type": "computer_task_started",
+        "timestamp": 1791144900.031,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "a1b2c3d4",
+          "target": "local",
+          "app": "gedit",
+          "goal": "save the document",
+          "chooser": "rule",
+          "started_by": { "surface": "beacon" },
+          "limits": { "max_steps": 20, "max_seconds": 600, "max_approvals": 10 },
+          "text_chars": 0
+        }
+      },
+      {
+        "type": "computer_step_thumbnail",
+        "timestamp": 1791144901.4,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "a1b2c3d4",
+          "seq": 1,
+          "app": "gedit",
+          "mime_type": "image/png",
+          "width": 480,
+          "height": 300,
+          "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+          "captured_at": "2026-10-04T20:15:01Z"
+        }
+      },
+      {
+        "type": "computer_step",
+        "timestamp": 1791144901.418,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "a1b2c3d4",
+          "seq": 1,
+          "status": "executed",
+          "action": { "verb": "click", "description": "Click the menu item 'File'", "app_text": true },
+          "extent": "local:gedit:-:click:background",
+          "consent": "binding",
+          "approval_request_id": null,
+          "chooser": { "name": "rule", "confidence": 0.3, "reason": null },
+          "effect": "CONFIRMED",
+          "verified": true,
+          "after_stop": false,
+          "candidates_offered": 7,
+          "duration_ms": 412,
+          "reason": "",
+          "thumbnail": "sent",
+          "thumbnail_skip_reason": null
+        }
+      },
+      {
+        "type": "computer_step",
+        "timestamp": 1791144902.204,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "a1b2c3d4",
+          "seq": 2,
+          "status": "awaiting_approval",
+          "action": { "verb": "press_key", "description": "Press Return on the push button 'Save'", "app_text": true },
+          "extent": "local:gedit:-:press_key:return:background",
+          "consent": null,
+          "approval_request_id": "cafe1234",
+          "chooser": null,
+          "effect": null,
+          "verified": null,
+          "after_stop": false,
+          "candidates_offered": 0,
+          "duration_ms": 0,
+          "reason": "",
+          "thumbnail": null,
+          "thumbnail_skip_reason": null
+        }
+      },
+      {
+        "type": "computer_step",
+        "timestamp": 1791144905.877,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "a1b2c3d4",
+          "seq": 3,
+          "status": "executed",
+          "action": { "verb": "press_key", "description": "Press Return on the push button 'Save'", "app_text": true },
+          "extent": "local:gedit:-:press_key:return:background",
+          "consent": "prompt",
+          "approval_request_id": null,
+          "chooser": { "name": "rule", "confidence": 0.6, "reason": null },
+          "effect": "UNVERIFIABLE",
+          "verified": null,
+          "after_stop": false,
+          "candidates_offered": 5,
+          "duration_ms": 3671,
+          "reason": "",
+          "thumbnail": null,
+          "thumbnail_skip_reason": null
+        }
+      },
+      {
+        "type": "computer_step",
+        "timestamp": 1791144906.402,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "a1b2c3d4",
+          "seq": 4,
+          "status": "abstained",
+          "action": null,
+          "extent": null,
+          "consent": null,
+          "approval_request_id": null,
+          "chooser": { "name": "rule", "confidence": 0.0, "reason": "nothing on screen serves the goal" },
+          "effect": null,
+          "verified": null,
+          "after_stop": false,
+          "candidates_offered": 4,
+          "duration_ms": 388,
+          "reason": "nothing on screen serves the goal",
+          "thumbnail": null,
+          "thumbnail_skip_reason": null
+        }
+      },
+      {
+        "type": "computer_task_ended",
+        "timestamp": 1791144906.415,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "a1b2c3d4",
+          "outcome": "done",
+          "reason": "nothing more serves the goal",
+          "steps": 2,
+          "approvals": 1,
+          "in_flight_at_stop": false,
+          "duration_ms": 6384
+        }
+      },
+      {
+        "type": "computer_binding",
+        "timestamp": 1791144906.421,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "state": "off",
+          "target": "local",
+          "app": "gedit",
+          "scope": "task",
+          "set_by": { "surface": "beacon" },
+          "expires_at": 1791145500.012
+        }
+      }
+    ]
+  },
+  "task_layer1_end": [
+    {
+      "type": "tool_call_end",
+      "timestamp": 1791144906.417,
+      "payload": {
+        "session_id": "desktop:7c1e9a40-cu-fixture",
+        "call_id": "a1b2c3d4",
+        "tool_name": "computer_task",
+        "success": true,
+        "result": "Desktop task a1b2c3d4 done: 2 steps, 1 approval."
+      }
+    },
+    {
+      "type": "chat_done",
+      "timestamp": 1791144906.418,
+      "payload": {
+        "session_id": "desktop:7c1e9a40-cu-fixture",
+        "message_id": "computer:a1b2c3d4",
+        "interrupted": false,
+        "origin": "user_task"
+      }
+    }
+  ],
+  "stopped": {
+    "session_id": "desktop:7c1e9a40-cu-fixture",
+    "task_id": "e5f6a7b8",
+    "frames": [
+      {
+        "type": "computer_task_started",
+        "timestamp": 1791145200.004,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "e5f6a7b8",
+          "target": "local",
+          "app": "gedit",
+          "goal": "close the find bar",
+          "chooser": "rule",
+          "started_by": { "surface": "telegram" },
+          "limits": { "max_steps": 20, "max_seconds": 600, "max_approvals": 10 },
+          "text_chars": 0
+        }
+      },
+      {
+        "type": "computer_task_stop_ack",
+        "timestamp": 1791145200.640,
+        "payload": { "task_id": "e5f6a7b8", "stopped": true }
+      },
+      {
+        "type": "computer_step",
+        "timestamp": 1791145200.913,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "e5f6a7b8",
+          "seq": 1,
+          "status": "in_flight_at_stop",
+          "action": { "verb": "click", "description": "Click the push button 'Close'", "app_text": true },
+          "extent": "local:gedit:-:click:background",
+          "consent": "binding",
+          "approval_request_id": null,
+          "chooser": { "name": "rule", "confidence": 0.4, "reason": null },
+          "effect": "UNVERIFIABLE",
+          "verified": null,
+          "after_stop": true,
+          "candidates_offered": 3,
+          "duration_ms": 905,
+          "reason": ""
+        }
+      },
+      {
+        "type": "computer_task_ended",
+        "timestamp": 1791145200.931,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "e5f6a7b8",
+          "outcome": "stopped",
+          "reason": "stopped by a person",
+          "steps": 1,
+          "approvals": 0,
+          "in_flight_at_stop": true,
+          "duration_ms": 927
+        }
+      }
+    ]
+  },
+  "log_failed": {
+    "session_id": "desktop:7c1e9a40-cu-fixture",
+    "task_id": "c9d0e1f2",
+    "frames": [
+      {
+        "type": "computer_task_started",
+        "timestamp": 1791145500.002,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "c9d0e1f2",
+          "target": "local",
+          "app": "gedit",
+          "goal": "open the preferences",
+          "chooser": "rule",
+          "started_by": { "surface": "beacon" },
+          "limits": { "max_steps": 20, "max_seconds": 600, "max_approvals": 10 },
+          "text_chars": 0
+        }
+      },
+      {
+        "type": "computer_step",
+        "timestamp": 1791145500.611,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "c9d0e1f2",
+          "seq": 1,
+          "status": "executed",
+          "action": { "verb": "click", "description": "Click the menu button 'Main Menu'", "app_text": true },
+          "extent": "local:gedit:-:click:background",
+          "consent": "binding",
+          "approval_request_id": null,
+          "chooser": { "name": "rule", "confidence": 0.5, "reason": null },
+          "effect": "CONFIRMED",
+          "verified": true,
+          "after_stop": false,
+          "candidates_offered": 6,
+          "duration_ms": 598,
+          "reason": ""
+        }
+      },
+      {
+        "type": "computer_stream_error",
+        "timestamp": 1791145501.240,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "c9d0e1f2",
+          "detail": "computer_step not delivered (ConnectionError)"
+        }
+      },
+      {
+        "type": "computer_step",
+        "timestamp": 1791145501.902,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "c9d0e1f2",
+          "seq": 3,
+          "status": "refused",
+          "action": { "verb": "click", "description": "Click the menu item 'Quit'", "app_text": true },
+          "extent": "local:gedit:-:click:background",
+          "consent": null,
+          "approval_request_id": null,
+          "chooser": { "name": "rule", "confidence": 0.2, "reason": null },
+          "effect": null,
+          "verified": null,
+          "after_stop": false,
+          "candidates_offered": 9,
+          "duration_ms": 120,
+          "reason": "closing the app is never in a pick"
+        }
+      },
+      {
+        "type": "computer_task_ended",
+        "timestamp": 1791145501.915,
+        "payload": {
+          "session_id": "desktop:7c1e9a40-cu-fixture",
+          "task_id": "c9d0e1f2",
+          "outcome": "refused",
+          "reason": "closing the app is never in a pick",
+          "steps": 2,
+          "approvals": 0,
+          "in_flight_at_stop": false,
+          "duration_ms": 1913
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "recorded": "2026-10-11",
+  "daemon": "Prometheus main with #732 (e867e41 and later), setup mode, scratch home",
+  "check_key": {
+    "no_token": {
+      "status": 401,
+      "json": {
+        "error": "unauthorized",
+        "detail": "setup mutations require Authorization: Bearer with the token returned by /api/setup/pair"
+      }
+    },
+    "not_json": {
+      "status": 400,
+      "json": {
+        "error": "bad_request",
+        "detail": "expected a JSON body: {\"provider\", \"api_key\"}"
+      }
+    },
+    "base_url": {
+      "status": 400,
+      "json": {
+        "error": "unexpected_base_url",
+        "detail": "the key check calls each provider's own address; it takes no base_url"
+      }
+    },
+    "unsupported": {
+      "status": 400,
+      "json": {
+        "error": "unsupported_provider",
+        "detail": "the key check knows anthropic, openai, openrouter"
+      }
+    },
+    "empty_key": {
+      "status": 400,
+      "json": {
+        "error": "bad_request",
+        "detail": "api_key is required (a non-empty string)"
+      }
+    },
+    "not_a_key": {
+      "status": 200,
+      "json": {
+        "result": "bad_key",
+        "detail": "that is not shaped like an API key"
+      }
+    },
+    "fake_openrouter": {
+      "status": 200,
+      "json": {
+        "result": "bad_key",
+        "status": 401,
+        "detail": "the provider refused the key"
+      },
+      "took_ms_rounded": 100
+    },
+    "fake_anthropic": {
+      "status": 200,
+      "json": {
+        "result": "bad_key",
+        "status": 401,
+        "detail": "the provider refused the key"
+      },
+      "took_ms_rounded": 100
+    },
+    "fake_openai": {
+      "status": 200,
+      "json": {
+        "result": "bad_key",
+        "status": 401,
+        "detail": "the provider refused the key"
+      },
+      "took_ms_rounded": 100
+    }
+  },
+  "configure_openrouter": {
+    "status": 200,
+    "json": {
+      "configured": true,
+      "config_path": "<home>/.prometheus/prometheus.yaml",
+      "provider": "openrouter",
+      "base_url": null,
+      "model": "anthropic/claude-sonnet-5",
+      "agent_name": null,
+      "identity": null,
+      "telegram_token_saved": false,
+      "api_key_env": "OPENROUTER_API_KEY",
+      "api_key_saved": true,
+      "gateways_enabled": [],
+      "web": {
+        "enabled": true,
+        "api_port": 53592,
+        "ws_port": 53593,
+        "bind": "127.0.0.1"
+      }
+    }
+  },
+  "config_lines": [
+    "model:",
+    "  provider: openrouter",
+    "  model: anthropic/claude-sonnet-5"
+  ],
+  "key_kept_in": [
+    "<home>/.config/prometheus/env"
+  ],
+  "key_in_config_yaml": false,
+  "complete": {
+    "status": 200,
+    "json": {
+      "restarting": true,
+      "detail": "setup verified — the real daemon is starting in this process. Poll /api/status with your bearer token until it answers 200."
+    }
+  },
+  "status_after_complete": 200,
+  "hello_after": {
+    "v": "0.9.6",
+    "name": "<this Mac>.local",
+    "agent": "Prometheus",
+    "fp": "<16 hex>",
+    "pair": "approve",
+    "tls": false
+  }
+}

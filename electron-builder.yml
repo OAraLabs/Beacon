@@ -1,0 +1,203 @@
+appId: com.oaralabs.beacon
+productName: Beacon
+# Shown in the macOS About box (Info.plist NSHumanReadableCopyright): LICENSE's copyright line, verbatim.
+# Beacon is MIT (LICENSE): package.json says "MIT" and names the same holder as its author.
+# scripts/check-license-metadata.mjs fails a release whose metadata says otherwise, or whose copies of
+# the license disagree.
+copyright: Copyright (c) 2026 OAra Labs, LLC
+
+directories:
+  buildResources: build
+  output: dist
+
+# THIS FILE BUILDS A RELEASE. `beaconBuild: release` goes into the packaged package.json (inside
+# app.asar, which the integrity fuse below seals), and main refuses --remote-debugging-port /
+# --remote-debugging-pipe when it reads it (src/shared/release-gate.ts). The probes attach over
+# CDP and the Node inspector, so they need a different build: electron-builder.probe.yml
+# (`npm run pack:mac:probe`), which extends this file. audit:bundle refuses to pass, and so
+# install-local refuses to install, any bundle whose flag is not 'release'.
+extraMetadata:
+  beaconBuild: release
+
+# FUSES: bits in the Electron binary, flipped at package time and covered by the signature. Read
+# them back with `npx @electron/fuses read --app <Beacon.app>`; probe:hardening asserts them and
+# drives each door. Measured on main 9046521's signed arm64 build, before this block existed:
+#   runAsNode           ELECTRON_RUN_AS_NODE=1 Beacon <script> ran the script as plain Node
+#                       (v24.21.0) under Beacon's signature and Keychain trust.
+#   nodeOptions         NODE_EXTRA_CA_CERTS was read ("Ignoring extra certs from …"): a local process
+#                       could add a trusted root for main's Node TLS. (NODE_OPTIONS=--require was
+#                       already dropped: packaged Electron keeps only two NODE_OPTIONS.)
+#   nodeCliInspect      --inspect=<port> listened, and SIGUSR1 opened the inspector on a live app.
+#   onlyLoadAppFromAsar a Resources/app/ folder beside a missing app.asar was loaded as the app.
+#   asar integrity      app.asar could be edited after signing and still ran.
+# Nothing in Beacon needs the first three: it never forks itself (no process.fork, no
+# ELECTRON_RUN_AS_NODE child) and sets no NODE_OPTIONS. The smokes run node_modules' Electron, which
+# has no fuses flipped.
+# enableCookieEncryption — ON, and NEVER TURN IT OFF ONCE SHIPPED (docs/DECISIONS.md D1). The cookie
+# jar on disk is encrypted with the same Keychain key safeStorage already uses. Turning it on keeps
+# existing plaintext cookies (measured). Turning it OFF again later deletes every cookie of any
+# domain that holds an encrypted one, plaintext ones included, and turning it back on restores
+# nothing (measured). smoke:release-gate fails CI if this goes false or disappears, and audit:bundle
+# refuses to install a release built without it.
+# resetAdHocDarwinSignature: flipping a fuse edits Electron Framework. In an UNSIGNED build
+# (release.yml sets CSC_IDENTITY_AUTO_DISCOVERY=false) nothing re-signs it afterwards, and without
+# this codesign reports "invalid signature (code or signature have been modified)" on the framework,
+# which arm64 macOS will not load. With it the unsigned arm64 build verifies and runs (measured).
+# A signed build re-signs over it.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+  resetAdHocDarwinSignature: true
+
+# WHAT SHIPS — an INCLUDE list, deliberately.
+#
+# This was an exclude list ("everything except these dev files"), and on 2026-09-07 the installed
+# app.asar was found to contain: the whole design/ folder INCLUDING three gitignored .dc.html
+# prototypes carrying real tailnet addresses (the pre-commit guard keeps them out of git; the
+# packager reads disk and never asked git); 593 files under .claude/ including a 17 MB stale
+# worktree from another session; docs/; HANDOFF.md; tsbuildinfo. Every one of those directories
+# was created AFTER the exclude list was written, and every one shipped by default. An exclude
+# list rots the day a new directory appears. An include list cannot.
+#
+# electron-builder still adds package.json and the pruned production node_modules on its own.
+# scripts/check-bundle.mjs (`npm run audit:bundle`) lists the built asar and refuses anything
+# outside this set — install-local runs it and will not install a bundle that fails it.
+files:
+  - 'out/**'
+  - '!out/main/*-smoke.js'      # the headless smoke entrypoints — dev only
+  - '!**/*.map'
+  # node-pty: ship ONLY build/Release (compiled against this exact Electron ABI). Its npm
+  # tarball also carries single-arch `prebuilds/` and @electron/rebuild leaves a
+  # `bin/<platform>-<arch>-<abi>/` copy; both were byte-identical in the x64 and arm64 slices,
+  # so the universal merge refused them ("same in both builds and not covered by x64ArchFiles").
+  # The mac build is arm64-only now (see mac.target), but the loader (lib/utils.js) reads
+  # build/Release first and never reads bin/, so excluding them still loses nothing.
+  - '!**/node_modules/node-pty/prebuilds/**'
+  - '!**/node_modules/node-pty/bin/**'
+
+# THE UPDATE FEED. electron-builder bakes this into app-update.yml inside the bundle, and that file
+# is what electron-updater reads at runtime.
+#
+# OAraLabs/beacon is PUBLIC and holds installers only (no source); release.yml uploads to it. So the
+# feed needs no credential, and must not ask for one: no `private:` (providerFactory reads
+# GH_TOKEN/GITHUB_TOKEN from the environment only when it sees `private: true`) and no `token:` (it
+# would be baked into app-update.yml in plain text, in every installer). scripts/check-update-feed.mjs
+# reads the PACKAGED app-update.yml and fails the release if either appears.
+#
+# Until 0.3.0 this pointed at the private source repo with `private: true`, and Settings asked for a
+# GitHub PAT to read it. Builds from before 0.3.0 still point there and will not see releases here.
+#
+# src/main/updater.ts FEED must stay in step with this; updater-smoke pins the two together.
+publish:
+  - provider: github
+    owner: OAraLabs
+    repo: beacon
+
+# beacon:// deep links (PARITY-PLAN A4): CFBundleURLTypes on macOS, x-scheme-handler on Linux.
+# The app also calls setAsDefaultProtocolClient at runtime; this is the install-time half.
+protocols:
+  - name: Beacon
+    schemes:
+      - beacon
+
+# better-sqlite3 ships a native .node addon that cannot be loaded from inside app.asar.
+# node-pty ships pty.node AND `spawn-helper` — a Mach-O executable with no extension that the
+# addon posix_spawns by path. `**/*.node` alone would leave the helper inside the asar, where
+# it cannot be executed; unpack the whole package so the helper sits next to the addon on disk.
+# THE LICENSE AND THE NOTICES ship inside the app, beside app.asar (Contents/Resources on macOS,
+# resources/ on Linux, so also in the AppImage and the .deb): LICENSE as LICENSE.txt, and
+# THIRD_PARTY_NOTICES.txt (scripts/third-party-notices.mjs; a stale copy fails verify). Settings → About
+# opens both (src/shared/legal-docs.ts). check-license-metadata.mjs fails a release whose bundled copies
+# are missing or differ from these files.
+extraResources:
+  - from: LICENSE
+    to: LICENSE.txt
+  - from: THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
+
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+  - '**/node_modules/node-pty/**'
+  - '**/*.node'
+
+mac:
+  category: public.app-category.productivity
+  # arm64 ONLY (Apple Silicon). The universal target stopped building with Electron 44 (#152):
+  # better-sqlite3 13 loads its addon from prebuilds/<platform>-<arch>.node when there is no
+  # build/Release, the installed app has no build/, so the prebuild IS the addon and cannot be
+  # excluded the way node-pty's are; it is byte-identical in both slices, so @electron/universal
+  # refuses the merge and `npm run dist` / `install-local` exited 1 before installing anything.
+  # Every build that has actually shipped since was arm64-thin, built around this config.
+  # Intel Macs are therefore unsupported until someone wants them back: that needs an
+  # x64ArchFiles rule for the better-sqlite3 prebuild (docs/HANDOFF-2026-09-18.md).
+  # dmg = what a human downloads. zip = what electron-updater REQUIRES: Squirrel.Mac can only
+  # apply a zip, so a dmg-only build ships an updater that can check and never install (the
+  # updater code has been complete since 2026-08-15 while the pipeline could not deliver).
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  icon: build/icon.png
+  hardenedRuntime: true
+  # Voice turns: macOS refuses the mic without a usage string, and refuses it
+  # silently under hardened runtime without the audio-input entitlement. Both
+  # live here because a dev-mode test passes with NEITHER present — the
+  # packaged-build mic test is the only acceptance gate that can catch it.
+  extendInfo:
+    NSMicrophoneUsageDescription: Beacon uses the microphone for voice turns — audio goes to your own Prometheus stack.
+    # Finding a Prometheus on the home network (v0.4.0 onboarding). Shown in macOS's own prompt, so plain words.
+    NSLocalNetworkUsageDescription: Beacon looks for Prometheus on your home network, so you can pick yours instead of typing an address. It only asks each computer for its name.
+    NSBonjourServices:
+      - _prometheus._tcp
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Notarization is handled conditionally by scripts/notarize.cjs (afterSign), not the built-in.
+  notarize: false
+
+afterSign: scripts/notarize.cjs
+# Chromium's licenses (and those of Node.js, FFmpeg and everything else built into Electron) are
+# LICENSES.chromium.html in Electron's distribution. On macOS electron-builder deletes it, so this hook
+# copies it into Beacon.app's Resources first; on Linux it stays at the app's root.
+afterExtract: scripts/after-extract.cjs
+
+dmg:
+  title: ${productName} ${version}
+  # Sign the disk image itself, not only the app inside it: an unsigned dmg is "rejected, no usable
+  # signature" to `spctl --type open`, and Apple notarizes and staples a dmg only once it is signed.
+  # release.yml notarizes and staples it (scripts/notarize.cjs covers the .app alone), then re-hashes
+  # it into latest-mac.yml. electron-builder signs it before hashing, so a signed-only build needs no
+  # re-hash. With no Developer ID identity available it skips signing, as for the app.
+  sign: true
+  # No license agreement before the dmg mounts: MIT asks for none (check-license-metadata.mjs fails a
+  # dmg that carries one). LICENSE.txt is inside the app, and Settings → About opens it.
+
+# Linux targets (Onboarding Phase 3 — prebuilt distribution). AppImage is the
+# universal "chmod +x and run" artifact; deb covers Debian/Ubuntu installs.
+# electron-builder fetches its own AppImage/fpm tooling, so no system deps needed.
+linux:
+  category: Utility
+  icon: build/icon.png
+  artifactName: 'Beacon-${version}-${arch}.${ext}'
+  target:
+    - AppImage
+    - deb
+
+# The AppImage RUNTIME, the small program at the front of the file that mounts the rest. electron-builder's
+# default ("0.0.0", the legacy toolset) dlopens libfuse.so.2, which Ubuntu 22.04 and later no longer
+# install: the AppImage would not start until the user ran `apt install libfuse2` (libfuse2t64 on 24.04).
+# 1.0.3 is the static type2 runtime (20251108) with FUSE linked in, so `chmod +x` and run is enough.
+# electron-builder still labels 1.0.x "beta". The release job's "AppImage runtime" step fails a build whose
+# runtime asks for libfuse.so.2 (scripts/check-appimage-runtime.mjs).
+toolsets:
+  appimage: 1.0.3
+
+# No first-run license prompt in the AppImage, and none in the .deb: MIT asks for no agreement. Both carry
+# resources/LICENSE.txt (the .deb under /opt/Beacon).

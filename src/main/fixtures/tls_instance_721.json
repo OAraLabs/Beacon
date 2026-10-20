@@ -1,0 +1,15 @@
+{
+  "recorded": "2026-10-11",
+  "daemon": "Prometheus main 76134d6 (#721 TLS under #700): instance_key + instance_cert in a scratch home, web/tls.server_ssl_context on 127.0.0.1",
+  "pin": "93e4290f39594676e81c6213a1673294ba700af25b80ef2f9a004e47b1a418a1",
+  "fp": "93e4290f39594676",
+  "instance_public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEI4-voFHOU3bFMyRqlFGJceTP8I8biR9ZwBCbcCgq2Fy1FZA68XPq9Ai-aDwkgl-0TvcSExPS9FQTPFiRxcwkOQ",
+  "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBnjCCAUWgAwIBAgIQHLOU9Bpl+LF9z1R58BG0FTAKBggqhkjOPQQDAjAmMSQw\nIgYDVQQDDBtQcm9tZXRoZXVzIDkzZTQyOTBmMzk1OTQ2NzYwHhcNMjYxMDEwMDQw\nNTA2WhcNMzExMDEwMDQwNTA2WjAmMSQwIgYDVQQDDBtQcm9tZXRoZXVzIDkzZTQy\nOTBmMzk1OTQ2NzYwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQjj6+gUc5TdsUz\nJGqUUYlx5M/wjxuJH1nAEJtwKCrYXLUVkDrxc+r0CL5oPCSCX7RO9xITE9L0VBM8\nWJHFzCQ5o1UwUzBDBgNVHREEPDA6gglsb2NhbGhvc3SCElJlY29yZGVyLU1hYy5s\nb2NhbIIZcHJvbWV0aGV1cy05M2U0MjkwZi5sb2NhbDAMBgNVHRMBAf8EAjAAMAoG\nCCqGSM49BAMCA0cAMEQCIHiCtTF4vr50mZyMSgiJI62AiDtUgLTgr9I53wXsVpO3\nAiATgoQAdyajswPWAOmFm/51NQdzBWnPJxAOd0bMJgyO6A==\n-----END CERTIFICATE-----\n",
+  "handshake": {
+    "protocol": "TLSv1.3",
+    "cipher": "TLS_AES_256_GCM_SHA384",
+    "self_signed": true,
+    "san": "DNS:localhost, DNS:Recorder-Mac.local, DNS:prometheus-93e4290f.local",
+    "presented_is_cert_pem": true
+  }
+}

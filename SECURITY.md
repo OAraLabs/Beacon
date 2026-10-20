@@ -17,7 +17,7 @@ Leave out real API tokens, pairing codes, and your conversations. If something y
 
 ## What to expect
 
-- We confirm we received your report within **[N] business days**.
+- We aim to acknowledge reports quickly.
 - We keep you updated while we investigate and fix it, and agree a disclosure date with you.
 - We credit you in the release notes for the fix, unless you'd rather we didn't.
 

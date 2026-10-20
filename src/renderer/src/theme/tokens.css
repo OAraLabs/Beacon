@@ -1,0 +1,643 @@
+/*
+ * Beacon design tokens — CODEX re-skin (LVX vellum / NOX observatory).
+ * "A Renaissance codex rendered by a machine": ink-on-vellum + sanguine/lapis accents, serif
+ * display + mono telemetry. ONE source of color truth — every component consumes these vars
+ * (enforced by scripts/check-tokens.mjs); the whole app re-skins by flipping `data-theme` on <html>.
+ *
+ * NOX (dark) is the default (lives in :root); every other plate is a [data-theme='…'] override
+ * block below. NINE plates as of 2026-09-03: the two references NOX + LVX, then NIGREDO ·
+ * AVRVM · VMBRA · AERVGO · CAERVLA · GLAVCVM · AETHER, each free to re-pitch the accents and each
+ * block self-contained. The legacy --c-* / --bg / --text / --accent aliases are re-mapped onto the
+ * Codex tokens so existing components re-skin with no per-component edit; restyled surfaces
+ * (status bar, etc.) use the Codex names directly.
+ *
+ * KEYS ARE HISTORICAL, LABELS ARE CURRENT. `dark` is NOX and `light` is LVX; as of 2026-09-03
+ * `rvbedo` is GLAVCVM — the plate was retuned in place (grey stock, slate-green) because
+ * RVBEDO's paper sat 4 points off LVX's on one channel and read as the same plate. Keeping the
+ * key means nobody's persisted setting migrates. See @shared/theme for the label map.
+ *
+ * EVERY informational pair in here is measured, not eyeballed: `npm run lint:contrast`
+ * (scripts/check-contrast.mjs) walks all nine plates and fails under the R8 floor. Three
+ * relationships INVERT on light plates and a 1:1 hex map from a dark plate will get them wrong:
+ * --idle must go DARKER (it carries "stale"/"queued" text), --ink4 must clear the floor on the
+ * DARKEST surface it appears on (not just paper), and a mid-tone accent glyph on a 12–16% tint
+ * of itself collapses — use the accent's -deep value for identifier chips on light plates.
+ */
+
+:root {
+  /* ===== Shared accents (both themes) ===== */
+  --sang: #b8473a; /* sanguine red-chalk — PRIMARY: active/online/selected/send/user */
+  --sang-deep: #a23b2e; /* hover / pressed sang */
+  --sang-soft: rgba(184, 71, 58, 0.12); /* user-bubble / selected / hover tint */
+  --lapis: #3e6b8f; /* lapis blue — SECONDARY: alt model class / info */
+  --lapis-soft: rgba(62, 107, 143, 0.14);
+  --on-sang: #f6f1e6; /* parchment text on sang-filled controls (both themes) */
+  --online: #46a98c; /* teal-green — healthy/connected/online (the owner's override of the README's sang-for-health, so "up" reads as go, not alarm) */
+  --online-soft: rgba(70, 169, 140, 0.14);
+
+  /* ===== Type (Codex) ===== */
+  --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --font-body: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-ui: var(--font-body); /* Codex: the UI body voice is the serif */
+
+  --fs-0: 11px;
+  --fs-1: 12px;
+  --fs-2: 13px;
+  --fs-3: 14px; /* body */
+  --fs-4: 16px;
+  --fs-5: 20px; /* status-bar title */
+  --fs-6: 30px; /* display */
+  --lh-tight: 1.25;
+  --lh-body: 1.5;
+  --track-caps: 0.18em; /* mono labels: .14–.32em */
+
+  /* space / radius / z (Codex radii: 5–8 rows, 14 panels, 20 pills) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --r-1: 5px;
+  --r-2: 7px;
+  --r-3: 9px;
+  --r-4: 14px;
+  --r-5: 14px;
+  --r-round: 20px;
+  --z-dock: 30;
+  --z-overlay: 50;
+  --z-modal: 70;
+  --z-palette: 80;
+  --z-toast: 90;
+
+  /* motion (background-only transitions on themed nodes — see the toggle gotcha in styles.css) */
+  --t-fast: 130ms;
+  --t-med: 160ms;
+  --t-slow: 220ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --focus-ring: 0 0 0 2px rgba(184, 71, 58, 0.55);
+
+  /* elevation (kept light — Codex avoids heavy shadows) */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --elev-2: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --elev-3: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --glow-arc: 0 0 8px rgba(184, 71, 58, 0.3);
+  --glow-ok: 0 0 8px rgba(184, 71, 58, 0.3);
+  --glow-err: 0 0 8px rgba(184, 71, 58, 0.3);
+  --glow-warn: 0 0 8px rgba(154, 138, 94, 0.3);
+
+  /* ===== NOX (dark / observatory) — the DEFAULT theme ===== */
+  --paper: #0f1219; /* deep ink-blue-black */
+  --ink: #ece3cc; /* starlight/parchment text */
+  --ink2: #ada287;
+  --ink3: #b3a075; /* brass mono labels */
+  --ink4: #a4987b; /* faint mono / timestamps */
+  --ink5: #cabfa4; /* nav/list resting text */
+  --ink-soft: #d8cfb6; /* message body text */
+  --line: rgba(190, 168, 110, 0.26);
+  --line2: rgba(190, 168, 110, 0.15);
+  --line3: rgba(190, 168, 110, 0.1);
+  --geo: #8a7a4e; /* brass geometry */
+  --geo-strong: #c9b682;
+  --node: #161a24; /* dark chip / node surface */
+  --crop: #c9b682; /* corner crop marks */
+  --hover: rgba(184, 71, 58, 0.16);
+  --nav-active: rgba(184, 71, 58, 0.16);
+  --dialtrack: rgba(190, 168, 110, 0.18);
+  --grid: rgba(184, 160, 110, 0.03);
+  --grid2: rgba(184, 160, 110, 0.05);
+  --idle: #9a8a5e; /* neutral idle/queued signal */
+  --glow1: rgba(120, 150, 200, 0.06); /* cool top-left ambient */
+  --glow2: rgba(184, 150, 82, 0.09); /* brass bottom-right ambient */
+  --frame-grad: linear-gradient(180deg, rgba(200, 180, 120, 0.05), rgba(200, 180, 120, 0));
+  --scrim: rgba(4, 6, 10, 0.62);
+
+  /* Window chrome: a shade deeper than whatever the active plate calls paper, so the title strip
+     reads as chrome in every skin instead of a black band pasted onto the light ones. Defined
+     here (not in styles.css) because `#000` is a COLOUR, and this file is the only place one may
+     be written. The mix resolves at use time, so every plate's own --paper feeds it. */
+  --chrome-ground: color-mix(in srgb, var(--paper) 86%, #000);
+
+  /* ===== Legacy aliases → Codex (the whole app re-skins through these) ===== */
+  --c-void: var(--paper);
+  --c-base: var(--paper);
+  --c-raise: var(--node);
+  --c-inset: var(--node);
+  --c-line: var(--line);
+  --c-line-bright: var(--line2);
+  --c-line-glow: var(--line);
+  --c-scrim: var(--scrim);
+  --c-text: var(--ink);
+  --c-text-dim: var(--ink2);
+  --c-text-faint: var(--ink4);
+  --c-arc: var(--sang); /* THE accent → sanguine */
+  --c-arc-hi: var(--sang-deep);
+  --c-arc-soft: var(--sang-soft);
+  --c-on-arc: var(--on-sang);
+  --c-amber: var(--lapis); /* secondary signal → lapis */
+  --c-amber-soft: var(--lapis-soft);
+  --c-violet: var(--lapis);
+  --c-violet-soft: var(--lapis-soft);
+  --c-ok: var(--online); /* online/healthy/connected → teal-green ("up" = go, not alarm) */
+  --c-ok-soft: var(--online-soft);
+  --c-on-ok: var(--on-sang);
+  --c-warn: var(--idle); /* idle/queued → neutral */
+  --c-err: var(--sang); /* error/deletion → sang red-chalk */
+  /* QR quiet zone: a scan needs a light field regardless of theme, so this token is
+     deliberately NOT theme-following — it is a scanner requirement, not a style choice. */
+  --c-qr-quiet: #f5f3ee;
+  /* Rendered-artifact field: an agent-built html/svg page assumes paper unless it paints its own
+     ground, and NOX behind a bare page is unreadable — so, like the QR quiet zone, this is a
+     content requirement rather than a style choice and deliberately does NOT theme-follow. */
+  --c-render-paper: #ffffff;
+  --c-err-soft: var(--sang-soft);
+  --c-idle: var(--idle);
+  /* TEXT variants of the accent/status scale — use these whenever the colour is a WORD, not a
+     dot, a fill or a border. Every plate defines its own; measured by scripts/check-contrast.mjs. */
+  --c-arc-text: var(--sang-text);
+  --c-amber-text: var(--lapis-text);
+  --c-ok-text: var(--online-text);
+  --c-warn-text: var(--idle-text);
+  --c-err-text: var(--sang-text);
+
+  /* oldest aliases */
+  --bg: var(--paper);
+  --bg-elev: var(--node);
+  --bg-input: var(--node);
+  --border: var(--line);
+  --text: var(--ink);
+  --text-dim: var(--ink2);
+  --accent: var(--sang);
+  --user: var(--sang-soft);
+  --ok: var(--c-ok);
+  --warn: var(--c-warn);
+  --err: var(--c-err);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #d4847a;
+  --lapis-text: #6292bb;
+  --online-text: #46aa8d;
+  --idle-text: #a7996e;
+}
+
+/* ===== LVX (light / vellum) — neutral overrides; accents stay shared =====
+   2026-08-17: the vellum was tiring over a long session — too yellow. Pulled to
+   a near-neutral paper. NOTE FOR ANYONE RE-TUNING THIS: `--paper` is NOT the
+   background. styles.css layers two radial gradients over it, and `--glow1` is a
+   55%-opacity wash across roughly 1000x620px of the top-left. Neutralising paper
+   alone leaves that wash in place and the plate still reads yellow
+   (measured: #fdfaf2, G-B +8.0). Paper, node and BOTH glows move together. */
+[data-theme='light'] {
+  --paper: #faf9f7; /* near-neutral paper (was #e7dcc4 vellum) */
+  --ink: #2e2418;
+  --ink2: #6b5b45;
+  --ink3: #64553a;
+  --ink4: #615542;
+  --ink5: #4a3d29;
+  --ink-soft: #3a2f20;
+  --line: rgba(70, 56, 36, 0.4);
+  --line2: rgba(70, 56, 36, 0.25);
+  --line3: rgba(70, 56, 36, 0.16);
+  --geo: #6b5b45;
+  --geo-strong: #2e2418;
+  /* Elevated surfaces (inputs, panels, insets) must stay LIGHTER than paper or
+     elevation inverts. The old #ede4d0 was lighter than the old vellum; against
+     the new paper it would have been darker. */
+  --node: #ffffff;
+  --crop: #2e2418;
+  --hover: rgba(162, 59, 46, 0.06);
+  --nav-active: rgba(162, 59, 46, 0.07);
+  --dialtrack: rgba(110, 90, 60, 0.22);
+  --grid: rgba(120, 98, 64, 0.022);
+  --grid2: rgba(120, 98, 64, 0.05);
+  --idle: #8a7656;
+  /* Was rgba(255,251,238,.55) — a yellow-white wash; pure white lightens without
+     re-tinting. Composited over the new paper: #fdfcfb (G-B +0.9). */
+  --glow1: rgba(255, 255, 255, 0.55);
+  /* Was rgba(120,98,64,.1), a warm-brown vignette. Neutral grey, lighter touch. */
+  --glow2: rgba(138, 138, 138, 0.07);
+  --frame-grad: linear-gradient(180deg, rgba(255, 252, 243, 0.25), rgba(255, 252, 243, 0));
+  --scrim: rgba(40, 36, 24, 0.35);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #94392f;
+  --lapis-text: #3d688b;
+  --online-text: #286150;
+  --idle-text: #63553d;
+  /* Text on the filled accent. AERVGO/LVX inherited NOX's parchment, which does not survive
+     this plate's fill — measured, not assumed (scripts/check-contrast.mjs). */
+  --on-sang: #f6f1e6;
+}
+
+/* ===== NIGREDO (dark) — The Camera Obscura. The sealed room: near-absolute black, neutral
+   silver ink, the beacon still lit. NOX with the shutters closed.
+   #050506, NOT #000000: pure black smears visibly on OLED during scroll, and it leaves hairlines
+   as the only structure in the UI — every panel edge would have to carry weight the surface no
+   longer does. Five points up keeps it reading as black while letting --node sit a step above it.
+   THE ACCENT IS WHAT MAKES THIS A PLATE rather than a brightness setting: sharing NOX's #b8473a
+   exactly was tried and rejected (same accent + darker ground = one plate at two levels). The ember
+   is that family pushed deeper and more orange, and deliberately stops short of AVRVM's gold leaf.
+   Ink is cool-neutral (parchment text here would just read as NOX with the lights off) except
+   --ink3, which keeps a faint warmth so the mono caps labels stay recognisably Beacon. ===== */
+[data-theme='nigredo'] {
+  --paper: #050506;
+  --ink: #e6e6e8;
+  --ink2: #9a9aa0;
+  --ink3: #a89b91; /* faint warmth kept for the mono caps labels */
+  --ink4: #909095; /* informational floor (R8) */
+  --ink5: #c9c9cf;
+  --ink-soft: #d4d4d8;
+  --line: rgba(205, 205, 215, 0.18);
+  --line2: rgba(205, 205, 215, 0.11);
+  --line3: rgba(205, 205, 215, 0.07);
+  --geo: #5c5c64;
+  --geo-strong: #9c9ca4;
+  --node: #101114;
+  --crop: #9c9ca4;
+  --hover: rgba(168, 64, 43, 0.15);
+  --nav-active: rgba(168, 64, 43, 0.15);
+  --dialtrack: rgba(205, 205, 215, 0.16);
+  --grid: rgba(160, 160, 175, 0.022);
+  --grid2: rgba(160, 160, 175, 0.04);
+  --idle: #8a8a90;
+  /* Deliberately near-zero: enough that the field is not dead flat, not enough to tint it. */
+  --glow1: rgba(90, 110, 160, 0.035);
+  --glow2: rgba(168, 64, 43, 0.045);
+  --frame-grad: linear-gradient(180deg, rgba(205, 205, 215, 0.04), rgba(205, 205, 215, 0));
+  --scrim: rgba(0, 0, 0, 0.74);
+  /* accents — EMBER: sanguine pushed deeper and more orange, so NIGREDO is NOX's sibling. */
+  --sang: #a8402b;
+  --sang-deep: #8f3421;
+  --sang-soft: rgba(168, 64, 43, 0.14);
+  --on-sang: #f5efe2;
+  --lapis: #4a6f92;
+  --lapis-soft: rgba(74, 111, 146, 0.16);
+  --online: #46a98c;
+  --online-soft: rgba(70, 169, 140, 0.14);
+  --focus-ring: 0 0 0 2px rgba(168, 64, 43, 0.55);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #d9765e;
+  --lapis-text: #658db1;
+  --online-text: #46a98c;
+  --idle-text: #909095;
+}
+
+/* ═════ The Skin Codex — the remaining plates. Neutrals + accents per plate; same geometry. ═════ */
+
+/* ===== AVRVM (dark) — The Gilded Study. Gold leaf on midnight walnut; the codex by candlelight.
+   The beacon burns molten gold; porphyry seals the second voice. ===== */
+[data-theme='avrvm'] {
+  --paper: #171106;
+  --ink: #f2e4b8;
+  --ink2: #baa878;
+  --ink3: #c2a559;
+  --ink4: #b4a781;
+  --ink5: #d9caa0;
+  --ink-soft: #e5d6a8;
+  --line: rgba(216, 185, 84, 0.28);
+  --line2: rgba(216, 185, 84, 0.16);
+  --line3: rgba(216, 185, 84, 0.1);
+  --geo: #a08432;
+  --geo-strong: #dcbc55;
+  --node: #211909;
+  --crop: #dcbc55;
+  --hover: rgba(208, 154, 44, 0.16);
+  --nav-active: rgba(208, 154, 44, 0.16);
+  --dialtrack: rgba(216, 185, 84, 0.18);
+  --grid: rgba(160, 132, 50, 0.03);
+  --grid2: rgba(160, 132, 50, 0.05);
+  --idle: #a08c58;
+  --glow1: rgba(208, 154, 44, 0.07);
+  --glow2: rgba(156, 79, 60, 0.08);
+  --frame-grad: linear-gradient(180deg, rgba(220, 188, 85, 0.05), rgba(220, 188, 85, 0));
+  --scrim: rgba(10, 7, 2, 0.65);
+  /* accents — molten gold primary, porphyry secondary */
+  --sang: #d09a2c;
+  --sang-deep: #b3801d;
+  --sang-soft: rgba(208, 154, 44, 0.14);
+  --on-sang: #201503;
+  --lapis: #9c4f3c;
+  --lapis-soft: rgba(156, 79, 60, 0.16);
+  --online: #6fa06a;
+  --online-soft: rgba(111, 160, 106, 0.14);
+  --focus-ring: 0 0 0 2px rgba(208, 154, 44, 0.55);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #d49f33;
+  --lapis-text: #c57c6b;
+  --online-text: #8ab286;
+  --idle-text: #b6a67c;
+}
+
+/* ===== VMBRA (dark) — Totality. The observatory at full eclipse: moon-silver on violet-black;
+   corona gold, ringed in chromosphere violet. ===== */
+[data-theme='vmbra'] {
+  --paper: #0c0a14;
+  --ink: #e4def0;
+  --ink2: #9c93b8;
+  --ink3: #a097bf;
+  --ink4: #9f98b6;
+  --ink5: #cdc5e0;
+  --ink-soft: #d6cfe6;
+  --line: rgba(168, 158, 204, 0.24);
+  --line2: rgba(168, 158, 204, 0.14);
+  --line3: rgba(168, 158, 204, 0.09);
+  --geo: #6f6590;
+  --geo-strong: #a89ecc;
+  --node: #151021;
+  --crop: #a89ecc;
+  --hover: rgba(212, 160, 84, 0.16);
+  --nav-active: rgba(212, 160, 84, 0.16);
+  --dialtrack: rgba(168, 158, 204, 0.18);
+  --grid: rgba(111, 101, 144, 0.03);
+  --grid2: rgba(111, 101, 144, 0.05);
+  --idle: #8d84a8;
+  --glow1: rgba(138, 112, 192, 0.08);
+  --glow2: rgba(212, 160, 84, 0.07);
+  --frame-grad: linear-gradient(180deg, rgba(168, 158, 204, 0.05), rgba(168, 158, 204, 0));
+  --scrim: rgba(6, 4, 12, 0.66);
+  /* accents — corona gold primary, chromosphere violet secondary */
+  --sang: #d4a054;
+  --sang-deep: #b98736;
+  --sang-soft: rgba(212, 160, 84, 0.14);
+  --on-sang: #1a1206;
+  --lapis: #8a70c0;
+  --lapis-soft: rgba(138, 112, 192, 0.16);
+  --online: #5aa895;
+  --online-soft: rgba(90, 168, 149, 0.14);
+  --focus-ring: 0 0 0 2px rgba(212, 160, 84, 0.55);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #d4a054;
+  --lapis-text: #9881c7;
+  --online-text: #5eaa98;
+  --idle-text: #a098b6;
+}
+
+/* ===== AERVGO (dark) — The Bronze Astrolabe. Verdigris geometry over green-black bronze;
+   only the working edges keep their burnished copper. ===== */
+[data-theme='aervgo'] {
+  --paper: #0b1310;
+  --ink: #dfe9db;
+  --ink2: #98ad9a;
+  --ink3: #81aa8e;
+  --ink4: #8da696;
+  --ink5: #c4d4c2;
+  --ink-soft: #cfdccb;
+  --line: rgba(127, 179, 151, 0.24);
+  --line2: rgba(127, 179, 151, 0.14);
+  --line3: rgba(127, 179, 151, 0.09);
+  --geo: #56806a;
+  --geo-strong: #7fb397;
+  --node: #121d17;
+  --crop: #7fb397;
+  --hover: rgba(196, 122, 69, 0.16);
+  --nav-active: rgba(196, 122, 69, 0.16);
+  --dialtrack: rgba(127, 179, 151, 0.18);
+  --grid: rgba(86, 128, 106, 0.03);
+  --grid2: rgba(86, 128, 106, 0.05);
+  --idle: #7f9478;
+  --glow1: rgba(63, 143, 133, 0.07);
+  --glow2: rgba(196, 122, 69, 0.08);
+  --frame-grad: linear-gradient(180deg, rgba(127, 179, 151, 0.05), rgba(127, 179, 151, 0));
+  --scrim: rgba(4, 9, 7, 0.66);
+  /* accents — burnished copper primary, patina teal secondary */
+  --sang: #c47a45;
+  --sang-deep: #a86134;
+  --sang-soft: rgba(196, 122, 69, 0.15);
+  --on-sang: #1d1204;
+  --lapis: #3f8f85;
+  --lapis-soft: rgba(63, 143, 133, 0.16);
+  --online: #63a878;
+  --online-soft: rgba(99, 168, 120, 0.14);
+  --focus-ring: 0 0 0 2px rgba(196, 122, 69, 0.55);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #cf9369;
+  --lapis-text: #47a398;
+  --online-text: #6eae82;
+  --idle-text: #93a58d;
+}
+
+/* ===== CAERVLA (dark) — The Engineer's Folio. Leonardo's machines printed as cyanotype:
+   white line-work on Prussian blue, corrections struck in red-lead minium. ===== */
+[data-theme='caervla'] {
+  --paper: #0d1b2e;
+  --ink: #e6eef5;
+  --ink2: #9fb5c8;
+  --ink3: #90b0c9;
+  --ink4: #9bafc1;
+  --ink5: #cddbe6;
+  --ink-soft: #d8e3ec;
+  --line: rgba(127, 168, 201, 0.26);
+  --line2: rgba(127, 168, 201, 0.15);
+  --line3: rgba(127, 168, 201, 0.1);
+  --geo: #4a7396;
+  --geo-strong: #7fa8c9;
+  --node: #142740;
+  --crop: #7fa8c9;
+  --hover: rgba(217, 119, 66, 0.16);
+  --nav-active: rgba(217, 119, 66, 0.16);
+  --dialtrack: rgba(127, 168, 201, 0.18);
+  --grid: rgba(74, 115, 150, 0.03);
+  --grid2: rgba(74, 115, 150, 0.05);
+  --idle: #7e93a5;
+  --glow1: rgba(111, 179, 217, 0.07);
+  --glow2: rgba(217, 119, 66, 0.07);
+  --frame-grad: linear-gradient(180deg, rgba(127, 168, 201, 0.05), rgba(127, 168, 201, 0));
+  --scrim: rgba(4, 10, 18, 0.66);
+  /* accents — red-lead minium primary, drafting cyan secondary */
+  --sang: #d97742;
+  --sang-deep: #bd5e2d;
+  --sang-soft: rgba(217, 119, 66, 0.15);
+  --on-sang: #23120a;
+  --lapis: #6fb3d9;
+  --lapis-soft: rgba(111, 179, 217, 0.16);
+  --online: #52a88f;
+  --online-soft: rgba(82, 168, 143, 0.14);
+  --focus-ring: 0 0 0 2px rgba(217, 119, 66, 0.55);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #e39c74;
+  --lapis-text: #6fb3d9;
+  --online-text: #72baa5;
+  --idle-text: #9faebd;
+}
+
+/* ===== GLAVCVM (light) — The Herbarium. Pressed leaves on grey stock: a soft neutral field,
+   geometry in glaucous slate-green, the working controls in deep herb. Easy on the eyes for long
+   sessions — no white page, no yellow lean.
+   KEY IS `rvbedo` BY DESIGN (2026-09-03): this plate replaced RVBEDO, whose paper (#fbf7f5) sat
+   4 points off LVX's on one channel and read as "LVX, slightly pink". Retuned in place so nobody's
+   persisted setting migrates — the key is historical, exactly like `dark`/`light`.
+   TWO CHOICES THAT FIGHT EACH OTHER, resolved: (1) slate green cannot be both a pastel and the
+   primary, because --sang fills buttons and carries --on-sang, so the PRIMARY is deep herb and the
+   pastel lives in --sang-soft / --hover / --nav-active / --geo. (2) A green primary forces --online
+   OFF green: if selection and health are both green, a session row cannot say "selected" apart from
+   "connected" (R6). Teal was tried and failed — at 5px a teal health dot and a green unread dot are
+   the same dot — so health here is unambiguously BLUE. ===== */
+[data-theme='rvbedo'] {
+  --paper: #e8e9e6;
+  --ink: #232a27;
+  --ink2: #47534e;
+  --ink3: #3f5a51;
+  --ink4: #4f5b55; /* informational floor (R8) — measured on --node, the darkest surface it lands on */
+  --ink5: #333c38;
+  --ink-soft: #2c3431;
+  --line: rgba(58, 74, 68, 0.3);
+  --line2: rgba(58, 74, 68, 0.19);
+  --line3: rgba(58, 74, 68, 0.12);
+  --geo: #7b8b84; /* glaucous geometry — the pastel lives here */
+  --geo-strong: #3c4b45;
+  --node: #f4f5f3; /* lighter than paper — see the LVX note on inverted elevation */
+  --crop: #3c4b45;
+  --hover: rgba(74, 122, 104, 0.07);
+  --nav-active: rgba(74, 122, 104, 0.09);
+  --dialtrack: rgba(58, 74, 68, 0.2);
+  --grid: rgba(90, 110, 102, 0.025);
+  --grid2: rgba(90, 110, 102, 0.05);
+  --idle: #6b7263; /* idle gets DARKER on light plates — it carries "stale"/"queued" TEXT, not just dots */
+  /* Plain white wash: lightens the field without re-tinting it (the LVX lesson — paper alone
+     does not change what you see; the glows have to move with it). */
+  --glow1: rgba(255, 255, 255, 0.5);
+  --glow2: rgba(74, 122, 104, 0.06);
+  --frame-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+  --scrim: rgba(28, 36, 33, 0.35);
+  /* accents — deep herb primary, muted clay secondary, BLUE health (green is taken by the primary) */
+  --sang: #4a7a68;
+  --sang-deep: #3b6455; /* use this for any sang-coloured LABEL here — #4a7a68 is a fill, marginal as small text */
+  --sang-soft: rgba(74, 122, 104, 0.12);
+  --on-sang: #f8faf8;
+  --lapis: #9d6b52;
+  --lapis-soft: rgba(157, 107, 82, 0.14);
+  --online: #3a6f8f;
+  --online-soft: rgba(58, 111, 143, 0.14);
+  --focus-ring: 0 0 0 2px rgba(74, 122, 104, 0.5);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #396052;
+  --lapis-text: #7a5440;
+  --online-text: #315d78;
+  --idle-text: #545a4f;
+}
+
+/* ===== AETHER (light) — The Frost Codex. Moonstone and steel; the codex etched in glass.
+   Lapis is promoted to the primary voice; sanguine steps back to second. ===== */
+[data-theme='aether'] {
+  --paper: #e1e6e6;
+  --ink: #212b33;
+  --ink2: #4b5962;
+  --ink3: #415563;
+  --ink4: #4a545c;
+  --ink5: #33434e;
+  --ink-soft: #2b3841;
+  --line: rgba(52, 74, 88, 0.32);
+  --line2: rgba(52, 74, 88, 0.2);
+  --line3: rgba(52, 74, 88, 0.13);
+  --geo: #74889b;
+  --geo-strong: #38505f;
+  --node: #ebefee;
+  --crop: #38505f;
+  --hover: rgba(56, 101, 138, 0.08);
+  --nav-active: rgba(56, 101, 138, 0.09);
+  --dialtrack: rgba(52, 74, 88, 0.22);
+  --grid: rgba(116, 136, 155, 0.025);
+  --grid2: rgba(116, 136, 155, 0.05);
+  --idle: #7a8b90;
+  --glow1: rgba(255, 255, 255, 0.6);
+  --glow2: rgba(56, 101, 138, 0.08);
+  --frame-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0));
+  --scrim: rgba(28, 38, 44, 0.35);
+  /* accents — glacier lapis primary, sanguine demoted to secondary */
+  --sang: #38658a;
+  --sang-deep: #2a5273;
+  --sang-soft: rgba(56, 101, 138, 0.12);
+  --on-sang: #f0f5f7;
+  --lapis: #a84639;
+  --lapis-soft: rgba(168, 70, 57, 0.12);
+  --online: #35836d;
+  --online-soft: rgba(53, 131, 109, 0.14);
+  --focus-ring: 0 0 0 2px rgba(56, 101, 138, 0.55);
+  /* …-as-TEXT: a fill colour and a text colour are different jobs. --sang fills buttons and
+     carries --on-sang; used as a LABEL on its own 12–16% tint it collapses (2.8–4.4:1 across the
+     codex before this family existed). These are measured — see scripts/check-contrast.mjs. */
+  --sang-text: #305676;
+  --lapis-text: #963e33;
+  --online-text: #255c4d;
+  --idle-text: #48564e;
+}
+
+/* ── Base behaviors every component inherits ───────────────────────────────── */
+
+::selection {
+  background: var(--sang-soft);
+  color: var(--ink);
+}
+
+/* One visible, consistent focus treatment app-wide (keyboard navigability, WCAG 2.4.7). */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-1);
+}
+
+/* Slim instrument-panel scrollbars. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: var(--r-round);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line2);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Respect the user's motion preference — kill every transition/animation. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-med: 0ms;
+    --t-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Blueprint grid texture (Mission Control / Status / empty thread). Brass laid-lines at low alpha. */
+.hud-grid {
+  background-image:
+    linear-gradient(var(--grid2) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid2) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
