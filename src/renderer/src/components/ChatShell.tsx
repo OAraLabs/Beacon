@@ -40,10 +40,11 @@ import {
   rememberDraft,
   restorableDraft
 } from '@shared/drafts'
-import { fileName, parseMachineNotice } from '@shared/machine-notice'
+import { parseMachineNotice } from '@shared/machine-notice'
 import { isMachineryProvenance, isOperatorTurn, lastOperatorTurn, provenanceLabel } from '@shared/provenance'
 import { parseWorkerReport } from '@shared/workers'
 import { WorkerReportCard } from './WorkerReportCard'
+import { MachineNoticeCard } from './MachineNoticeCard'
 import { stripVoiceParts } from '@shared/voice-preamble'
 import { turnLabel, turnMarks } from '@shared/turn-rule'
 import { appendComposerInsert, type ComposerInsert } from '@shared/browser-pane'
@@ -2282,24 +2283,7 @@ export function ChatShell({
                   ) : workerReport ? (
                     <WorkerReportCard report={workerReport} />
                   ) : machineNotice ? (
-                    /* R13: a daemon-injected turn summary, not something a person typed. It
-                       renders as the tool result it is — one row per file — instead of a user
-                       bubble full of raw machine syntax. The whole block stays in the title. */
-                    <div className="machine-notice" title={machineNotice.raw}>
-                      <span className="machine-notice-cap">files touched</span>
-                      {machineNotice.files.length === 0 ? (
-                        <span className="machine-notice-row">{machineNotice.raw.split('\n')[0]}</span>
-                      ) : (
-                        machineNotice.files.map((f, i) => (
-                          <span className="machine-notice-row" key={`${f.path}:${i}`} title={f.path}>
-                            <span className={`machine-notice-dot${f.ok ? '' : ' is-bad'}`} aria-hidden />
-                            <span className="machine-notice-op">{f.op}</span>
-                            <span className="machine-notice-path">{fileName(f.path)}</span>
-                            {f.delta ? <span className="machine-notice-delta">{f.delta}</span> : null}
-                          </span>
-                        ))
-                      )}
-                    </div>
+                    <MachineNoticeCard notice={machineNotice} />
                   ) : (
                   <div className="msg-body">
                     {/* The caret means "text is streaming in", so it belongs ONLY on a

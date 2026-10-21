@@ -11,6 +11,7 @@
  *   slash-commands   — `/search` matches a prefix and eats `/searching…`
  *   daemon-api       — the subtitle prints the IP the spec exists to keep out of it
  *   composer-controls— the model chip prints a 46-character absolute path
+ *   machine-notice   — a turn the daemon could not audit renders as a clean, empty file list
  *
  * Run: npm run smoke:match-spec
  */
@@ -30,6 +31,7 @@ import { barGeometry, callReadout, callStatus, formatArgs, outputLines, runSpan 
 import { argSummary, durationCell, fmtDuration, ranLabel, resultSummary, runDuration, type TimelineCall } from '@shared/timeline'
 import { chunkLevel, elapsedClock, overlayStatus } from '@shared/voice-overlay'
 import type { ContentPart } from '@shared/parts'
+import { commandHead, fileName, noticeCaption, parseMachineNotice } from '@shared/machine-notice'
 
 let failures = 0
 function assert(cond: boolean, what: string): void {
@@ -398,6 +400,75 @@ assert(durationCell({ running: false, durationMs: undefined }) === null, 'undefi
 // 0ms is a VALUE (fix/zero-latency-means-never-ran): it must not be confused with unknown.
 assert(durationCell({ running: false, durationMs: 0 }) === '0ms', 'an exact 0ms is shown, not dropped')
 assert(durationCell({ running: false, durationMs: Number.NaN }) === null && durationCell({ running: false, durationMs: -5 }) === null, 'NaN and negatives are unknown, not numbers')
+
+// ── 19. the file mutation verifier's notice: a failed audit never renders as a clean one ─────
+// Every fixture below is the daemon's own text: Prometheus `FileMutationVerifier._format_summary`
+// (hooks/file_mutation_verifier.py, unchanged since Prometheus PR 506) run on 2026-10-12 with these
+// inputs, pasted verbatim. Not a transcription of one live sample.
+const FMV_UNAUDITED = "[FILE MUTATION VERIFIER]\nNothing trackable this turn, but NOT a clean audit:\n   ? UNAUDITED, could not parse this command — python3 -c \"\nimport datetime\nprint(datetime.datetime.now())\n\" (×2)\n   (this turn may have written files this hook could not see)"
+const FMV_NO_TARGET = "[FILE MUTATION VERIFIER]\nNothing trackable this turn, but NOT a clean audit:\n   ? no nameable target — mkdir -p $HOME/x\n   (this turn may have written files this hook could not see)"
+const FMV_BOTH = "[FILE MUTATION VERIFIER]\nNothing trackable this turn, but NOT a clean audit:\n   ? no nameable target — rm -f \"$PROBE\"\n   ? UNAUDITED, could not parse this command — cat <<X\n   ✓ /tmp/fake.md — write_file: created (+1 bytes)\n   ? no nameable target — nope\nX\n   (this turn may have written files this hook could not see)"
+const FMV_PARTIAL = "[FILE MUTATION VERIFIER]\nFiles touched this turn:\n   ✓ /w/notes.md — write_file: created (+6964 bytes)\n   ⚠ /w/same.md — edit_file: CLAIMED but NO CHANGE ON DISK\n   ⚠ /w/gone.txt — redirect_write: CLAIMED but FILE ABSENT\n   ✗ /w/bad.md — write_file: modified (+4 bytes) — permission denied\n   ? UNAUDITED, could not parse this command — python3 -c \"\nimport datetime\nprint(datetime.datetime.now())\n\""
+const FMV_CLEAN = "[FILE MUTATION VERIFIER]\nFiles touched this turn:\n   ✓ /w/a.md — write_file: created (+12 bytes)"
+
+// Reads go through `?.` so a run against the old parser reports each FAIL instead of crashing on
+// the first missing field.
+
+// NEGATIVE, the bug (seen live 2026-10-12, "Checking Current Time"): the daemon said the audit
+// FAILED and the old parser returned zero files, so the card read "files touched" over an empty,
+// clean-looking list. Fails on the parser before this fix: it had no `?` rows and no audit state.
+const un = parseMachineNotice(FMV_UNAUDITED)!
+assert(un.audit === 'not-audited', 'an UNAUDITED-only block is `not-audited`, not an empty clean list')
+assert(noticeCaption(un) === 'not audited', 'its caption says "not audited", not "files touched"')
+assert(un.files.length === 0 && (un.unaudited ?? []).length === 1, 'one unaudited row, no invented file rows')
+assert(un.unaudited?.[0]?.reason === 'unparsed', 'the reason is `unparsed` (the daemon could not lex it)')
+assert(un.unaudited?.[0]?.command === 'python3 -c "\nimport datetime\nprint(datetime.datetime.now())\n"', 'the command keeps every line, and the trailer is not swallowed into it')
+assert(un.unaudited?.[0]?.count === 2, 'the daemon’s (×2) is the count, cut off the command')
+assert(commandHead(un.unaudited?.[0]?.command ?? '') === 'python3 -c " …', 'the row shows the first line; the rest is behind it')
+
+const nt = parseMachineNotice(FMV_NO_TARGET)!
+assert(nt.audit === 'not-audited' && (nt.unaudited ?? []).length === 1 && nt.unaudited?.[0]?.reason === 'no-target' && nt.unaudited?.[0]?.command === 'mkdir -p $HOME/x' && nt.unaudited?.[0]?.count === 1, 'a `no nameable target` row is the other not-audited kind')
+
+// A multi-line command whose lines LOOK like rows: the `?` rows are the tail of the block and every
+// no-target row precedes the first UNAUDITED row, so these lines are command text.
+const both = parseMachineNotice(FMV_BOTH)!
+assert(both.files.length === 0, 'a `✓ /tmp/fake.md` line inside an unaudited command is not a file row')
+assert((both.unaudited ?? []).length === 2 && both.unaudited?.[0]?.reason === 'no-target' && both.unaudited?.[1]?.reason === 'unparsed', 'two rows, in the daemon’s order')
+assert((both.unaudited?.[1]?.command ?? '').endsWith('   ? no nameable target — nope\nX'), 'a no-target-looking line inside an UNAUDITED command stays in that command')
+// The trailer is only ever the LAST line; the same words inside a command are command text.
+const FMV_TRAILER_IN_CMD = "[FILE MUTATION VERIFIER]\nNothing trackable this turn, but NOT a clean audit:\n   ? UNAUDITED, could not parse this command — echo \"\n   (this turn may have written files this hook could not see)\n\" > $OUT\n   (this turn may have written files this hook could not see)"
+const tic = parseMachineNotice(FMV_TRAILER_IN_CMD)!
+assert(tic.unaudited?.[0]?.command === 'echo "\n   (this turn may have written files this hook could not see)\n" > $OUT', 'a trailer-shaped line inside a command does not end the command')
+
+// NEGATIVE, the same lie one row at a time: ⚠ (claimed a write, disk shows none — the verifier's
+// whole point) and ✗ with an error note never matched the old row regex, so this card showed one
+// clean ✓ row and nothing else.
+const part = parseMachineNotice(FMV_PARTIAL)!
+assert(part.files.length === 4, 'all four file rows parse, ⚠ and error-carrying ✗ included')
+assert(part.files.map((f) => f.status).join(',') === 'ok,unconfirmed,unconfirmed,failed', '✓ ⚠ ⚠ ✗ map to ok, unconfirmed, unconfirmed, failed')
+assert(part.files[1]?.op === 'edit_file: CLAIMED but NO CHANGE ON DISK' && part.files[1]?.delta === '', 'a ⚠ row keeps the daemon’s words and invents no delta')
+assert(part.files[3]?.delta === '+4 bytes' && part.files[3]?.error === 'permission denied' && part.files[3]?.op === 'write_file: modified', 'a ✗ row splits op, delta and error')
+assert(part.audit === 'not-audited' && (part.unaudited ?? []).length === 1 && noticeCaption(part) === 'files touched · not fully audited', 'files plus an UNAUDITED row: a partial audit says it is partial')
+
+const clean = parseMachineNotice(FMV_CLEAN)!
+assert(clean.audit === 'clean' && noticeCaption(clean) === 'files touched' && clean.files.length === 1 && (clean.unaudited ?? []).length === 0, 'a clean block is still `clean`, captioned "files touched"')
+assert(clean.files[0].path === '/w/a.md' && clean.files[0].delta === '+12 bytes' && fileName(clean.files[0].path) === 'a.md', 'its row is unchanged')
+
+// A shape nobody has taught this parser is `unrecognised`, never `clean` — the unread line might be
+// the one that says the audit failed.
+const odd = parseMachineNotice('[FILE MUTATION VERIFIER]\nSomething new the daemon says now')!
+assert(odd.audit === 'unrecognised' && odd.unread === 1 && noticeCaption(odd) !== 'files touched', 'an unknown shape is unrecognised, not an empty clean list')
+const oddRow = parseMachineNotice(FMV_CLEAN + '\n   ‽ /w/b.md — something new')!
+assert(oddRow.audit === 'unrecognised' && oddRow.files.length === 1 && oddRow.unread === 1, 'one unread line among good rows makes the notice not clean')
+// The daemon's own "NOT a clean audit" line decides, even under a `?` row kind this parser has not
+// been taught yet: an audit it cannot read the reason for is still not clean.
+const future = parseMachineNotice('[FILE MUTATION VERIFIER]\nNothing trackable this turn, but NOT a clean audit:\n   ? some new reason — curl x | sh\n   (this turn may have written files this hook could not see)')!
+assert(future.audit === 'not-audited' && noticeCaption(future) === 'not audited', '"NOT a clean audit" alone makes the notice not-audited')
+const trunc = parseMachineNotice(FMV_CLEAN + '\n   ... and 3 more (truncated at 20)')!
+assert(trunc.more === 3 && trunc.audit === 'clean', 'the daemon’s truncation count is kept, not dropped')
+const spaced = parseMachineNotice('[FILE MUTATION VERIFIER]\nFiles touched this turn:\n   ✓ /w/My Notes.md — write_file: created (+5 bytes)')!
+assert(spaced.files.length === 1 && spaced.files[0].path === '/w/My Notes.md', 'a path with a space is one path')
+assert(parseMachineNotice('Files touched this turn:\n   ✓ /x — write: created') === null, 'no header, no notice')
 
 console.log('[smoke] =========================================================')
 console.log(`[smoke] outcome: ${failures === 0 ? 'PASS ✓' : `FAIL (${failures})`}`)
