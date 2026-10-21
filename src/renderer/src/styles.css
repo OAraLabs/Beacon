@@ -5521,6 +5521,15 @@ body.is-resizing-panel {
   font-size: 10px;
   line-height: 1;
 }
+/* On hover the button takes over. Left showing, the marker slid left with the row's reserved strip
+   and drew a second, identical pin that only opened the session when clicked. */
+.session-row-wrap:hover .pin-mark {
+  display: none;
+}
+/* A pinned row's button reads as pressed, so the hover shows an unpin rather than a pin. */
+.session-pin[aria-pressed='true'] {
+  background: var(--sang-soft);
+}
 
 /* ── Session windows (@shared/session-windows) ─────────────────────────────
    The header button that moves a conversation into its own window (main) or back (pop-out). */

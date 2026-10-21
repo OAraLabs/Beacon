@@ -1096,6 +1096,23 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
               </button>
             </>
           ) : null}
+          {/* The same toggle as the hover pin button. The foot below says "until you unpin it", so the
+              menu has to offer the unpin itself. */}
+          {onTogglePin ? (
+            <>
+              <div className="ctx-menu-rule" role="separator" />
+              <button
+                className="ctx-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  onTogglePin(menuRow.id, !pinned?.[menuRow.id])
+                  closeMenu()
+                }}
+              >
+                {pinned?.[menuRow.id] ? 'Unpin' : 'Pin to the top'}
+              </button>
+            </>
+          ) : null}
           {store.assign[menuRow.id] ? (
             <button
               className="ctx-menu-item"
