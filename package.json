@@ -139,6 +139,7 @@
     "smoke:context-meter": "node scripts/context-meter-smoke.mjs",
     "smoke:drafts": "node scripts/drafts-smoke.mjs",
     "probe:drafts": "node scripts/drafts-app-probe.mjs",
+    "probe:machine-notice": "node scripts/machine-notice-probe.mjs",
     "probe:launch-restore": "node scripts/launch-restore-app-probe.mjs",
     "probe:setup-resume": "node scripts/setup-resume-probe.mjs",
     "build:react-dev": "electron-vite build --config electron.vite.react-dev.config.ts",
