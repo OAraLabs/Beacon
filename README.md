@@ -318,10 +318,10 @@ current platform: a `.dmg` on macOS, an `.AppImage` + `.deb` on Linux, all emitt
 makes an unpacked `.app` (no installer) for a quick check. better-sqlite3's native addon is
 `asarUnpack`ed so it loads at runtime on both platforms.
 
-Releases are built by `.github/workflows/release.yml` on a `v*` tag, in the maintainers' build
-repository, and attached to a **draft** release here — nothing ships until a human publishes the
-draft. The macOS CI build is signed and notarized when the signing secrets
-are configured, and unsigned (with a warning) when they are not.
+Releases are built by `.github/workflows/release.yml` on a `v*` tag pushed to this repository,
+after a maintainer approves the `release` environment, and attached to a **draft** release here —
+nothing ships until a human publishes the draft. The macOS CI build is signed and notarized when the
+signing secrets are configured, and unsigned (with a warning) when they are not.
 
 **Unsigned (personal use).** With no Apple credentials the `.dmg` is unsigned — fine for your own
 Mac: right-click the app → **Open** once to clear Gatekeeper (or

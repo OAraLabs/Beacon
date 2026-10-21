@@ -1,9 +1,9 @@
 name: Release
 
-# Tag `vX.Y.Z` → build Beacon on macOS and Linux → attach everything to a DRAFT release on the PUBLIC
-# repo OAraLabs/beacon. That repo holds installers, the update feed and a landing README, never
-# source. Nothing is published automatically: the draft stays invisible until a human publishes it,
-# and publishing it is what every installed Beacon (0.3.0 on) sees as the next update.
+# Tag `vX.Y.Z` → build Beacon on macOS and Linux → attach everything to a DRAFT release on THIS repo,
+# OAraLabs/Beacon, which is also where every installed Beacon (0.3.0 on) reads its update feed
+# (electron-builder.yml `publish`). Nothing is published automatically: the draft stays invisible
+# until a human publishes it, and publishing it is what installed apps see as the next update.
 #
 #   macOS  → Beacon-<version>-arm64.dmg + -arm64-mac.zip (+ latest-mac.yml)     arm64 only (#197)
 #   Linux  → Beacon-<version>-x86_64.AppImage + -amd64.deb (+ latest-linux.yml)
@@ -17,18 +17,20 @@ name: Release
 # unsigned build without being told. When signing was expected, the run checks the signature (and
 # the staple) on the built .app rather than trusting electron-builder's exit code.
 #
-# PUBLISHING uses BEACON_RELEASES_TOKEN (a token that can write releases on OAraLabs/beacon). The
-# build jobs never see it: only publish-draft does. On a tag push, a missing token FAILS the run in
-# preflight, before twenty minutes of builds; there is no path where a tag build skips the upload and
-# goes green. workflow_dispatch runs build and upload workflow artifacts only, and say so.
+# The signing and notarization secrets live in the `release` ENVIRONMENT, not the repository, and that
+# environment requires a maintainer's approval: the build job waits until someone approves it, and
+# no other job (and no pull request) can read them.
+#
+# PUBLISHING uses the run's own GITHUB_TOKEN. Only publish-draft gets `contents: write`; every other
+# job reads. On a tag push the draft is always created or the run fails; there is no path where a tag
+# build skips the upload and goes green. workflow_dispatch runs build and upload workflow artifacts
+# only, and say so.
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 
-# Read-only for this repo: the release goes to ANOTHER repo, with its own token. The default
-# GITHUB_TOKEN only needs to check the source out.
 permissions:
   contents: read
 
@@ -37,7 +39,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_REPO: OAraLabs/beacon
+  RELEASE_REPO: ${{ github.repository }}
+  # The repo the shipped update feed names (electron-builder.yml `publish`, checked on every artifact
+  # by scripts/check-update-feed.mjs). A release anywhere else is one no installed Beacon can see.
+  FEED_REPO: OAraLabs/beacon
 
 jobs:
   preflight:
@@ -73,41 +78,30 @@ jobs:
           if [ "$tag" != "$core" ]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
           echo "Tag $GITHUB_REF_NAME matches package.json $version."
 
-      - name: The releases token exists and reaches the release repo
+      - name: This repo is the one the update feed reads, and the tag is not published yet
         shell: bash
         env:
-          BEACON_RELEASES_TOKEN: ${{ secrets.BEACON_RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$GITHUB_REF_TYPE" != tag ]; then
-            if [ -z "$BEACON_RELEASES_TOKEN" ]; then
-              echo "::warning title=BEACON_RELEASES_TOKEN missing::Not needed for this build-only run, but a tag push will fail without it."
-            fi
             echo "### Build only" >> "$GITHUB_STEP_SUMMARY"
             echo "Triggered by $GITHUB_EVENT_NAME on $GITHUB_REF_NAME: artifacts are uploaded to this run only. No draft release is created; push a v* tag for that." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [ -z "$BEACON_RELEASES_TOKEN" ]; then
-            echo "::error title=BEACON_RELEASES_TOKEN is missing::This tag cannot be released. Add a repository secret BEACON_RELEASES_TOKEN (a fine-grained token with Contents: read and write on $RELEASE_REPO only), then re-run this workflow."
-            exit 1
-          fi
-          export GH_TOKEN="$BEACON_RELEASES_TOKEN"
-          if ! name=$(gh api "repos/$RELEASE_REPO" --jq .full_name 2>err.txt); then
-            echo "::error title=BEACON_RELEASES_TOKEN cannot read $RELEASE_REPO::$(head -c 300 err.txt)"
-            exit 1
-          fi
-          # A release's tag has to point at a commit, so an empty repository cannot hold one.
-          if ! gh api "repos/$RELEASE_REPO/commits?per_page=1" --jq '.[0].sha' >/dev/null 2>err.txt; then
-            echo "::error title=$RELEASE_REPO has no commits::GitHub cannot attach a release to an empty repository ($(head -c 200 err.txt)). Push the source to it first."
+          # GitHub names are case-insensitive: OAraLabs/Beacon and OAraLabs/beacon are one repo.
+          if [ "$(echo "$RELEASE_REPO" | tr '[:upper:]' '[:lower:]')" != "$(echo "$FEED_REPO" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "::error title=Not the feed repo::This run is in $RELEASE_REPO, but installed Beacons read updates from $FEED_REPO. A release here would never reach them."
             exit 1
           fi
           # Never touch a release someone already published: its files are what users downloaded.
+          # This job's token is read-only, so the list holds published releases only, which is the question.
           published=$(gh api "repos/$RELEASE_REPO/releases?per_page=100" --paginate \
             --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\" and .draft == false) | .html_url")
           if [ -n "$published" ]; then
             echo "::error title=$GITHUB_REF_NAME is already published::$published. A published release is never modified; tag a new version."
             exit 1
           fi
-          echo "Token reaches $name; $GITHUB_REF_NAME has no published release there."
+          echo "$RELEASE_REPO is the feed repo; $GITHUB_REF_NAME has no published release there."
 
   build:
     needs: preflight
@@ -139,11 +133,16 @@ jobs:
               dist/build-mode-*.txt
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    # Holds the signing and notarization secrets, and waits for a maintainer's approval.
+    environment: release
     env:
       # SHA-1 of the Developer ID Application certificate in CSC_LINK (public: it is in every signed
-      # binary). Owner decision 2026-10-06: CI keeps this certificate; it expires 2027-02-01, and the
-      # "Signing certificate expiry" step warns from 60 days out. Change this when CSC_LINK changes.
-      SIGN_FINGERPRINT: C84D33644F6141D9982E584DC1014FBDF91234D4
+      # binary). Since 2026-10-21 it is the certificate issued under the Developer ID G2 CA, valid to
+      # 2031-07-09; the "Signing certificate expiry" step warns from 60 days out. Change this when
+      # CSC_LINK changes.
+      SIGN_FINGERPRINT: 55059EA496841EEAF7B8CA6824622D2BAE913C24
+      # SHA-1 of Apple's "Developer ID Certification Authority" G2 intermediate, which issued it.
+      DEVID_G2_CA_SHA1: 5B45F61068B29FCC8FFFF1A7E99B78DA9E9C4635
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -218,6 +217,22 @@ jobs:
             rm -f "$p12"
             security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpass" "$kc" >/dev/null
             security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+            # A leaf is only a valid identity when its chain reaches Apple's root, and the G2 Developer ID
+            # CA is not part of macOS's own trust store. If the runner image lacks it, fetch it from Apple
+            # and import it only if its SHA-1 is the pinned one.
+            if security find-certificate -a -Z -c "Developer ID Certification Authority" | grep -q "SHA-1 hash: $DEVID_G2_CA_SHA1"; then
+              echo "The Developer ID G2 CA is already on the runner."
+            else
+              ca="$RUNNER_TEMP/DeveloperIDG2CA.cer"
+              curl -fsSL --retry 3 -o "$ca" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+              got=$(openssl x509 -inform DER -in "$ca" -noout -fingerprint -sha1 | sed 's/^[^=]*=//; s/://g')
+              if [ "$got" != "$DEVID_G2_CA_SHA1" ]; then
+                echo "::error title=Developer ID G2 CA mismatch::apple.com served $got, expected $DEVID_G2_CA_SHA1."
+                exit 1
+              fi
+              security import "$ca" -k "$kc" >/dev/null
+              echo "Imported the Developer ID G2 CA (pinned $DEVID_G2_CA_SHA1) into the build keychain."
+            fi
             ids=$(security find-identity -v -p codesigning "$kc" | grep -c '"Developer ID Application: ' || true)
             if [ "$ids" -lt 1 ]; then
               echo "::error title=No Developer ID Application identity::CSC_LINK imported, but holds no valid Developer ID Application certificate with its private key."
@@ -441,6 +456,10 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The only job that writes: it creates the draft and uploads its files. A draft is visible only to
+    # a token that can write, so this is also what lets it see an existing draft for the tag.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -498,11 +517,10 @@ jobs:
       - name: Create or update the draft on ${{ env.RELEASE_REPO }}
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.BEACON_RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
           VERSION: ${{ needs.preflight.outputs.version }}
         run: |
-          [ -n "$GH_TOKEN" ] || { echo "::error::BEACON_RELEASES_TOKEN is missing"; exit 1; }
           tag=$GITHUB_REF_NAME
           mac_mode=$(cat dist/build-mode-macOS.txt)
           case "$mac_mode" in
@@ -536,7 +554,9 @@ jobs:
             "")
               flags=(--draft --title "Beacon $tag" --notes-file notes.md)
               [ "$PRERELEASE" = true ] && flags+=(--prerelease)
-              gh release create "$tag" -R "$RELEASE_REPO" "${flags[@]}"
+              # --verify-tag: the release goes on the tag that was pushed, never a new one GitHub would
+              # cut from the default branch.
+              gh release create "$tag" -R "$RELEASE_REPO" --verify-tag "${flags[@]}"
               ;;
             true)
               echo "A draft for $tag already exists on $RELEASE_REPO: replacing its files."
@@ -555,7 +575,7 @@ jobs:
       - name: The draft holds exactly the release set
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.BEACON_RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           tag=$GITHUB_REF_NAME
           (cd dist && ls *.dmg *.zip *.AppImage *.deb latest-mac.yml latest-linux.yml *.blockmap) | sort > want.txt
