@@ -68,8 +68,8 @@ assert(
   'a bare image block (no bytes/ref/description) still drops → flat fallback'
 )
 
-// ── PARITY-PLAN A5: paste-as-file helpers ──
-console.log('[smoke] === A5. paste-as-file ===')
+// ── Paste-as-file: a long paste becomes a .txt attachment, not composer text ──
+console.log('[smoke] === paste-as-file ===')
 {
   assert(PASTE_AS_FILE_CHARS >= 2000 && PASTE_AS_FILE_CHARS <= 50_000, 'threshold catches pasted files, not paragraphs')
   const t = new Date(2026, 7, 28, 21, 7, 5).getTime()

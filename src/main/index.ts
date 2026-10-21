@@ -207,7 +207,7 @@ if (!builtinSpellcheck(process.platform)) {
 // BEFORE app ready, so this runs at module load; the handler itself registers in whenReady.
 registerArtifactRenderScheme()
 
-// ── beacon:// deep links + single instance (PARITY-PLAN A4) ──────────────────
+// ── beacon:// deep links + single instance ────────────────────────────────────
 // The desktop MINTS beacon://pair for phones (devices.ts); receiving is this. One instance holds
 // the lock; a second launch forwards its argv (the Windows/Linux deep-link path) and dies. macOS
 // delivers links via 'open-url' instead — registered before ready, since a cold-start link can

@@ -109,7 +109,7 @@ function FilePreview({ path }: { path: string }) {
   )
 }
 
-// Rendered artifact (PARITY-PLAN A1) — a beacon-artifact:// document in a sandboxed iframe (html)
+// Rendered artifact — a beacon-artifact:// document in a sandboxed iframe (html)
 // or an <img> (svg, script-inert by spec), with a Rendered ⇄ Source toggle. The render is the FULL
 // file served by main under its own no-network CSP; `source` is the 512 KB peek, and says so when
 // it was cut. The white field is deliberate and theme-independent (like the QR quiet zone): an

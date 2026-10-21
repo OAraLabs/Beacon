@@ -1,6 +1,6 @@
 // Drive the REAL built Beacon over CDP: launch, wait for the window, read what the app actually
-// shows. THE hand-verification harness (see PARITY-PLAN verification records) — import it from a
-// probe script: `import { evaluate, sleep, send, mainLog } from './cdp-harness.mjs'`.
+// shows. THE hand-verification harness, for what a headless smoke cannot see (a real window, real
+// input, the packaged app) — import it from a probe script: `import { evaluate, sleep, send, mainLog } from './cdp-harness.mjs'`.
 // BEACON_APP=packaged drives a packaged PROBE build instead of the repo build. Committed to the
 // repo (2026-08-29) after the OS tmp cleaner purged the session-scratchpad copy mid-session —
 // probes may copy it into a scratchpad, but this file is the source of truth.

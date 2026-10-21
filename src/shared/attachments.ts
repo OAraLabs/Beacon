@@ -37,7 +37,7 @@ export function oversizeAttachmentNotice(name: string, size: number): string {
 }
 
 /**
- * Paste-as-file threshold (PARITY-PLAN A5): a paste longer than this becomes a .txt attachment
+ * Paste-as-file threshold: a paste longer than this becomes a .txt attachment
  * chip instead of composer text. Chosen so that pasted logs/files stop drowning the draft while
  * an ordinary long paragraph (a few hundred words) still lands as editable text.
  */

@@ -1,4 +1,4 @@
-// beacon:// deep links, INBOUND (PARITY-PLAN A4) — pure parse + policy, shared by main and the
+// beacon:// deep links, INBOUND — pure parse + policy, shared by main and the
 // headless smoke.
 //
 // Trust stance: an inbound URL is UNTRUSTED INPUT that any web page, chat message, or QR code can

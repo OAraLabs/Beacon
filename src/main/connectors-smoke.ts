@@ -1,5 +1,5 @@
 /**
- * Headless smoke for the Connectors tab's pure model (PARITY-PLAN B1) — the wire parser Beacon
+ * Headless smoke for the Connectors tab's pure model — the wire parser Beacon
  * expects from Prometheus#332, and above all the allowed_tools TOGGLE SEMANTICS, which are the
  * load-bearing part: null means "all", so unchecking one tool while at null must MATERIALIZE the
  * inventory minus that tool, and re-checking the last excluded one must collapse back to null so

@@ -1,4 +1,4 @@
-// Screenshot capture (PARITY-PLAN A3) — pure model shared by main, the renderer picker, and the
+// Screenshot capture — pure model shared by main, the renderer picker, and the
 // headless smoke. Capture itself is main-only (desktopCapturer); everything decidable without
 // Electron lives here so it is provable headless.
 //

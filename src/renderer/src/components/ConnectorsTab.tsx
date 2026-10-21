@@ -9,7 +9,7 @@ import {
   type McpServer
 } from '@shared/connectors'
 
-// Config → Connectors (PARITY-PLAN B1) — the management UI over the daemon's MCP client,
+// Config → Connectors — the management UI over the daemon's MCP client,
 // modeled on the Models tab: server cards with PROBED health, an add form, and per-tool
 // allowed_tools toggles (the Foundation §2.3a prerequisite rendered as a first-class control).
 //

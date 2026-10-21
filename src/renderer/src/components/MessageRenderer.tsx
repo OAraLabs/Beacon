@@ -55,7 +55,7 @@ function useRehypeHighlight(): RehypePlugins | undefined {
   return rehypeHighlightPlugins ?? undefined
 }
 
-// ── Lazy math (PARITY-PLAN A2) ────────────────────────────────────────────────
+// ── Lazy math ─────────────────────────────────────────────────────────────────
 // remark-math is tiny and parses $$…$$ into math nodes up front; rehype-katex + KaTeX's CSS
 // (fonts and all, BUNDLED — no CDN, per the no-runtime-fetch rule) land later as their own chunk,
 // same pattern as highlighting. Until the chunk arrives math shows as its raw $$ source, which is
@@ -85,7 +85,7 @@ function useRehypeKatex(): RehypePlugins | undefined {
   return rehypeKatexPlugins ?? undefined
 }
 
-// ── Lazy mermaid (PARITY-PLAN A2) ─────────────────────────────────────────────
+// ── Lazy mermaid ──────────────────────────────────────────────────────────────
 // mermaid is the heaviest chunk in the app, so it loads only when a ```mermaid fence actually
 // appears. securityLevel 'strict' sanitizes labels; the diagram is themed from the live Codex
 // tokens at render time so all eight plates hold without a hardcoded color here.
@@ -245,7 +245,7 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   const [lines, setLines] = useState(0)
   const [expanded, setExpanded] = useState(false)
   const lang = (className ?? '').match(/language-([\w+#-]+)/)?.[1] ?? ''
-  // ```mermaid fences default to the DIAGRAM view with a source toggle (PARITY-PLAN A2).
+  // ```mermaid fences default to the DIAGRAM view with a source toggle.
   const isMermaid = lang === 'mermaid'
   const [showSource, setShowSource] = useState(false)
 
@@ -440,7 +440,7 @@ export function TextBlock({ text }: { text: string }) {
 
 
 /**
- * Thinking disclosure (PARITY-PLAN B2) — the model's reasoning, collapsed by default and styled
+ * Thinking disclosure — the model's reasoning, collapsed by default and styled
  * APART from prose: the reply is what the agent says, this is how it got there, and the two must
  * not read as one voice. A redacted block says the provider withheld it instead of opening onto
  * nothing. Rendered as plain pre-wrap text, deliberately NOT through markdown — reasoning is a

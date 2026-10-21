@@ -6,7 +6,7 @@
 /** A renderer-facing content part. Loosely-typed union (optional fields per `type`). */
 export interface ContentPart {
   type: 'text' | 'toolCall' | 'toolResult' | 'image' | 'file' | 'thinking'
-  /** text; ALSO the thinking body for type 'thinking' (PARITY-PLAN B2). */
+  /** text; ALSO the thinking body for type 'thinking'. */
   text?: string
   /** thinking only: a redacted_thinking block — content withheld by the provider; the disclosure
    * says so instead of rendering an empty reveal. */
@@ -21,7 +21,7 @@ export interface ContentPart {
   output?: string
   error?: boolean
   // image / file: originally OPTIMISTIC renderer-only parts from the composer. Since the daemon's
-  // image blocks (Prometheus#278) image parts ALSO come from content_json (PARITY-PLAN B3):
+  // image blocks (Prometheus#278) image parts ALSO come from content_json:
   // `dataUrl` present → an inline thumbnail (composer-optimistic, or a stored block that kept its
   // bytes because it had no source_path to recover from). `dataUrl` absent but `sourcePath` set →
   // the daemon holds the bytes and Beacon cannot fetch them until the media endpoint (Phase 3b)

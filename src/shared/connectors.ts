@@ -1,4 +1,4 @@
-// MCP Connectors (PARITY-PLAN B1) — pure wire model, shared by the Config tab, the dev stub in
+// MCP Connectors — pure wire model, shared by the Config tab, the dev stub in
 // main, and the headless smoke.
 //
 // THE WIRE SHAPE IS BEACON'S SIDE OF Prometheus#332. The daemon endpoint does not exist yet; this

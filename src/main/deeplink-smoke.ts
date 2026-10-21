@@ -1,5 +1,5 @@
 /**
- * Headless smoke for beacon:// deep links (PARITY-PLAN A4) — the pure parse + policy layer.
+ * Headless smoke for beacon:// deep links — the pure parse + policy layer.
  * The OS delivery paths (open-url, second-instance argv, protocol registration) are hands-on
  * against the packaged app; what this pins is the ROUTE TABLE, above all that the one dangerous
  * route — pair, which carries a host and a credential — is refused BY DESIGN, with a reason.

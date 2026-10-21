@@ -625,7 +625,7 @@ export interface ConfigTab {
 export const CONFIG_TABS: ConfigTab[] = [
   // Models first — the friendliest tab (per-provider API keys + models overview).
   { id: 'models', label: 'Models', path: '/api/providers/keys' },
-  // Connectors (PARITY-PLAN B1): the daemon's MCP servers. The endpoint is Prometheus#332 and
+  // Connectors: the daemon's MCP servers. The endpoint is Prometheus#332 and
   // may not exist yet — the tab owns that state rather than showing a blank pane.
   { id: 'connectors', label: 'Connectors', path: '/api/mcp/servers' },
   { id: 'skills', label: 'Skills', path: '/api/skills' },
