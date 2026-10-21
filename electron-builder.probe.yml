@@ -7,6 +7,7 @@
 #
 #   beaconBuild: probe                  main honours --remote-debugging-port (src/shared/release-gate.ts)
 #   enableNodeCliInspectArguments: true the Node inspector fuse
+#   afterPack: strip URL schemes        no beacon:// in the probe's Info.plist (below)
 #
 # Every other fuse, the entitlements and the signing identity are inherited unchanged, so what a
 # probe proves about native modules, library validation and the asar holds for the release too.
@@ -32,3 +33,12 @@ extraMetadata:
 
 electronFuses:
   enableNodeCliInspectArguments: true
+
+# beacon:// stays with the release. A probe build that declared the scheme, and claimed it at startup,
+# took LaunchServices' handler for it from the installed app on 2026-10-06. main now claims the scheme
+# only in a release (src/main/index.ts); this hook removes the declaration from the probe's Info.plist,
+# because a stored handler that still names the probe id would route links to any probe build that
+# declares it. Not `protocols:` here: arrays merge across `extends` by union (`[]` keeps the release's
+# scheme) and the schema rejects null. probe:hardening checks the Info.plist and that a probe launch
+# leaves the stored handler alone.
+afterPack: scripts/probe-strip-url-schemes.cjs

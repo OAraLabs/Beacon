@@ -62,7 +62,7 @@ function checkReleaseConfig(text: string): string[] {
   if (mac.entitlements !== 'build/entitlements.mac.plist' || mac.entitlementsInherit !== 'build/entitlements.mac.plist') v.push('mac.entitlements and mac.entitlementsInherit must both be build/entitlements.mac.plist (the file this smoke checks)')
   return v
 }
-const PROBE_KEYS = ['appId', 'directories', 'electronFuses', 'extends', 'extraMetadata']
+const PROBE_KEYS = ['afterPack', 'appId', 'directories', 'electronFuses', 'extends', 'extraMetadata']
 /** electron-builder.probe.yml: the release config plus exactly the probe flag and the inspector
  *  fuse, under its own identity. Anything else it overrode would make a probe prove something
  *  about a build that is not the release. */
@@ -77,7 +77,33 @@ function checkProbeConfig(text: string, baseText: string): string[] {
   if (!same(c.extraMetadata, { name: 'beacon-desktop-probe', beaconBuild: 'probe' })) v.push(`extraMetadata must be exactly { name: beacon-desktop-probe, beaconBuild: probe } (got ${JSON.stringify(c.extraMetadata)})`)
   if (typeof c.appId !== 'string' || !c.appId || c.appId === base.appId) v.push(`appId must be its own (got ${JSON.stringify(c.appId)}, release ${JSON.stringify(base.appId)})`)
   if (!same(c.directories, { output: 'dist-probe' })) v.push(`directories must be exactly { output: dist-probe } (got ${JSON.stringify(c.directories)})`)
+  // beacon:// stays with the release. A probe build that declared it and ran took LaunchServices'
+  // handler for it on 2026-10-06. The config cannot drop the release's `protocols`: arrays merge across
+  // `extends` by union and the schema rejects null. So an afterPack hook strips the Info.plist.
+  if (c.afterPack !== STRIP_HOOK) v.push(`afterPack must be ${STRIP_HOOK}, which strips beacon:// from the probe build's Info.plist (got ${JSON.stringify(c.afterPack)}; a \`protocols\` override cannot remove it)`)
   return v
+}
+const STRIP_HOOK = 'scripts/probe-strip-url-schemes.cjs'
+/** The hook itself: it refuses any bundle id but the probe's (a release keeps its deep links), removes
+ *  CFBundleURLTypes, and throws if any remain. */
+function checkStripHook(text: string): string[] {
+  const t = text.replace(/\/\/.*$/gm, '')
+  const v: string[] = []
+  if (!t) return [`${STRIP_HOOK} is missing`]
+  if (!/if\s*\(\s*id\s*!==\s*PROBE_ID\s*\)\s*\{\s*throw/.test(t) || !/PROBE_ID\s*=\s*'com\.oaralabs\.beacon\.probe'/.test(t)) v.push(`${STRIP_HOOK} does not refuse bundles other than com.oaralabs.beacon.probe`)
+  if (!/'-remove',\s*'CFBundleURLTypes'/.test(t)) v.push(`${STRIP_HOOK} does not remove CFBundleURLTypes`)
+  if (!/if\s*\(\s*left\s*!==\s*undefined\s*\)\s*throw/.test(t)) v.push(`${STRIP_HOOK} does not fail when URL types remain`)
+  return v
+}
+/** src/main/index.ts: only a release claims beacon:// at startup (setAsDefaultProtocolClient writes
+ *  LaunchServices' stored handler for the scheme). A probe build that claimed it took the scheme over. */
+function checkSchemeClaim(text: string): string[] {
+  const t = stripComments(text)
+  const calls = [...t.matchAll(/setAsDefaultProtocolClient\(/g)]
+  if (calls.length === 0) return ['main never claims beacon:// (setAsDefaultProtocolClient): a release would lose its deep links']
+  return calls
+    .filter((m) => !/if\s*\(\s*buildFlavor\(\)\s*===\s*'release'\s*\)\s*(app\.)?$/.test(t.slice(Math.max(0, (m.index ?? 0) - 80), m.index)))
+    .map(() => "setAsDefaultProtocolClient runs outside `if (buildFlavor() === 'release')`, so a probe or unflagged build claims beacon://")
 }
 const FORBIDDEN_ENTITLEMENTS = ['com.apple.security.cs.allow-dyld-environment-variables', 'com.apple.security.cs.disable-library-validation']
 const NEEDED_ENTITLEMENTS = ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.allow-unsigned-executable-memory', 'com.apple.security.device.audio-input']
@@ -220,7 +246,8 @@ async function main(): Promise<void> {
     probe: read('electron-builder.probe.yml'),
     plist: read('build/entitlements.mac.plist'),
     index: read('src/main/index.ts'),
-    flavor: read('src/main/build-flavor.ts')
+    flavor: read('src/main/build-flavor.ts'),
+    stripHook: ((): string => { try { return read(STRIP_HOOK) } catch { return '' } })()
   }
   const mainSources = readdirSync(join(ROOT, 'src/main'))
     .filter((n) => n.endsWith('.ts') && !n.endsWith('-smoke.ts'))
@@ -234,6 +261,8 @@ async function main(): Promise<void> {
     ["main's first act is the gate, on Chromium's command line, and it exits", checkGate(files.index)],
     ["the flag is read from the app's own package.json, never the environment (build-flavor.ts)", checkFlavorSource(files.flavor)],
     [`DevTools follows the flag: every window and view in src/main (${mainSources.length} files) and the View menu`, checkDevTools(mainSources, files.index)],
+    ['only a release claims beacon:// (setAsDefaultProtocolClient behind buildFlavor() === \'release\')', checkSchemeClaim(files.index)],
+    [`the probe build's Info.plist is stripped of URL schemes, and only the probe's (${STRIP_HOOK})`, checkStripHook(files.stripHook)],
     ['audit:bundle wants exactly the fuses the configs set', checkAuditAgrees(files.release, files.probe, facts)]
   ]
   for (const [what, v] of real) assert(v.length === 0, what, v.join('\n         '))
@@ -279,6 +308,11 @@ async function main(): Promise<void> {
     { name: 'the flag read from an environment variable instead', flag: /environment variable/, run: () => checkFlavorSource(once(files.flavor, "text = readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')", "text = process.env.BEACON_BUILD_JSON ?? readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')")) },
     { name: 'the flag read from the working directory, not the app', flag: /app\.getAppPath/, run: () => checkFlavorSource(once(files.flavor, "join(app.getAppPath(), 'package.json')", "join(process.cwd(), 'package.json')")) },
     { name: 'debuggingAllowedHere ignores the flag', flag: /debuggingAllowedHere\(\) is not/, run: () => checkFlavorSource(once(files.flavor, 'return debuggingAllowed(buildFlavor(), app.isPackaged)', 'return !app.isPackaged')) },
+    { name: 'the probe build loses its strip hook (afterPack line deleted)', flag: /afterPack must be/, run: () => checkProbeConfig(once(files.probe, /^afterPack: scripts\/probe-strip-url-schemes\.cjs\n/m, ''), files.release) },
+    { name: 'the probe build tries protocols: [] instead (merged by union: beacon:// stays)', flag: /may not: protocols/, run: () => checkProbeConfig(files.probe + '\nprotocols: []\n', files.release) },
+    { name: 'the strip hook stops refusing non-probe bundles (a release would lose its deep links)', flag: /does not refuse bundles/, run: () => checkStripHook(once(files.stripHook, 'if (id !== PROBE_ID) {', 'if (false) {')) },
+    { name: 'the strip hook no longer fails when URL types remain', flag: /does not fail when URL types remain/, run: () => checkStripHook(once(files.stripHook, 'if (left !== undefined) throw', 'if (false) throw')) },
+    { name: 'the scheme claim goes back to every packaged build (if (!isDev))', flag: /outside `if \(buildFlavor\(\) === 'release'\)`/, run: () => checkSchemeClaim(once(files.index, "if (buildFlavor() === 'release') app.setAsDefaultProtocolClient('beacon')", "if (!isDev) app.setAsDefaultProtocolClient('beacon')")) },
     { name: "the pop-out window drops its devTools line (Electron's default is DevTools on)", flag: /popout-window\.ts: new BrowserWindow/, run: () => checkDevTools(editSource(mainSources, 'src/main/popout-window.ts', /^ {6}devTools: debuggingAllowedHere\(\),\n/m, ''), files.index) },
     { name: 'the browser pane view hard-codes devTools: true', flag: /browser-pane\.ts: new WebContentsView/, run: () => checkDevTools(editSource(mainSources, 'src/main/browser-pane.ts', 'devTools: debuggingAllowedHere()', 'devTools: true'), files.index) },
     { name: 'a new window file with no webPreferences at all', flag: /devtools-new-window\.ts: new BrowserWindow/, run: () => checkDevTools([...mainSources, { path: 'src/main/devtools-new-window.ts', text: "import { BrowserWindow } from 'electron'\nexport const w = () => new BrowserWindow({ width: 400, height: 300 })\n" }], files.index) },
@@ -309,7 +343,7 @@ async function main(): Promise<void> {
   assert(quoted.length === 0, 'not flagged: a quoted `new BrowserWindow(` in a message is not a window (false-positive fixture)', quoted.join(' | '))
 
   // Counted, so a section that silently ran nothing cannot read as a pass.
-  const EXPECTED = 7 + 7 + 1 + 5 + 1 + 7 + 1 + mutations.length + 1
+  const EXPECTED = 7 + 7 + 1 + 5 + 1 + 9 + 1 + mutations.length + 1
   const ran = failures + passes
   console.log(failures === 0 && ran === EXPECTED ? `\n[smoke] release-gate: ALL PASS (${ran})` : `\n[smoke] release-gate: ${failures} FAIL, ${ran} of ${EXPECTED} checks ran`)
   process.exit(failures === 0 && ran === EXPECTED ? 0 : 1)
