@@ -20,7 +20,10 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const LIVE_PROFILE = join(homedir(), 'Library/Application Support/beacon-desktop')
 const LIVE_DB = join(LIVE_PROFILE, 'beacon.db')
-const ELECTRON_BIN = join(homedir(), 'projects/beacon-desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
+// The Electron binary inside the driven checkout's own node_modules. It used to be one hard-coded
+// checkout's path under the home folder: rename or move that checkout and every probe failed to
+// launch, or drove another tree's Electron. A worktree has no node_modules until `npm ci` runs in it.
+const electronBin = (repo) => join(repo, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
 
 /** Why the live profile may be in use right now, or null when nothing holds it. Electron's
  *  single-instance lock keeps a `SingletonLock` symlink (`<host>-<pid>`) in userData for as long as
@@ -175,10 +178,12 @@ export async function launchApp({ repo = process.cwd(), profile, acceptDialogs =
   const insp = cdp + 1
   if ((await answers(cdp)) || (await answers(insp))) throw new Error(`port ${cdp}/${insp} already serving CDP — a stale Electron is alive`)
 
-  // The main checkout's Electron binary, pointed at THIS checkout's app directory (the argument is
-  // what decides whose `out/` runs; the page-URL assertion below proves it). `--use-mock-keychain`
-  // keeps Chromium's own OSCrypt off the real Keychain too — see scratchProfile for why that matters.
-  const electron = process.env.BEACON_ELECTRON || ELECTRON_BIN
+  // This checkout's Electron binary (BEACON_ELECTRON names another), pointed at this checkout's app
+  // directory (the argument is what decides whose `out/` runs; the page-URL assertion below proves
+  // it). `--use-mock-keychain` keeps Chromium's own OSCrypt off the real Keychain too — see
+  // scratchProfile for why that matters.
+  const electron = process.env.BEACON_ELECTRON || electronBin(repo)
+  if (!existsSync(electron)) throw new Error(`no Electron at ${electron} — run npm ci in ${repo}, or set BEACON_ELECTRON`)
   const child = spawn(electron, [repo, `--remote-debugging-port=${cdp}`, `--inspect=${insp}`, `--user-data-dir=${profile}`, '--use-mock-keychain'], {
     cwd: repo,
     stdio: ['ignore', 'pipe', 'pipe'],
