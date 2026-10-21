@@ -1850,10 +1850,12 @@ app.whenReady().then(() => {
     console.warn('[main] session windows not restored:', (err as Error).message)
   }
 
-  // beacon:// intake (A4): claim the scheme — packaged only, or dev runs would claim it for the
-  // bare Electron binary — then drain whatever arrived before the window existed (macOS open-url
-  // on a cold start) or rode this instance's own argv (Windows/Linux cold start).
-  if (!isDev) app.setAsDefaultProtocolClient('beacon')
+  // beacon:// intake (A4): claim the scheme — a RELEASE build only. A dev run would claim it for the
+  // bare Electron binary; a probe build (its own bundle id) took it over from the installed app on
+  // 2026-10-06, because claiming writes LaunchServices' stored handler. Then drain whatever arrived
+  // before the window existed (macOS open-url on a cold start) or rode this instance's own argv
+  // (Windows/Linux cold start). Deep links still work in a probe build launched with one in argv.
+  if (buildFlavor() === 'release') app.setAsDefaultProtocolClient('beacon')
   appReady = true
   if (!pendingDeepLink) pendingDeepLink = firstDeepLinkInArgv(process.argv)
   if (pendingDeepLink) {

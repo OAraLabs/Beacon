@@ -34,6 +34,11 @@
 // build: the item is there and ⌥⌘I opens DevTools, which main's isDevToolsOpened() confirms. Needs
 // the Accessibility grant of whatever launched the probe (checked without prompting); the scratch
 // Beacon takes focus for about three seconds.
+// beacon://: the release declares the scheme (deep links), the probe build declares none, and the probe
+// build's launch leaves LaunchServices' stored handler for beacon:// as it found it (read-only query).
+// On 2026-10-06 a probe build that declared and claimed the scheme took it over from the installed app.
+// The release launches above DO claim it (production behaviour, the release's own bundle id), so the
+// handler check is taken around the probe launch alone.
 //
 // macOS only (codesign, lsof, clang, .app bundles).
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
@@ -43,7 +48,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import net from 'node:net'
 import { createRequire } from 'node:module'
-import { PROBE_FUSES, RELEASE_FUSES, readBuildFlavor, readFuses, readPackageName } from './bundle-facts.mjs'
+import { PROBE_FUSES, RELEASE_FUSES, readBuildFlavor, readFuses, readPackageName, readUrlSchemes } from './bundle-facts.mjs'
 
 const REPO = join(fileURLToPath(import.meta.url), '../..')
 const RELEASE = resolve(REPO, process.env.BEACON_RELEASE_BUNDLE ?? 'dist/mac-arm64/Beacon.app')
@@ -69,6 +74,12 @@ func ax(_ el: AXUIElement, _ attr: String) -> AnyObject? {
 }
 func out(_ o: Any) { let d = try! JSONSerialization.data(withJSONObject: o); print(String(data: d, encoding: .utf8)!) }
 let a = CommandLine.arguments
+if a.count == 3 && a[1] == "handler" {
+  // Read-only: the bundle id LaunchServices has stored as the default handler for a URL scheme.
+  let handler: Any = (LSCopyDefaultHandlerForURLScheme(a[2] as CFString)?.takeRetainedValue() as String?) ?? NSNull()
+  out(["scheme": a[2], "handler": handler] as [String: Any])
+  exit(0)
+}
 if a.count == 2 && a[1] == "trusted" {
   out(["trusted": AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary)])
   exit(0)
@@ -118,7 +129,7 @@ default:
 `
 
 // ── verdict: counted, and decided on exit so an early return cannot read as a pass ─────────
-const EXPECTED = 60
+const EXPECTED = 64
 let passed = 0, failed = 0
 const check = (ok, label, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${String(detail).slice(0, 400)}` : ''}`)
@@ -374,10 +385,14 @@ console.log(`  fuses: ${JSON.stringify(proFuses)}`)
 for (const [name, state] of Object.entries(PROBE_FUSES)) check(proFuses[name] === state, `probe fuse ${name} is ${state}`, `read back: ${proFuses[name] ?? proFuses.error}`)
 const proEnt = entitlementsOf(bin(PROBE))
 check(proEnt.length > 0 && proEnt.join() === relEnt.join(), 'probe main binary has exactly the release\'s entitlements', `${proEnt.join(', ')} vs ${relEnt.join(', ')}`)
+const relSchemes = readUrlSchemes(RELEASE), proSchemes = readUrlSchemes(PROBE)
+check(Array.isArray(relSchemes) && relSchemes.includes('beacon'), "the release's Info.plist declares beacon:// (deep links stay with the release)", JSON.stringify(relSchemes))
+check(Array.isArray(proSchemes) && !proSchemes.includes('beacon'), "the probe build's Info.plist declares no beacon:// scheme", JSON.stringify(proSchemes))
 
 // ── P2. probe build, launched: CDP, the inspector, native modules, library validation ─────
 console.log('\n── probe build: launched')
 const cdp = await freePort(), insp = await freePort()
+const handlerBefore = AXBIN ? axCall('handler', 'beacon').handler : undefined
 const probeRun = await launch(PROBE, {
   args: [`--remote-debugging-port=${cdp}`, `--inspect=${insp}`],
   whileUp: async (child) => ({ ...(await inspectProbe(cdp, insp)), dt: await devtoolsKeys(child.pid, { inspectPort: insp }) })
@@ -395,6 +410,15 @@ check(d.sameSig?.ok === true, 'control: a copy of the SQLite addon still carryin
 const LV = /Team ID|not valid for use in process|library validation/i
 check(d.adhoc?.ok === false && LV.test(d.adhoc?.error ?? ''), 'the same addon re-signed ad hoc is REFUSED by library validation', (d.adhoc?.error ?? '').match(/[^'(]*(Team ID|not valid for use in process|library validation)[^')]*/i)?.[0] ?? JSON.stringify(d.adhoc))
 
+const handlerAfter = AXBIN ? axCall('handler', 'beacon').handler : undefined
+check(AXBIN !== null && handlerAfter === handlerBefore, "the probe build's launch left LaunchServices' stored beacon:// handler as it found it", `${handlerBefore} → ${handlerAfter}`)
+check(AXBIN !== null && typeof handlerAfter === 'string' && handlerAfter !== proSign.identifier, "beacon://'s stored handler is not the probe build", `${handlerAfter} (probe is ${proSign.identifier})`)
+if (handlerAfter === proSign.identifier) {
+  // The probe stays read-only toward LaunchServices; it says how to undo instead. A stored handler that
+  // names the probe id (left by an older probe build's claim) routes beacon:// to ANY registered probe
+  // build, scheme declared or not (measured 2026-10-06), until the release re-claims it at its launch.
+  console.log(`note: beacon:// now opens the probe build. Undo: ${'/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'} -u '${PROBE}', then quit and reopen /Applications/Beacon.app (it re-claims beacon:// at launch).`)
+}
 const pdt = d.dt ?? {}
 check(Array.isArray(pdt.menu?.items) && pdt.menu.items.includes('Toggle Developer Tools'), "the probe build's live View menu has Toggle Developer Tools", JSON.stringify(pdt.menu ?? pdt.error))
 check(pdt.front?.frontmost === true && pdt.after === pdt.before + 1 && pdt.devToolsOpened === true, '⌥⌘I opens DevTools in the probe build (one new renderer, and main\'s isDevToolsOpened() agrees)', JSON.stringify({ front: pdt.front, renderers: [pdt.before, pdt.after], devToolsOpened: pdt.devToolsOpened, error: pdt.error }))

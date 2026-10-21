@@ -4,6 +4,7 @@
 //
 // Both readers return what they found, including "unreadable", and leave the verdict to the
 // caller: a reader that threw would turn "could not look" into a crash rather than a FAIL.
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
@@ -81,6 +82,17 @@ export function readPackageName(asarPath) {
   try {
     const asar = require('@electron/asar')
     return JSON.parse(asar.extractFile(asarPath, 'package.json').toString('utf8')).name ?? null
+  } catch (e) {
+    return { error: String(e?.message ?? e) }
+  }
+}
+
+/** The URL schemes the app's Info.plist declares (CFBundleURLTypes), or { error }. LaunchServices
+ *  offers an app as a handler for exactly these; a probe build must declare none of Beacon's. */
+export function readUrlSchemes(appPath) {
+  try {
+    const plist = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', `${appPath}/Contents/Info.plist`], { encoding: 'utf8' }))
+    return (plist.CFBundleURLTypes ?? []).flatMap((t) => t.CFBundleURLSchemes ?? [])
   } catch (e) {
     return { error: String(e?.message ?? e) }
   }
