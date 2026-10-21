@@ -22,14 +22,15 @@ name: Release
 # no other job (and no pull request) can read them.
 #
 # PUBLISHING uses the run's own GITHUB_TOKEN. Only publish-draft gets `contents: write`; every other
-# job reads. On a tag push the draft is always created or the run fails; there is no path where a tag
-# build skips the upload and goes green. workflow_dispatch runs build and upload workflow artifacts
-# only, and say so.
+# job reads. The draft is always created or the run fails; there is no path where a build skips the
+# upload and goes green.
+#
+# A `v*` tag is the only trigger. The `release` environment admits only `v*` tags, so a run from a
+# branch could never reach the secrets; a build to try something is a suffixed tag (v0.4.9-dryrun.1).
 
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -64,11 +65,6 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_REF_TYPE" != tag ]; then
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            echo "Not a tag ($GITHUB_REF_NAME): package.json is $version; nothing to match."
-            exit 0
-          fi
           tag=${GITHUB_REF_NAME#v}
           core=${tag%%-*}
           if [ "$core" != "$version" ]; then
@@ -83,11 +79,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$GITHUB_REF_TYPE" != tag ]; then
-            echo "### Build only" >> "$GITHUB_STEP_SUMMARY"
-            echo "Triggered by $GITHUB_EVENT_NAME on $GITHUB_REF_NAME: artifacts are uploaded to this run only. No draft release is created; push a v* tag for that." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
           # GitHub names are case-insensitive: OAraLabs/Beacon and OAraLabs/beacon are one repo.
           if [ "$(echo "$RELEASE_REPO" | tr '[:upper:]' '[:lower:]')" != "$(echo "$FEED_REPO" | tr '[:upper:]' '[:lower:]')" ]; then
             echo "::error title=Not the feed repo::This run is in $RELEASE_REPO, but installed Beacons read updates from $FEED_REPO. A release here would never reach them."

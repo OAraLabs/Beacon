@@ -33,7 +33,8 @@ notarizes and makes a prerelease draft that clients never see. Delete the draft 
 Nothing auto-publishes. The updater only ever sees **published, non-prerelease** releases, so
 "the draft exists" and "clients can see it" are different states.
 
-`workflow_dispatch` runs build and upload workflow artifacts only; no draft is created.
+A `v*` tag is the only trigger: the `release` environment admits only `v*` tags, so there is no
+manual or branch run.
 
 ## Secrets (in the `release` environment of OAraLabs/Beacon)
 
