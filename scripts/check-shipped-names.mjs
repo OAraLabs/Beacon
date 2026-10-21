@@ -194,7 +194,8 @@ const walk = (d, keep, out = []) => {
   return out
 }
 
-const INTERNAL = ['HANDOFF.md', 'PR-DESCRIPTION.md', 'CLAUDE.md']
+// CLAUDE.md is published with the source, so it is read like any other root file.
+const INTERNAL = ['HANDOFF.md', 'PR-DESCRIPTION.md']
 const rootFiles = readdirSync(ROOT).filter((n) => !INTERNAL.includes(n) && n !== '.git' && n !== '.DS_Store' && !/^\.env/.test(n) && !BINARY.test(n) && !/\.tsbuildinfo$/.test(n) && statSync(join(ROOT, n)).isFile()).map((n) => join(ROOT, n))
 const source = [...['src', 'scripts', '.github'].flatMap((d) => walk(join(ROOT, d), (r) => !BINARY.test(r))), ...rootFiles]
 const sourceRel = source.map((f) => relative(ROOT, f))
