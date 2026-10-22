@@ -162,7 +162,7 @@ check(
   /rehypePlugins[^\n]*=[^\n]*\brehypeTrimStructuralWhitespace\b/.test(tsxSource)
 )
 
-// ── PARITY-PLAN A2: math ($$…$$ via remark-math + rehype-katex) ─────────────
+// ── Math in chat ($$…$$ via remark-math + rehype-katex) ───────────────────
 // The exact pipeline TextBlock uses, same options. Single-dollar math is OFF by option — chat is
 // full of prices, and "$5 and $10" typeset as math would corrupt ordinary sentences.
 {
@@ -195,7 +195,7 @@ check(
   check('TextBlock passes rehype-katex once loaded', /katex \?\? \[\]/.test(tsxSource.replace(/\(|\)/g, '')) || /\.\.\.\(katex \?\? \[\]\)/.test(tsxSource))
 }
 
-// ── PARITY-PLAN A2: mermaid routing ─────────────────────────────────────────
+// ── ```mermaid fences route to the diagram renderer ─────────────────────────
 // mermaid itself needs a real browser (getBBox) — the DIAGRAM is display-verified over CDP. What
 // is provable here: the fence routes with its language class intact, and the component contract
 // exists (mermaid branch + strict security + debounce + error fallback).

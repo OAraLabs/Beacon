@@ -11,7 +11,7 @@ import {
 } from '@shared/capture'
 import { handleFromShell, onFromShell } from './shell-windows'
 
-// Screenshot capture (PARITY-PLAN A3). Pixels are read IN MAIN via desktopCapturer and handed to
+// Screenshot capture. Pixels are read IN MAIN via desktopCapturer and handed to
 // the renderer as data — the renderer never gets a media stream or a raw display handle. A still
 // is just a big thumbnail: getSources with a display-sized thumbnailSize IS the capture; no
 // getUserMedia, no recording session.

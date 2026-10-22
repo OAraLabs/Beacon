@@ -97,7 +97,7 @@ publish:
     owner: OAraLabs
     repo: beacon
 
-# beacon:// deep links (PARITY-PLAN A4): CFBundleURLTypes on macOS, x-scheme-handler on Linux.
+# beacon:// deep links: CFBundleURLTypes on macOS, x-scheme-handler on Linux.
 # The app also calls setAsDefaultProtocolClient at runtime; this is the install-time half.
 protocols:
   - name: Beacon

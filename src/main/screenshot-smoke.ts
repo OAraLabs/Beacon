@@ -1,5 +1,5 @@
 /**
- * Headless smoke for screenshot capture (PARITY-PLAN A3) — the pure model only: ordering, the
+ * Headless smoke for screenshot capture — the pure model only: ordering, the
  * filename mint, and the TCC access-state sentences. desktopCapturer itself needs a display and a
  * grant, so the capture round-trip is display-verified over CDP; what this pins is the contract
  * the picker renders from — above all that an un-granted state produces a SENTENCE, because

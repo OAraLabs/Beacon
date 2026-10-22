@@ -1442,7 +1442,7 @@ export function ChatShell({
     setSending(false)
   }
 
-  // Retry with a DIFFERENT model (PARITY-PLAN A6): sets the session's model override through the
+  // Retry with a DIFFERENT model: sets the session's model override through the
   // exact path the composer switcher uses, then re-dispatches. If the override write fails the
   // retry still runs and the composer's model badge shows the truth — the badge, not this menu,
   // is the authority on what will serve the turn.
@@ -1460,7 +1460,7 @@ export function ChatShell({
     draftRef.current?.focus()
   }
 
-  // ── Screenshot capture (PARITY-PLAN A3) ─────────────────────────────────────
+  // ── Screenshot capture ──────────────────────────────────────────────────────
   // The 📷 picker lists screens+windows from main (desktopCapturer); a grabbed PNG lands in the
   // SAME pendingFiles path a picked/pasted image takes, so send/upload code has one shape.
   const [shotOpen, setShotOpen] = useState(false)
@@ -1531,7 +1531,7 @@ export function ChatShell({
       void addFiles(files)
       return
     }
-    // Paste-as-file (PARITY-PLAN A5): a paste longer than the threshold becomes a .txt chip
+    // Paste-as-file: a paste longer than the threshold becomes a .txt chip
     // instead of drowning the draft. Only where attachments can actually SEND (Agent mode) —
     // in Chat mode the paste stays ordinary text rather than minting a chip that cannot go.
     const text = e.clipboardData.getData('text/plain')

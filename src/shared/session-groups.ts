@@ -84,7 +84,7 @@ export const PSEUDO_BUCKETS = [DESKTOP_BUCKET, HARNESS_BUCKET] as const
 export type PseudoBucketName = (typeof PSEUDO_BUCKETS)[number]
 
 /**
- * The leading group (PARITY-PLAN A6): sessions the operator pinned. Not a recency bucket and not
+ * The leading group: sessions the operator pinned. Not a recency bucket and not
  * a pseudo-bucket — it is the one group built from an explicit user act, so it sits FIRST and a
  * pin beats every classification below it (a pinned harness probe renders pinned: the operator
  * said so).

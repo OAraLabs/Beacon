@@ -93,7 +93,7 @@ console.log('content_json → ContentPart[] adapter:')
   check('null json + empty content → empty parts (hidden)', p.length === 0)
 }
 
-// ── PARITY-PLAN B2: thinking blocks are a RENDERED type now, no longer dropped ──
+// ── Thinking blocks are a RENDERED type now, no longer dropped ──
 {
   const p = partsFromContentJson(j([{ type: 'thinking', thinking: 'hmm, let me see' }, { type: 'text', text: 'the answer' }]), 'flat')
   check('thinking + text → both parts, in order', p.length === 2 && p[0].type === 'thinking' && p[0].text === 'hmm, let me see' && p[1].type === 'text')
@@ -105,7 +105,7 @@ console.log('content_json → ContentPart[] adapter:')
   check('an EMPTY thinking body is absent, not an empty reveal → flat fallback', empty.length === 1 && empty[0].type === 'text' && empty[0].text === 'flat')
 }
 
-// ── PARITY-PLAN B3: stored image blocks (Prometheus#278 shape) ──
+// ── Stored image blocks from the daemon (Prometheus#278 shape) ──
 {
   const withBytes = partsFromContentJson(j([{ type: 'image', media_type: 'image/jpeg', data: 'QUJD', source_path: null, description: null }]), 'flat')
   check('an image block that KEPT its bytes renders inline (data url, right mime)', withBytes.length === 1 && withBytes[0].type === 'image' && withBytes[0].dataUrl === 'data:image/jpeg;base64,QUJD')

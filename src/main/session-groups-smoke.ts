@@ -219,7 +219,7 @@ check(
   'persisted keys layer OVER defaults without erasing the ones they omit'
 )
 
-// ── PARITY-PLAN A6: the Pinned group ────────────────────────────────────────
+// ── The Pinned group: an explicit pin leads, whatever the session's age ─────
 {
   const pinnedSet = new Set(['desktop:pinme', 'harness-probe-1'])
   const rows = [

@@ -8,7 +8,7 @@ import {
   parseArtifactRenderUrl
 } from '@shared/artifacts'
 
-// beacon-artifact:// — the rendered-artifact surface (PARITY-PLAN A1).
+// beacon-artifact:// — the surface that renders an agent-built page or SVG in chat.
 //
 // Why a protocol and not srcdoc/data:/blob:: those are "local scheme" documents and INHERIT the
 // embedding renderer's CSP, which (correctly) forbids inline script — so an agent-built page would

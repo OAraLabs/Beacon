@@ -105,7 +105,7 @@ export const IPC = {
   VAD_RESET: 'vad:reset', // renderer -> main: {"type":"reset"} — drop the service's half-heard utterance (e.g. after a barge-in)
   VAD_AUDIO: 'vad:audio', // renderer -> main (send, not invoke): one 512-sample float32 chunk at 16 kHz
   VAD_EVENT: 'vad:event', // main -> renderer: open | event{speech_start|speech_end} | closed{code, reason}
-  // Screenshot capture (PARITY-PLAN A3). Distinct from CAPTURE_OPEN_MAIN (the quick-capture
+  // Screenshot capture. Distinct from CAPTURE_OPEN_MAIN (the quick-capture
   // WINDOW) — these drive desktopCapturer in main; pixels never come from the renderer.
   SCREENSHOT_SOURCES: 'screenshot:sources', // renderer -> main: screens+windows w/ thumbnails + TCC access state
   SCREENSHOT_GRAB: 'screenshot:grab', // renderer -> main: full-res PNG of one source id
