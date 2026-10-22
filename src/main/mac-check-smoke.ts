@@ -17,6 +17,7 @@
 import { readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import {
+  DOWNLOAD_ESTIMATE_FROM,
   DOWNLOAD_ESTIMATE_MB,
   MIN_MACOS_MAJOR,
   REQUIRED_FREE_BYTES,
@@ -64,9 +65,9 @@ assert(macMajor('15.6.1') === 15 && macMajor('10.15.7') === 10 && macMajor('13')
 assert(formatGB(0.6 * 1024 ** 3) === '0.6 GB' && formatGB(1.5e9) === '1.5 GB' && formatGB(12.4e9) === '12 GB' && formatGB(0) === '0.0 GB' && formatGB(-5) === '0.0 GB', 'formatGB: decimal gigabytes (what System Settings shows), one decimal under ten')
 assert(computerFromRunning(here, 9) === HELLO && computerFromRunning({ kind: 'configured' }, 8005).version === '' && computerFromRunning({ kind: 'setup', version: 'v'.repeat(80) }, 8005).version.length === 32, 'computerFromRunning: a hello is passed through; setup mode and a configured daemon become a "This Mac" row; a version is capped')
 assert(DOWNLOAD_ESTIMATE_MB > 0 && REQUIRED_FREE_BYTES === 2_000_000_000, 'constants: about 2 GB of room is what the confirmation and the check both mean')
-// Prometheus 0.9.12's zip, as its release manifest says (size 71188331 bytes, read 2026-10-16). macOS counts decimal MB.
-const MEASURED_ZIP_BYTES = 71_188_331
-assert(DOWNLOAD_ESTIMATE_MB === Math.round(MEASURED_ZIP_BYTES / 1e6), `the confirmation says about ${Math.round(MEASURED_ZIP_BYTES / 1e6)} MB, the size of the zip Prometheus ships (it said 85)`, String(DOWNLOAD_ESTIMATE_MB))
+// Prometheus 0.9.16's zip, as its release manifest says (size 78965277 bytes, read 2026-10-22). macOS counts decimal MB.
+const MEASURED_ZIP_BYTES = 78_965_277
+assert(DOWNLOAD_ESTIMATE_FROM.version === '0.9.16' && DOWNLOAD_ESTIMATE_MB === Math.round(MEASURED_ZIP_BYTES / 1e6), `the confirmation says about ${Math.round(MEASURED_ZIP_BYTES / 1e6)} MB, the size of the zip Prometheus ships (it said 71, from 0.9.12)`, String(DOWNLOAD_ESTIMATE_MB))
 
 // ── recognising a Prometheus: the pure readings ─────────────────────────────────────────────────
 assert(setupStatusRunning(200, { setup_mode: true, version: '0.9.6' })?.kind === 'setup' && setupStatusRunning(200, { setup_mode: true }) !== null, 'setup mode: 200 with setup_mode true')

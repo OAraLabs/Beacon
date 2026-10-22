@@ -16,9 +16,13 @@ import type { DiscoveredComputer } from './discovery'
 /** What setting Prometheus up needs free on the volume it goes on. macOS shows storage in decimal GB, so so do we. */
 export const REQUIRED_FREE_BYTES = 2_000_000_000
 export const MIN_MACOS_MAJOR = 13
-/** What the confirmation says the download is (decimal MB, as macOS shows sizes). Prometheus 0.9.12's zip is 71,188,331 bytes
- *  (its release manifest, 2026-10-16); the progress row shows the manifest's own size once the download starts. */
-export const DOWNLOAD_ESTIMATE_MB = 71
+/** The release the confirmation's estimate comes from, and its zip's size in bytes (the `size` in that release's
+ *  prometheus-mac.json; 0.9.16's, read 2026-10-22). To move the estimate to a new release, change this line and the
+ *  measured size in smoke:onboarding-mac-check. */
+export const DOWNLOAD_ESTIMATE_FROM = { version: '0.9.16', zipBytes: 78_965_277 } as const
+/** What the confirmation says the download is (decimal MB, as macOS shows sizes); the progress row shows the manifest's
+ *  own size once the download starts. */
+export const DOWNLOAD_ESTIMATE_MB = Math.round(DOWNLOAD_ESTIMATE_FROM.zipBytes / 1e6)
 
 /** How a Prometheus already on this Mac showed itself, in the order Beacon asks (settled with the installer
  *  session): the discovery hello (P5), else setup mode (`GET /api/setup/status`, unauthenticated, with a `version`),
