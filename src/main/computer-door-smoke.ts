@@ -172,6 +172,10 @@ function main(): void {
     const doorIdx = pane.indexOf('function ComputerDoor(')
     assert(doorIdx !== -1, 'ComputerDoor is defined in the pane')
     assert(pane.includes('<ComputerDoor sessionId={sessionId}'), 'ComputerDoor is mounted (not dead code)')
+    // After a task ends the door comes back, so a conversation can run its next task (found on the
+    // computer-use rig: after one task the pane offered no way to start another). Never while one runs.
+    assert(pane.includes('{task.ended ? <ComputerDoor sessionId={sessionId} binding={binding} /> : null}'),
+      'the door is mounted again under an ENDED task, and only an ended one')
 
     // It renders through the model, never a second hand-rolled decision.
     assert(pane.includes('computerTaskStartBody('), 'the start button builds its body through the model')
