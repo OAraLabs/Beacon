@@ -4,6 +4,10 @@ Beacon's releases, newest first. Installers for each published version are on th
 [Releases](https://github.com/OAraLabs/beacon/releases) page, which is also the update feed: Beacon 0.3.0 and
 later update themselves.
 
+## Unreleased
+
+- **Computer use: start the next desktop task.** After a desktop task ended, the progress pane showed only that task and offered no way to start another in the same conversation. The start form now comes back under an ended task. It still never shows while a task runs.
+
 ## 0.4.9 (2026-10-20)
 
 Beacon's source is public, under the [MIT License](LICENSE). This release also carries the work of 0.4.6 to
