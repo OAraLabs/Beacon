@@ -571,6 +571,9 @@ function ComputerUse({ sessionId, pendingApprovalIds, onResolveApproval }: {
       {running && answered === true ? <div style={prose}>Stop accepted. Waiting for the task to end.</div> : null}
       {running && answered === false ? <div style={prose}>The daemon had nothing running under this task.</div> : null}
       {running && myStop?.phase === 'sent' && answered === null ? <div style={prose}>Stop sent.</div> : null}
+      {/* The door again once this task has ended: a conversation runs one task at a time, not one
+          task ever. Never while a task runs — the daemon refuses a second (409 busy) anyway. */}
+      {task.ended ? <ComputerDoor sessionId={sessionId} binding={binding} /> : null}
       {footer}
     </div>
   )
