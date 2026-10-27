@@ -6,6 +6,7 @@ later update themselves.
 
 ## Unreleased
 
+- **Spec: one Beacon, several Prometheus.** [docs/MULTI-PROMETHEUS.md](docs/MULTI-PROMETHEUS.md) says how Beacon will hold more than one Prometheus at once: a folder and a key per Prometheus, a list in the sidebar, one approvals inbox, and the PRs that build it, red tests first.
 - **Computer use: start the next desktop task.** After a desktop task ended, the progress pane showed only that task and offered no way to start another in the same conversation. The start form now comes back under an ended task. It still never shows while a task runs.
 
 ## 0.4.9 (2026-10-20)
