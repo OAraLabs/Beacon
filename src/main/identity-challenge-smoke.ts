@@ -17,6 +17,12 @@ import { WebSocketServer } from 'ws'
 import { ConnectionManager } from './connection'
 import { createProver, type PinnedIdentity } from './identity'
 import { requestSmall } from './pairing/http'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import Database from 'better-sqlite3'
+import { challengeMessage, identityCard, judge, type Verdict } from '@shared/identity-challenge'
+import { DaemonFolders } from './cache/daemon-folders'
 
 let failures = 0
 function assert(cond: boolean, label: string): void {
@@ -67,6 +73,7 @@ interface Behaviour {
   signedAtShift?: number // seconds off the true time
   replayNonce?: string // sign this nonce instead of the one asked (a recorded answer, replayed)
   corrupt?: boolean // flip the signature
+  failFirst?: number // answer 503 this many times first (Prometheus restarting)
 }
 
 interface Seen {
@@ -82,6 +89,11 @@ async function standIn(b: Behaviour): Promise<{ base: string; seen: Seen[]; srv:
     req.on('end', () => {
       seen.push({ path: req.url ?? '', auth: req.headers.authorization })
       if (req.url === '/api/identity/challenge' && req.method === 'POST') {
+        if ((b.failFirst ?? 0) > 0) {
+          b.failFirst = (b.failFirst ?? 0) - 1
+          res.writeHead(503, { 'content-type': 'application/json' }).end('{}')
+          return
+        }
         if (!b.key) {
           res.writeHead(404, { 'content-type': 'application/json' }).end('{"detail":"Not Found"}')
           return
@@ -102,7 +114,11 @@ async function standIn(b: Behaviour): Promise<{ base: string; seen: Seen[]; srv:
 }
 
 /** One connection to the stand-in, with `pinned` kept for it: what reached it with the key, and whether the socket got the key. */
-async function connectOnce(b: Behaviour, pinned: PinnedIdentity | null): Promise<{ restWithKey: number; wsAuth: boolean; challengeHadKey: boolean; asked: boolean }> {
+async function connectOnce(
+  b: Behaviour,
+  pinned: PinnedIdentity | null,
+  waitMs = 400
+): Promise<{ restWithKey: number; wsAuth: boolean; challengeHadKey: boolean; asked: boolean; states: string[] }> {
   const http = await standIn(b)
   const frames: string[] = []
   const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
@@ -118,9 +134,11 @@ async function connectOnce(b: Behaviour, pinned: PinnedIdentity | null): Promise
     nowS: () => Math.floor(Date.now() / 1000)
   })
   const conn = new ConnectionManager({ name: 'smoke', apiBase: http.base, wsUrl }, 'THE-KEY', false, () => {}, undefined, Promise.resolve(null), prove)
+  const states: string[] = []
+  conn.on('status', (st: { state: string }) => states.push(st.state))
   conn.start()
   await conn.listSessions().catch(() => null)
-  await sleep(400)
+  await sleep(waitMs)
   conn.stop()
   await new Promise<void>((r) => wss.close(() => r()))
   http.srv.close()
@@ -129,7 +147,8 @@ async function connectOnce(b: Behaviour, pinned: PinnedIdentity | null): Promise
     restWithKey: http.seen.filter((s) => s.auth === 'Bearer THE-KEY').length,
     wsAuth: frames.some((f) => f.includes('THE-KEY')),
     challengeHadKey: challenge.some((s) => s.auth !== undefined),
-    asked: challenge.length > 0
+    asked: challenge.length > 0,
+    states
   }
 }
 
@@ -164,6 +183,118 @@ async function main(): Promise<void> {
       assert(!r.wsAuth, 'the socket never got the key')
     }
   }
+  console.log('\n[smoke] === something else takes over the address while connected: the socket redials ===')
+  {
+    const b: Behaviour = { key: K1, instanceId: I }
+    const http = await standIn(b)
+    const frames: string[] = []
+    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+    wss.on('connection', (sock) => sock.on('message', (m) => frames.push(m.toString())))
+    await new Promise<void>((r) => wss.on('listening', () => r()))
+    const wsUrl = `ws://127.0.0.1:${(wss.address() as AddressInfo).port}`
+    const prove = createProver({ apiBase: http.base, request: requestSmall, pinned: () => pin, tlsSpki: null, verify: verifyRaw, nowS: () => Math.floor(Date.now() / 1000) })
+    const conn = new ConnectionManager({ name: 'smoke', apiBase: http.base, wsUrl }, 'THE-KEY', false, () => {}, undefined, Promise.resolve(null), prove)
+    conn.start()
+    await sleep(500)
+    const authBefore = frames.filter((f) => f.includes('THE-KEY')).length
+    b.key = K2 // another machine answers at the same address now
+    b.instanceId = J
+    for (const c of wss.clients) c.terminate()
+    await sleep(2_500) // past the first redial (1 s + jitter)
+    const authAfter = frames.filter((f) => f.includes('THE-KEY')).length
+    const restBefore = http.seen.filter((x) => x.auth === 'Bearer THE-KEY').length
+    await conn.listSessions().catch(() => null)
+    const restAfter = http.seen.filter((x) => x.auth === 'Bearer THE-KEY').length
+    const challenges = http.seen.filter((x) => x.path === '/api/identity/challenge').length
+    conn.stop()
+    await new Promise<void>((r) => wss.close(() => r()))
+    http.srv.close()
+    assert(authBefore === 1, `the pinned Prometheus got the key once (${authBefore})`)
+    assert(challenges >= 2, `the redial asked the challenge again (${challenges} asks)`)
+    assert(authAfter === authBefore, `the redial sent the newcomer no key (${authAfter - authBefore} auth frame(s))`)
+    assert(restAfter === restBefore, `and REST sent it none either (${restAfter - restBefore})`)
+  }
+
+  console.log('\n[smoke] === no answer yet (503 once), then a good one ===')
+  {
+    const r = await connectOnce({ key: K1, instanceId: I, failFirst: 1 }, pin, 2_000)
+    assert(r.states.includes('reconnecting'), `while there is no answer the connection says it is trying again (${r.states.join(',')})`)
+    assert(r.restWithKey > 0 && r.wsAuth, 'once the pinned key answers, the key goes, by itself')
+  }
+
+  console.log('\n[smoke] === the verdicts, one by one ===')
+  {
+    const nonce = 'bm9uY2U'
+    const now = Math.floor(Date.now() / 1000)
+    const answer = (k: NodeKey, id: string | null, at = now, tls: string | null = null, n = nonce): { status: number; json: unknown } => ({
+      status: 200,
+      json: { v: 1, instance_id: id, node_pub: k.pub, tls_spki_sha256: tls, signed_at: at, sig: sign(null, Buffer.from(message(n, id, k.pub, tls, at)), k.priv).toString('base64') }
+    })
+    const run = (reply: { status: number; json: unknown } | 'unreachable', pinned: PinnedIdentity | null, tls: string | null = null): Verdict =>
+      judge({ reply, nonce, nowS: now, pinned, tlsSpki: tls, verify: verifyRaw })
+    const SPKI = 'ab'.repeat(32)
+    const table: Array<[string, Verdict, string]> = [
+      ['the pinned key', run(answer(K1, I), pin), 'proved'],
+      ['nothing pinned, a good answer', run(answer(K1, I), null), 'first'],
+      ['the same instance, a new key', run(answer(K2, I), pin), 'moved'],
+      ['another instance, another key', run(answer(K2, J), pin), 'other'],
+      ['the same key, another vault adopted on that machine', run(answer(K1, J), pin), 'other'],
+      ['404 with a pin', run({ status: 404, json: null }, pin), 'refused:downgrade'],
+      ["401 (an older Prometheus's bearer middleware) with no pin", run({ status: 401, json: null }, null), 'unproved'],
+      ['503', run({ status: 503, json: null }, pin), 'unreachable'],
+      ['no answer', run('unreachable', pin), 'unreachable'],
+      ['an hour old', run(answer(K1, I, now - 3600), pin), 'refused:stale'],
+      ['signed over another nonce', run(answer(K1, I, now, null, 'b3RoZXI'), pin), 'refused:bad-signature'],
+      ['a TLS connection, the answer bound to that certificate', run(answer(K1, I, now, SPKI), pin, SPKI), 'proved'],
+      ['a TLS connection, the answer bound to another one', run(answer(K1, I, now, 'cd'.repeat(32)), pin, SPKI), 'refused:channel'],
+      ['a plain connection, an answer that claims a certificate', run(answer(K1, I, now, SPKI), pin), 'refused:channel'],
+      ['garbage', run({ status: 200, json: { v: 1, node_pub: 'x' } }, pin), 'refused:malformed']
+    ]
+    for (const [what, v, want] of table) {
+      const got = v.kind === 'refused' ? `refused:${v.why}` : v.kind
+      assert(got === want, `${what}: ${want} (got ${got})`)
+    }
+    const a = { instanceId: I, nodePub: K1.pub, tlsSpki: null, signedAt: 7 }
+    assert(challengeMessage('n', a) === message('n', I, K1.pub, null, 7), "Beacon's message is the spec's, byte for byte")
+  }
+
+  console.log('\n[smoke] === the cards ===')
+  {
+    const moved = identityCard('home.example', { kind: 'moved' })
+    assert(!!moved?.trust && /changed/.test(moved.title) && /sent it nothing/.test(moved.body), 'a move offers to trust the new key, and says nothing was sent')
+    const other = identityCard('home.example', { kind: 'other' })
+    assert(!!other && !other.trust && /Something else/.test(other.title), 'something else answering offers no trust')
+    for (const why of ['bad-signature', 'stale', 'channel', 'downgrade', 'malformed'] as const) {
+      const c = identityCard('home.example', { kind: 'refused', why })
+      assert(!!c && !c.trust && c.body.length > 20, `a refusal (${why}) has its own words and no trust button`)
+    }
+    assert(identityCard('home.example', { kind: 'unproved' }) === null, "an older Prometheus (nothing pinned) shows no card: it isn't blocked")
+  }
+
+  console.log('\n[smoke] === pins in the folder list ===')
+  {
+    const root = mkdtempSync(join(tmpdir(), 'beacon-identity-pins-'))
+    try {
+      // An app.db from PR 1, before the pin columns existed.
+      const old = new Database(join(root, 'app.db'))
+      old.exec(`CREATE TABLE daemon_folders (id TEXT PRIMARY KEY, fp TEXT UNIQUE, api_base TEXT, last_active INTEGER NOT NULL);
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT); INSERT INTO settings VALUES ('daemons:layout', '2');
+        INSERT INTO daemon_folders VALUES ('f1', '${'1'.repeat(16)}', 'http://127.0.0.1:18601', 1)`)
+      old.close()
+      const folders = new DaemonFolders(root)
+      assert(folders.identityOf('f1') === null, "an older folder list gains the columns, with nothing pinned")
+      folders.pinIdentity('f1', { instanceId: I, nodePub: K1.pub })
+      const got = folders.identityOf('f1')
+      assert(got?.instanceId === I && got.nodePub === K1.pub, 'a pin is kept')
+      assert(folders.folderWithIdentity({ instanceId: I, nodePub: K1.pub }) === 'f1', 'and finds its folder again')
+      assert(folders.folderWithIdentity({ instanceId: I, nodePub: K2.pub }) === undefined, 'but not for another key')
+      assert(folders.open({ apiBase: 'http://127.0.0.1:18699', fp: null, id: 'f1' }).id === 'f1', 'a folder known by its pin opens at a new address')
+      folders.close()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+
   // The signature check this smoke uses is itself checked: it accepts a real one and refuses a forged one.
   const probe = message('bm9uY2U=', I, K1.pub, null, 1)
   const good = sign(null, Buffer.from(probe), K1.priv).toString('base64')

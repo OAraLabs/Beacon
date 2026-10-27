@@ -18,6 +18,9 @@ export interface GatewaySocketHandlers {
    * from a normal drop: the manager flips wsAuth='unauthorized' and we STOP reconnecting (a bad
    * token won't self-heal, and retry-storming the daemon is worse than honest failure). */
   onAuthFailure(): void
+  /** Asked before every automatic redial (docs/MULTI-PROMETHEUS.md §8: no key before proof, on EVERY connect): false stops the socket
+   *  there, and nothing is sent. Without it the socket redials as it always has. */
+  beforeRedial?(): Promise<boolean>
 }
 
 const RECONNECT_BASE_MS = 1_000
@@ -339,7 +342,16 @@ export class GatewaySocket {
     const delay = Math.min(this.backoff + jitter, RECONNECT_MAX_MS)
     this.reconnectTimer = setTimeout(() => {
       this.backoff = Math.min(this.backoff * 2, RECONNECT_MAX_MS)
-      this.connect()
+      if (!this.handlers.beforeRedial) {
+        this.connect()
+        return
+      }
+      void this.handlers.beforeRedial().then(
+        (go) => {
+          if (go && !this.stopped) this.connect()
+        },
+        () => undefined
+      )
     }, delay)
   }
 }

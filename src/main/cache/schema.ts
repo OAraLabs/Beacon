@@ -154,6 +154,10 @@ CREATE TABLE IF NOT EXISTS daemon_folders (
   id           TEXT PRIMARY KEY,
   fp           TEXT UNIQUE,
   api_base     TEXT,
-  last_active  INTEGER NOT NULL
+  last_active  INTEGER NOT NULL,
+  -- The node key pinned for it (base64 raw Ed25519) and its vault's instance_id (docs/MULTI-PROMETHEUS.md §2 rule 1), set by the
+  -- first answer to the identity challenge or a confirmed move. A Prometheus is the same one by these from then on.
+  instance_id  TEXT,
+  node_pub     TEXT
 );
 `
