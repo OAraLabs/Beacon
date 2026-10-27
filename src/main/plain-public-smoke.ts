@@ -121,8 +121,12 @@ const main = async (): Promise<void> => {
   assert((joins.match(/plainPublicRefusal\(/g) ?? []).length >= 2, 'a typed address in onboarding and a join each ask before anything is sent')
   const rest = src('src/main/connection/rest.ts')
   const conn = src('src/main/connection/index.ts')
+  // fetch is called in ONE place, send() (after the gate, and the origin and redirect checks); anywhere else would skip all three.
+  const sendStart = rest.indexOf('private async send(')
+  const sendEnd = rest.indexOf('\n  }\n', sendStart)
+  const outsideSend = sendStart < 0 || sendEnd < 0 ? rest : rest.slice(0, sendStart) + rest.slice(sendEnd)
   assert(
-    !/await fetch\(/.test(rest) && /this\.send\(/.test(rest) && /gate/.test(rest) && /gate/.test(conn) && /refused/.test(src('src/shared/ipc.ts').match(/export interface ConnectionStatus \{[\s\S]*?\n\}/)?.[0] ?? '') &&
+    sendStart >= 0 && !/\bfetch\(/.test(outsideSend) && /this\.send\(/.test(rest) && /gate/.test(rest) && /gate/.test(conn) && /refused/.test(src('src/shared/ipc.ts').match(/export interface ConnectionStatus \{[\s\S]*?\n\}/)?.[0] ?? '') &&
       /plainPublicRefusal\(/.test(index),
     "the saved connection waits for the answer: every REST call goes through RestClient's gate, the socket starts only after it, and the status carries the words"
   )
