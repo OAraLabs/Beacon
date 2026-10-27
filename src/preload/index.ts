@@ -56,7 +56,12 @@ const api: BeaconBridge = {
   },
   instances: {
     list: () => ipcRenderer.invoke(IPC.INSTANCES_LIST),
-    switch: (id: string) => ipcRenderer.invoke(IPC.INSTANCE_SWITCH, id)
+    switch: (id: string) => ipcRenderer.invoke(IPC.INSTANCE_SWITCH, id),
+    onChanged: (cb: () => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.INSTANCES_CHANGED, listener)
+      return () => ipcRenderer.removeListener(IPC.INSTANCES_CHANGED, listener)
+    }
   },
   chat: {
     send: (req: ChatSendRequest) => ipcRenderer.invoke(IPC.CHAT_SEND, req),

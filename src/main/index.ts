@@ -109,6 +109,8 @@ import { CredentialStore, decideStartup, electronSafeStorageCipher, type Cipher 
 import { sameOrigin } from '@shared/key-origin'
 import type { PinnedIdentity, Verdict } from '@shared/identity-challenge'
 import type { InstanceSummary } from '@shared/ipc'
+import { UNKNOWN, type InstanceHealth } from '@shared/instance-watch'
+import { InstanceWatch } from './instance-watch'
 import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
 import {
   INITIAL_PRESENCE,
@@ -461,6 +463,36 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
   pairingWatcher.reset() // a new connection may be a different computer, or a different kind of device
   pairingWatcher.start()
   updateTray()
+  instanceWatch.refresh() // the one Beacon is on now is read from its connection, not checked
+  broadcast(IPC.INSTANCES_CHANGED, null)
+}
+
+/** Every Prometheus Beacon keeps but isn't on, checked every 60 s with its own key after it proves who it is (docs/MULTI-PROMETHEUS.md
+ *  §7). Nothing is checked while there is only the one. */
+const instanceWatch = new InstanceWatch({
+  targets: () =>
+    (folders?.listInstances() ?? []).filter((i) => !i.active).map((i) => ({ id: i.id, apiBase: i.apiBase, wsUrl: i.wsUrl, pin: i.pin })),
+  keyOf: (id) => keyFile(id).getToken(),
+  pinsOf: (id) => folders!.identityOf(id),
+  pin: (id, p) => folders!.pinIdentity(id, p),
+  requestFor: (t) => (t.pin ? requestWith(pinnedFetch(t.pin)) : requestSmall),
+  refusal: (t) => plainPublicRefusal(t.apiBase, t.wsUrl),
+  verify: verifyEd25519,
+  now: () => Date.now(),
+  onChange: () => broadcast(IPC.INSTANCES_CHANGED, null)
+})
+
+/** The row of the Prometheus Beacon is on, from its live connection (the AI it's on is the Main model section's to say). */
+function activeHealth(): InstanceHealth {
+  const s = connection?.getStatus()
+  if (!s) return UNKNOWN
+  if (s.identity && s.identity.kind !== 'unproved') return { state: 'different', ai: null, since: null }
+  if (s.wrongKey) return { state: 'different', ai: null, since: null }
+  if (s.refused) return { state: 'refused', ai: null, since: null }
+  if (s.restAuth === 'unauthorized' || s.wsAuth === 'unauthorized') return { state: 'key-refused', ai: null, since: null }
+  if (s.state === 'connected') return { state: 'connected', ai: null, since: s.since ?? null }
+  if (s.state === 'reconnecting' || s.state === 'failed') return { state: 'unreachable', ai: null, since: s.since ?? null }
+  return UNKNOWN
 }
 
 /** A move the person has yet to confirm: the Prometheus at `gw` signed with a new node key under its pinned instance_id. */
@@ -1842,7 +1874,10 @@ app.whenReady().then(() => {
   // Every Prometheus Beacon keeps (docs/MULTI-PROMETHEUS.md §5), with no key in it, and switching to one (§4): its own folder, key
   // and pins, brought up; the app remounts (CACHE_FOLDER_CHANGED). The list in the sidebar is PR 4's; these are what it will call.
   handleFromShell(IPC.INSTANCES_LIST, async (): Promise<InstanceSummary[]> =>
-    (folders?.listInstances() ?? []).map((i) => ({ id: i.id, label: i.label, host: hostOf(i.apiBase), pinned: i.pin !== null, active: i.active, lastActive: i.lastActive }))
+    (folders?.listInstances() ?? []).map((i) => {
+      const h = i.active ? activeHealth() : instanceWatch.health(i.id)
+      return { id: i.id, label: i.label, host: hostOf(i.apiBase), pinned: i.pin !== null, active: i.active, lastActive: i.lastActive, ...h }
+    })
   )
   handleFromShell(IPC.INSTANCE_SWITCH, async (_e, id: unknown): Promise<boolean> => {
     if (typeof id !== 'string') return false
@@ -2031,6 +2066,7 @@ app.whenReady().then(() => {
     const gw: GatewayConfig = storedGw ?? resolveGateway()
     bringUpConnection(gw)
   }
+  instanceWatch.start() // the others Beacon keeps, if any (docs/MULTI-PROMETHEUS.md §7)
 
   try {
     createWindow()
@@ -2095,5 +2131,6 @@ app.on('before-quit', () => {
   const shells = killAllTerminals()
   if (shells > 0) console.log(`[terminal] killed ${shells} shell(s) on quit`)
   connection?.stop()
+  instanceWatch.stop()
   folders?.close()
 })

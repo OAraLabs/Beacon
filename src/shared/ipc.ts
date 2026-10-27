@@ -3,6 +3,7 @@
 // the renderer can consume the types without pulling in the main-process world.
 
 import type { IdentityNotice } from './identity-challenge'
+import type { InstanceState } from './instance-watch'
 import type { GatewayEvent, EventRow } from './gateway-events'
 import type { ExportFormat } from './session-export'
 import type { ProjectHint } from './session-projects'
@@ -134,6 +135,7 @@ export const IPC = {
   CONNECTION_RECONNECT: 'connection:reconnect', // renderer -> main: drop + redial the WS now (manual retry)
   INSTANCES_LIST: 'instances:list', // renderer -> main: every Prometheus Beacon keeps (no key), the active one marked
   INSTANCE_SWITCH: 'instances:switch', // renderer -> main: make one the active Prometheus and bring it up (docs/MULTI-PROMETHEUS.md §4)
+  INSTANCES_CHANGED: 'instances:changed', // main -> renderer: a row changed (a check's answer, a save, a switch): read the list again
   IDENTITY_TRUST_NEW_KEY: 'identity:trust-new-key', // renderer -> main: the person confirms the connected Prometheus moved to new hardware (docs/MULTI-PROMETHEUS.md §8)
   CONNECTION_TEST: 'connection:test', // renderer -> main: GET /api/status with form values, WITHOUT saving
   // main -> renderer (webContents.send / on)
@@ -239,6 +241,12 @@ export interface InstanceSummary {
   pinned: boolean
   active: boolean
   lastActive: number
+  /** How it is doing: from the live connection for the active one, from the 60-second check for the others (@shared/instance-watch). */
+  state: InstanceState
+  /** Which AI it's on, in Beacon's words, when its last check said. */
+  ai: string | null
+  /** Last reached, or first couldn't be (ms). */
+  since: number | null
 }
 
 export interface ConnectionStatus {
@@ -816,6 +824,8 @@ export interface BeaconBridge {
     list(): Promise<InstanceSummary[]>
     /** Make `id` the active Prometheus and connect to it. False for an id Beacon doesn't keep. */
     switch(id: string): Promise<boolean>
+    /** A row changed: read the list again. */
+    onChanged(cb: () => void): Unsubscribe
   }
   chat: {
     send(req: ChatSendRequest): Promise<ChatSendResult>
