@@ -47,6 +47,9 @@ import {
   splitIdList,
   stepAfterConnect,
   decideStartupRoute,
+  pairingStale,
+  resumesHere,
+  STALE_PAIRING_LABEL,
   resumedWizardData,
   resumeNotice,
   stepStatus,
@@ -76,7 +79,7 @@ if (
   process.exit(1)
 }
 
-const FIXED = 86
+const FIXED = 92
 
 const setup = { daemonMode: 'setup' as const }
 const configured = { daemonMode: 'configured' as const }
@@ -232,6 +235,17 @@ assert(JSON.stringify(splitIdList(' a ,, b ')) === JSON.stringify(['a', 'b']), '
   assert(validateStep('connect', unpaired) !== null, 'resumed, unpaired: Connect still gates Next until paired')
   assert(resumeNotice({ paired: true }, '10.0.0.5').startsWith('Picking up where you left off with 10.0.0.5'), 'resume notice names the address')
   assert(/pair/.test(resumeNotice({ paired: false }, undefined)) && !resumeNotice({ paired: false }, undefined).includes('undefined'), 'unpaired notice says to pair, and never prints "undefined"')
+}
+
+// ── a stale pairing (Prometheus set up again since) ── [6]
+{
+  assert(pairingStale(401) && pairingStale(403), 'stale: a 401 or 403 to the saved pairing means it no longer works')
+  assert(!pairingStale(200) && !pairingStale('unreachable') && !pairingStale(500), "not stale: an answer, or no answer at all (can't tell, so as before)")
+  assert(resumesHere({ here: true, paired: true }), 'this Mac, paired: the new flow resumes at A2')
+  assert(!resumesHere({ here: true, paired: true, stale: true }), 'this Mac, paired, but the pairing is refused: not at A2, where nothing can work with it')
+  const stale = resumedWizardData({ configured: false, paired: true, stale: true })
+  assert(stale.step === 'connect' && !stale.connected, 'the wizard, with a stale pairing: at Connect, not connected (pairing again is the way in)')
+  assert(resumeNotice({ paired: true, stale: true }, '127.0.0.1') === STALE_PAIRING_LABEL, 'and it says so: pair again')
 }
 
 if (checks !== FIXED) {

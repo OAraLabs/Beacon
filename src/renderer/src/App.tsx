@@ -1,3 +1,4 @@
+import { resumesHere } from '@shared/setup-wizard'
 import { useCallback, useEffect, useState } from 'react'
 import type { SetupResume, SetupStatus } from '@shared/ipc'
 import { onboardingEntry, parseBrowsing, parseKnown, ONBOARDING_BROWSING_KEY, ONBOARDING_KNOWN_KEY, ONBOARDING_LAN_ASKED_KEY, type OnboardingContext, type OnboardingEntry } from '@shared/onboarding'
@@ -39,7 +40,7 @@ export default function App() {
     setCurrentAddress(s.currentAddress ?? keepAddress)
     setResume(s.resume)
     const browsing = s.needsSetup && s.onboarding === true ? parseBrowsing(await b.settings.get(ONBOARDING_BROWSING_KEY).catch(() => null)) : false
-    setEntry(onboardingEntry({ visible: s.onboarding === true, resume: s.resume !== undefined, browsing, resumeHere: s.resume?.here === true && s.resume.paired, resumeTrade: s.resume?.trade === true }))
+    setEntry(onboardingEntry({ visible: s.onboarding === true, resume: s.resume !== undefined, browsing, resumeHere: resumesHere(s.resume), resumeTrade: s.resume?.trade === true }))
     if (s.helloTimeoutMs) setHelloTimeoutMs(s.helloTimeoutMs)
     if (s.needsSetup && s.onboarding === true) {
       const [asked, known] = await Promise.all([b.settings.get(ONBOARDING_LAN_ASKED_KEY).catch(() => null), b.settings.get(ONBOARDING_KNOWN_KEY).catch(() => null)])

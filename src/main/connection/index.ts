@@ -95,8 +95,10 @@ export class ConnectionManager extends EventEmitter {
         // A redial is a new connect: whoever answers now proves who it is first, and REST waits for the same answer.
         beforeRedial: async () => {
           this.cleared = null
-          const refused = await this.clearance()
-          if (this.halted) return false
+          const clearance = this.clearance()
+          const ask = this.asking
+          const refused = await clearance
+          if (this.halted || ask !== this.asking) return false
           if (refused) {
             this.socket.stop()
             this.refuse(refused)
@@ -113,15 +115,20 @@ export class ConnectionManager extends EventEmitter {
   /** The gate's answer and then the proof's, once per start: what every REST call and the socket wait for. */
   private cleared: Promise<string | null> | null = null
   private started = false
+  /** Which ask is the current one: a new start (Try again) or redial supersedes an older ask still retrying, which then stops asking
+   *  and, when it does get an answer, starts nothing (the socket would otherwise be started once per ask). */
+  private asking = 0
 
   private clearance(): Promise<string | null> {
-    this.cleared ??= this.gate.then(
+    if (this.cleared) return this.cleared
+    const ask = ++this.asking
+    this.cleared = this.gate.then(
       (refused) =>
         refused ??
         this.prove({
           // No answer to the challenge yet: say so the way the socket's own retries do, so the banner reads the same.
           waiting: (attempt) => this.setState('reconnecting', { attempt }),
-          stopped: () => this.halted
+          stopped: () => this.halted || ask !== this.asking
         })
     )
     return this.cleared
@@ -131,8 +138,10 @@ export class ConnectionManager extends EventEmitter {
     this.halted = false
     if (this.started) this.cleared = null // a reconnect asks again: the Prometheus answering may not be the one that answered last
     this.started = true
-    void this.clearance().then((refused) => {
-      if (this.halted) return
+    const clearance = this.clearance()
+    const ask = this.asking
+    void clearance.then((refused) => {
+      if (this.halted || ask !== this.asking) return
       if (refused) this.refuse(refused)
       else this.socket.start()
     })

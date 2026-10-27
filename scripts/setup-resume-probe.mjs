@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
 import { launchApp, sleep, sql } from './app-driver.mjs'
-import { keptCount } from './lib/profile-db.mjs'
+import { keptCount, profileDbFiles } from './lib/profile-db.mjs'
 
 const API_PORT = 8005
 const WS_PORT = 8010
@@ -149,12 +149,24 @@ async function stubStop() {
 }
 
 // ── app helpers ─────────────────────────────────────────────────────────────────────────────
-const EITHER = '.wiz-card, nav[aria-label="Views"]'
+// The v0.4 first run ([data-screen]) is the first run since it went live (ONBOARDING_V4_LIVE); the legacy wizard (.wiz-card) still
+// picks up a part-way setup the new flow doesn't resume (src/shared/onboarding.ts onboardingEntry).
+const EITHER = '.wiz-card, [data-screen], nav[aria-label="Views"]'
 const freshProfile = () => mkdtempSync(join(tmpdir(), 'beacon-setup-probe-'))
 const launch = (profile) => launchApp({ profile, readySelector: EITHER })
 
 async function screen(app) {
-  return app.page.evaluate(`document.querySelector('.wiz-card') ? 'wizard' : document.querySelector('nav[aria-label="Views"]') ? 'app' : 'neither'`)
+  return app.page.evaluate(`document.querySelector('.wiz-card') ? 'wizard' : document.querySelector('[data-screen]') ? 'onboarding' : document.querySelector('nav[aria-label="Views"]') ? 'app' : 'neither'`)
+}
+/** The v0.4 first run's screen id (W1, A2, …), or null when it isn't showing. */
+async function v4Screen(app) {
+  return app.page.evaluate(`document.querySelector('[data-screen]')?.getAttribute('data-screen') ?? null`)
+}
+/** Whether the profile holds a key for any Prometheus: each one's own daemons/<id>/credential.bin (or, before keys moved into
+ *  folders, the one api-credential.bin). */
+function hasKey(profile) {
+  const folders = profileDbFiles(profile).filter((f) => f !== 'app.db' && f !== 'beacon.db').map((f) => join(profile, f.replace(/cache\.db$/, 'credential.bin')))
+  return existsSync(join(profile, 'api-credential.bin')) || folders.some((f) => existsSync(f))
 }
 async function activeStep(app) {
   // The label span, not the whole row: the row's text starts with the step number ("3Model").
@@ -209,18 +221,16 @@ try {
   const P1 = freshProfile()
   await stubStart('setup')
   let app = await launch(P1)
-  check((await screen(app)) === 'wizard', 'S1 an empty profile opens setup')
+  check((await screen(app)) === 'onboarding' && (await v4Screen(app)) === 'W1', 'S1 an empty profile opens the first run, at Welcome', await v4Screen(app))
   // The same IPC the Pair button calls; this scenario is about what happens on the NEXT launch.
   const paired = await app.page.evaluate(`window.beacon.setup.pair({ address: '127.0.0.1', code: '${CODE}' })`)
   check(paired?.ok === true && stub.pairs === 1, 'S1 pairing with the code succeeds', JSON.stringify(paired))
   await app.quit()
   app = await launch(P1)
   const s1 = await screen(app)
-  check(s1 === 'wizard', 'S1 relaunch after pairing reopens setup, not the main app', s1)
-  check((await activeStep(app)) === 'Model', 'S1 …at the Model step', await activeStep(app))
-  check((await pageText(app, '.wiz-resume')).includes('Picking up where you left off'), 'S1 …and says it is resuming', await pageText(app, '.wiz-resume'))
-  const s1detect = await waitFor(() => app.page.evaluate(`document.body.innerText.includes('stub-model')`), (v) => v === true, 8000)
-  check(s1detect === true && stub.detects.at(-1) === stub.token, 'S1 the resumed Model step detects with the saved pairing', `detect bearer ok=${stub.detects.at(-1) === stub.token}`)
+  check(s1 === 'onboarding', 'S1 relaunch after pairing reopens setup, not the main app', s1)
+  check((await v4Screen(app)) === 'A2', 'S1 …resumed at "How should your assistant think?" (A2), the step after pairing', await v4Screen(app))
+  check(stub.detects.includes(stub.token), 'S1 the saved pairing was checked with Prometheus before resuming (one authed detect with it)', JSON.stringify(stub.detects))
   await app.quit()
 
   // ── S2: the same profile, Prometheus now configured → the app, connected, no banner ─────────
@@ -237,17 +247,18 @@ try {
   // ── S3: Prometheus unreachable → the app with a way out ─────────────────────────────────────
   console.log('\n[probe] === S3: unreachable Prometheus ===')
   await stubStop()
-  const bh3 = await blackhole(WS_PORT)
+  // Nothing answers: Beacon asks the identity challenge (docs/MULTI-PROMETHEUS.md §8) before any key goes out, so its automatic retries
+  // are those asks, at the REST port. The socket dials only once one is answered.
+  const bh3 = await blackhole(API_PORT)
   app = await launch(P1)
   check((await screen(app)) === 'app', 'S3 an unreachable Prometheus still opens the app (not setup)', await screen(app))
   const b3 = await waitFor(() => pageText(app, BANNER), (t) => t.length > 0, 15000)
   check(b3.includes("Can't reach Prometheus") && b3.includes('127.0.0.1'), 'S3 a banner says it can\'t reach Prometheus, and where', JSON.stringify(b3))
   check(/Try again/.test(b3) && /Change connection/.test(b3), 'S3 …with Try again and Change connection', JSON.stringify(b3))
-  // Try again has to reconnect NOW, not on the socket's own schedule, or it does nothing the
-  // backoff wouldn't have done anyway. Wait until the socket has dialled 5 times (its next retry
-  // is then >= 16 s away), bring Prometheus back, click, and require "connected" within 2.5 s.
+  // Try again has to reconnect NOW, not on the retries' own schedule, or it does nothing the backoff wouldn't have done anyway. Wait
+  // until Beacon has asked 5 times (its next ask is then 30 s away), bring Prometheus back, click, and require "connected" in 2.5 s.
   await waitFor(async () => bh3.attempts.length, (n) => n >= 5, 45000)
-  check(bh3.attempts.length >= 5, 'S3 the socket has backed off (5 automatic dials seen)', `${bh3.attempts.length} dials`)
+  check(bh3.attempts.length >= 5, 'S3 the retries have backed off (5 automatic asks seen)', `${bh3.attempts.length} asks`)
   const lastDial = bh3.attempts.at(-1)
   await bh3.close()
   await stubStart('configured')
@@ -257,7 +268,7 @@ try {
   check(
     st3 === 'connected' && clicked3 - lastDial < 8000,
     'S3 Try again reconnects at once, inside the backoff window',
-    `${st3}, ${Date.now() - clicked3} ms after the click, ${clicked3 - lastDial} ms after the last automatic dial`
+    `${st3}, ${Date.now() - clicked3} ms after the click, ${clicked3 - lastDial} ms after the last automatic ask`
   )
   const gone3 = await waitFor(() => app.page.evaluate(`!!document.querySelector(${JSON.stringify(BANNER)})`), (v) => v === false, 5000)
   check(gone3 === false, 'S3 the banner goes away when connected')
@@ -274,22 +285,22 @@ try {
   await stubStart('configured')
   app = await launch(P1)
   check((await screen(app)) === 'app', 'S4 starts in the main app')
-  check(existsSync(join(P1, 'api-credential.bin')), 'S4 a credential is stored before (precondition)')
+  check(hasKey(P1), 'S4 a credential is stored before (precondition)')
   await app.page.evaluate(`window.dispatchEvent(new Event('beacon:open-settings')); true`)
   await waitFor(() => app.page.evaluate(`[...document.querySelectorAll('button')].some((b) => b.innerText.trim().startsWith('Set up again'))`), (v) => v === true, 4000)
   check((await clickButton(app, 'Set up again')) === 'clicked', 'S4 Settings has a clickable "Set up again…"')
   const warn4 = await app.page.evaluate(`document.body.innerText`)
   check(/pairing code or the API token/.test(warn4), 'S4 it warns what you will need to connect again, before doing anything')
-  check(existsSync(join(P1, 'api-credential.bin')), 'S4 the first click forgets nothing')
+  check(hasKey(P1), 'S4 the first click forgets nothing')
   check((await clickButton(app, 'Forget and set up again')) === 'clicked', 'S4 the confirm button is clickable')
-  const s4 = await waitFor(() => screen(app), (v) => v === 'wizard', 5000)
-  check(s4 === 'wizard', 'S4 confirming opens setup', s4)
-  check((await activeStep(app)) === 'Welcome', 'S4 …from the start (Welcome)', await activeStep(app))
-  check(!existsSync(join(P1, 'api-credential.bin')), 'S4 the stored credential is deleted')
+  const s4 = await waitFor(() => screen(app), (v) => v === 'onboarding', 5000)
+  check(s4 === 'onboarding', 'S4 confirming opens setup', s4)
+  check((await v4Screen(app)) === 'W1', 'S4 …from the start (Welcome)', await v4Screen(app))
+  check(!hasKey(P1), 'S4 the stored credential is deleted')
   await app.quit()
   check(keptCount(P1) === 0, 'S4 the saved address is deleted')
   app = await launch(P1)
-  check((await screen(app)) === 'wizard' && (await activeStep(app)) === 'Welcome', 'S4 a relaunch stays in setup')
+  check((await screen(app)) === 'onboarding' && (await v4Screen(app)) === 'W1', 'S4 a relaunch stays in setup, at Welcome')
   await app.quit()
 
   // ── S5: a saved pairing the setup-mode Prometheus no longer accepts → back to Connect ───────
@@ -303,10 +314,11 @@ try {
   await app.quit()
   stub.token = 'stub-token-B' // a reinstalled Prometheus: same address, new pairing
   app = await launch(P2)
-  check((await screen(app)) === 'wizard', 'S5 relaunch opens setup', await screen(app))
+  // The new flow resumes this Mac's paired setup at A2; a pairing Prometheus refuses can't go on there, so it is the wizard's Connect.
+  check((await screen(app)) === 'wizard', 'S5 relaunch opens setup at the wizard, not the new flow at A2 with a key that cannot work', `${await screen(app)} ${await v4Screen(app)}`)
   const step5 = await waitFor(() => activeStep(app), (v) => v === 'Connect', 10000)
   check(step5 === 'Connect', 'S5 a rejected saved pairing lands on Connect', step5)
-  const err5 = await pageText(app, '.setup-error')
+  const err5 = `${await pageText(app, '.wiz-resume')} ${await pageText(app, '.setup-error')}`
   check(/[Pp]air again/.test(err5), 'S5 …saying to pair again', JSON.stringify(err5))
   check((await app.page.evaluate(`document.querySelector('.wiz-pane input')?.value ?? ''`)).includes('127.0.0.1'), 'S5 …with the address filled in')
   await app.quit()
@@ -325,22 +337,22 @@ try {
   check((await pageText(app, '.wiz-resume')).includes('pair'), 'S6 …and says it still needs pairing', await pageText(app, '.wiz-resume'))
   await app.quit()
 
-  // ── S7: Start over from a resumed setup ─────────────────────────────────────────────────────
-  console.log('\n[probe] === S7: Start over ===')
+  // ── S7: back out of a resumed setup ───────────────────────────────────────────────────────
+  // The new flow has no "Start over" at A2: it resumes as if Prometheus had just been set up here, with Welcome and the choice of
+  // where behind it, so Back is the way out (src/shared/onboarding.ts initialOnboardingState).
+  console.log('\n[probe] === S7: back out of a resumed setup ===')
   const P4 = freshProfile()
   app = await launch(P4)
   const p7 = await app.page.evaluate(`window.beacon.setup.pair({ address: '127.0.0.1', code: '${CODE}' })`)
   check(p7?.ok === true, 'S7 pairs (precondition)')
   await app.quit()
   app = await launch(P4)
-  check((await activeStep(app)) === 'Model', 'S7 resumed at Model', await activeStep(app))
-  check((await clickButton(app, 'Start over')) === 'clicked', 'S7 "Start over" is clickable')
-  check((await clickButton(app, 'Forget and start over')) === 'clicked', 'S7 the confirm is clickable')
-  const step7 = await waitFor(() => activeStep(app), (v) => v === 'Welcome', 5000)
-  check(step7 === 'Welcome', 'S7 Start over returns to Welcome', step7)
-  check(!existsSync(join(P4, 'api-credential.bin')), 'S7 …and deletes the stored credential')
+  check((await v4Screen(app)) === 'A2', 'S7 resumed at A2', await v4Screen(app))
+  check((await clickButton(app, 'Back')) === 'clicked', 'S7 "Back" is clickable')
+  if ((await v4Screen(app)) !== 'W1') await clickButton(app, 'Back')
+  const step7 = await waitFor(() => v4Screen(app), (v) => v === 'W1', 5000)
+  check(step7 === 'W1', 'S7 Back returns to Welcome', step7)
   await app.quit()
-  check(keptCount(P4) === 0, 'S7 …and the saved address')
 } catch (e) {
   check(false, 'probe ran to completion', e?.stack ?? String(e))
 } finally {

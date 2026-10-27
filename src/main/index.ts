@@ -40,7 +40,7 @@ import {
   parsePairResponse,
   parseSetupStatusResponse
 } from '@shared/pairing'
-import { decideStartupRoute } from '@shared/setup-wizard'
+import { decideStartupRoute, pairingStale } from '@shared/setup-wizard'
 import { onboardingV4Visible } from '@shared/onboarding-gate'
 import { ONBOARDING_BROWSING_KEY, ONBOARDING_KNOWN_KEY, parseKnown } from '@shared/onboarding'
 import { helloTimeoutMs } from '@shared/hello'
@@ -650,8 +650,22 @@ async function setupStatus(): Promise<SetupStatus> {
   if (route.kind === 'app') return { needsSetup: false, currentAddress, onboarding, localNetworkPrompt, helloTimeoutMs: hello }
   // The master token is still what Beacon holds for a configured Prometheus on this Mac: A5 reopens to finish the owner trade.
   if (route.kind === 'trade') return { needsSetup: true, currentAddress, onboarding, localNetworkPrompt, helloTimeoutMs: hello, resume: { configured: true, paired: true, here: true, trade: true } }
-  if (route.kind === 'resume') return { needsSetup: true, currentAddress, onboarding, localNetworkPrompt, helloTimeoutMs: hello, resume: { configured: route.configured, paired: route.paired, here } }
+  if (route.kind === 'resume') {
+    // A saved pairing a setup-mode Prometheus no longer accepts (it was set up again) can't take the setup any further: asked once
+    // here, with that pairing, so neither first run resumes past Connect with it (@shared/setup-wizard pairingStale).
+    const stale = route.paired && profile ? pairingStale(await savedPairingAnswer(profile.apiBase)) : false
+    return { needsSetup: true, currentAddress, onboarding, localNetworkPrompt, helloTimeoutMs: hello, resume: { configured: route.configured, paired: route.paired, here, ...(stale ? { stale: true } : {}) } }
+  }
   return { needsSetup: true, currentAddress, onboarding, localNetworkPrompt, helloTimeoutMs: hello }
+}
+
+/** How the setup-mode Prometheus at `apiBase` answers the saved pairing: one authed GET /api/setup/detect, which checks the key before
+ *  doing anything else. Bounded at 2 s, like the probe beside it: no answer is 'unreachable', which is not a refusal. */
+async function savedPairingAnswer(apiBase: string): Promise<number | 'unreachable'> {
+  const key = currentKey()?.getToken() ?? null
+  if (!key) return 'unreachable'
+  const r = await requestSmall({ method: 'GET', url: `${apiBase}/api/setup/detect`, headers: { authorization: `Bearer ${key}` }, timeoutMs: 2_000 })
+  return typeof r === 'object' ? r.status : 'unreachable'
 }
 
 /** Start over / Set up again: drop the connection and forget the saved address and the stored
