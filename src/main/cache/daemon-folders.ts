@@ -159,6 +159,37 @@ export class DaemonFolders implements BeaconStore {
     return r?.id
   }
 
+  /**
+   * Keep a Prometheus Beacon has just connected to (docs/MULTI-PROMETHEUS.md §6, Add): its address, socket and pin, under the folder
+   * its things go in, and make it the active one. Returns that folder's id.
+   *
+   * TODAY: the one default gateway profile, by the profile's fixed name, so saving a second Prometheus overwrites the first.
+   * smoke:daemon-list is red against this on purpose.
+   */
+  saveInstance(gw: { name: string; apiBase: string; wsUrl: string; pin?: string | null }): string {
+    this.upsertGatewayProfile(gw.name, gw.apiBase, gw.wsUrl, true, gw.pin ?? null)
+    return this.folderFor({ apiBase: gw.apiBase, fp: fpFromPin(gw.pin) })
+  }
+
+  /** The Prometheus Beacon connects to at launch, or null. TODAY: the default profile. */
+  activeInstance(): { id: string; gateway: { name: string; apiBase: string; wsUrl: string; pin: string | null } } | null {
+    const p = this.getDefaultGatewayProfile()
+    return p ? { id: this.folderFor({ apiBase: p.apiBase, fp: fpFromPin(p.pin) }), gateway: p } : null
+  }
+
+  /** Every Prometheus Beacon keeps. TODAY: the saved profiles. */
+  listInstances(): Array<{ id: string; apiBase: string; wsUrl: string; pin: string | null; active: boolean }> {
+    return this.listGatewayProfiles().map((p) => ({ id: this.folderFor({ apiBase: p.apiBase, fp: null }), apiBase: p.apiBase, wsUrl: p.wsUrl, pin: null, active: p.isDefault }))
+  }
+
+  /** Make folder `id`'s Prometheus the active one. TODAY: there is only ever one. */
+  setActive(_id: string): void {}
+
+  /** A setting for the Prometheus of folder `id`, written before that folder is open (a save, before bring-up). TODAY: by key alone. */
+  setSettingFor(_id: string, key: string, value: string): void {
+    this.setSetting(key, value)
+  }
+
   /** The open folder's id, or null. */
   currentId(): string | null {
     return this.single ? LEGACY_DB : (this.current?.id ?? null)
