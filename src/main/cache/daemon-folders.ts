@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync
 import { dirname, join } from 'node:path'
 import Database from 'better-sqlite3'
 import { fpFromPin, settingScope, validFp } from '@shared/daemon-profiles'
+import { CREDENTIAL_KIND_KEY } from '@shared/model-setup'
 import type { PinnedIdentity } from '@shared/identity-challenge'
 import type { SocketEvent } from '@shared/socket-log'
 import type { UiTraceEvent } from '@shared/ui-trace'
@@ -50,13 +51,42 @@ const LEGACY_KEY_FILE = 'api-credential.bin'
 const KEY_FILE = 'credential.bin'
 /** The folder the one pre-existing cache moves into. Its fp is bound on first contact (at once for a TLS profile: its pin says). */
 export const LEGACY_FOLDER_ID = 'legacy-1'
+/** app.db setting: the folder id of the Prometheus Beacon connects to at launch ('' with none). */
+export const ACTIVE_KEY = 'daemons:active'
+
+/** One Prometheus Beacon keeps (listInstances). No key: a list is shown, a key is never. */
+export interface InstanceRecord {
+  id: string
+  label: string
+  apiBase: string
+  wsUrl: string
+  pin: string | null
+  fp: string | null
+  instanceId: string | null
+  nodePub: string | null
+  lastActive: number
+  active: boolean
+}
+
+interface InstanceRow {
+  id: string
+  fp: string | null
+  api_base: string
+  ws_url: string
+  pin: string | null
+  label: string | null
+  instance_id: string | null
+  node_pub: string | null
+  last_active: number
+}
+
 /** app.db setting written LAST by each migration (and at once on a fresh install): which layout is in place. '1': conversations
- *  in folders. '2': keys in folders too. */
+ *  in folders. '2': keys in folders too. '3': each Prometheus's saved connection, and its credential facts, with its folder. */
 export const LAYOUT_KEY = 'daemons:layout'
-export const LAYOUT = '2'
+export const LAYOUT = '3'
 
 /** The migration's steps, for smoke:daemon-folders to stop the process after each. */
-export type MigrationStep = 'backup' | 'app' | 'move' | 'key'
+export type MigrationStep = 'backup' | 'app' | 'move' | 'key' | 'record'
 
 /** Thrown by an injected crash: the smoke's stand-in for the process dying there. Never caught by the fallback. */
 export class InjectedCrash extends Error {}
@@ -160,34 +190,100 @@ export class DaemonFolders implements BeaconStore {
   }
 
   /**
-   * Keep a Prometheus Beacon has just connected to (docs/MULTI-PROMETHEUS.md §6, Add): its address, socket and pin, under the folder
-   * its things go in, and make it the active one. Returns that folder's id.
-   *
-   * TODAY: the one default gateway profile, by the profile's fixed name, so saving a second Prometheus overwrites the first.
-   * smoke:daemon-list is red against this on purpose.
+   * Keep a Prometheus Beacon has just connected to (docs/MULTI-PROMETHEUS.md §6, Add): its name, address, socket and pin, on the row
+   * of the folder its things go in, and make it the active one. Every other Prometheus Beacon keeps stays as it was. Returns the id.
    */
-  saveInstance(gw: { name: string; apiBase: string; wsUrl: string; pin?: string | null }): string {
-    this.upsertGatewayProfile(gw.name, gw.apiBase, gw.wsUrl, true, gw.pin ?? null)
-    return this.folderFor({ apiBase: gw.apiBase, fp: fpFromPin(gw.pin) })
+  saveInstance(gw: { name: string; apiBase: string; wsUrl: string; pin?: string | null }, id?: string): string {
+    if (this.single) {
+      this.app.upsertGatewayProfile(gw.name, gw.apiBase, gw.wsUrl, true, gw.pin ?? null)
+      return LEGACY_DB
+    }
+    const folder = id ?? this.folderFor({ apiBase: gw.apiBase, fp: fpFromPin(gw.pin) })
+    this.appDb
+      .prepare('UPDATE daemon_folders SET label = ?, api_base = ?, ws_url = ?, pin = ?, last_active = ? WHERE id = ?')
+      .run(gw.name, gw.apiBase, gw.wsUrl, gw.pin ?? null, Date.now(), folder)
+    this.setActive(folder)
+    return folder
   }
 
-  /** The Prometheus Beacon connects to at launch, or null. TODAY: the default profile. */
+  /** The Prometheus Beacon connects to at launch, or null with none kept. */
   activeInstance(): { id: string; gateway: { name: string; apiBase: string; wsUrl: string; pin: string | null } } | null {
-    const p = this.getDefaultGatewayProfile()
-    return p ? { id: this.folderFor({ apiBase: p.apiBase, fp: fpFromPin(p.pin) }), gateway: p } : null
+    if (this.single) {
+      const p = this.app.getDefaultGatewayProfile()
+      return p ? { id: LEGACY_DB, gateway: p } : null
+    }
+    const id = this.app.getSetting(ACTIVE_KEY)
+    const r = id ? this.instanceRow(id) : undefined
+    return r ? { id: r.id, gateway: { name: r.label ?? 'mini', apiBase: r.api_base, wsUrl: r.ws_url, pin: r.pin } } : null
   }
 
-  /** Every Prometheus Beacon keeps. TODAY: the saved profiles. */
-  listInstances(): Array<{ id: string; apiBase: string; wsUrl: string; pin: string | null; active: boolean }> {
-    return this.listGatewayProfiles().map((p) => ({ id: this.folderFor({ apiBase: p.apiBase, fp: null }), apiBase: p.apiBase, wsUrl: p.wsUrl, pin: null, active: p.isDefault }))
+  /** Every Prometheus Beacon keeps, the active one marked: what the sidebar list shows (PR 4). No key is in it. */
+  listInstances(): InstanceRecord[] {
+    if (this.single) {
+      return this.app.listGatewayProfiles().map((p) => ({ id: LEGACY_DB, label: p.name, apiBase: p.apiBase, wsUrl: p.wsUrl, pin: null, fp: null, instanceId: null, nodePub: null, lastActive: 0, active: p.isDefault }))
+    }
+    const active = this.app.getSetting(ACTIVE_KEY)
+    const rows = this.appDb
+      .prepare('SELECT id, fp, api_base, ws_url, pin, label, instance_id, node_pub, last_active FROM daemon_folders WHERE ws_url IS NOT NULL ORDER BY last_active DESC')
+      .all() as InstanceRow[]
+    return rows.map((r) => ({ id: r.id, label: r.label ?? 'mini', apiBase: r.api_base, wsUrl: r.ws_url, pin: r.pin, fp: r.fp, instanceId: r.instance_id, nodePub: r.node_pub, lastActive: r.last_active, active: r.id === active }))
   }
 
-  /** Make folder `id`'s Prometheus the active one. TODAY: there is only ever one. */
-  setActive(_id: string): void {}
+  /** Make folder `id`'s Prometheus the active one (it must be one Beacon keeps). */
+  setActive(id: string): void {
+    if (this.single || !this.instanceRow(id)) return
+    this.app.setSetting(ACTIVE_KEY, id)
+  }
 
-  /** A setting for the Prometheus of folder `id`, written before that folder is open (a save, before bring-up). TODAY: by key alone. */
-  setSettingFor(_id: string, key: string, value: string): void {
-    this.setSetting(key, value)
+  /**
+   * Forget the active Prometheus's saved connection (Start over, Set up again): it is no longer kept, nothing is active, and every other
+   * Prometheus stays as it was. Its folder (cache and pins) stays on disk; its key is the caller's to clear.
+   */
+  forgetActive(): void {
+    if (this.single) {
+      this.app.deleteGatewayProfiles()
+      return
+    }
+    const id = this.app.getSetting(ACTIVE_KEY)
+    if (id) this.appDb.prepare('UPDATE daemon_folders SET ws_url = NULL WHERE id = ?').run(id)
+    this.app.setSetting(ACTIVE_KEY, '')
+  }
+
+  /**
+   * A setting of the Prometheus of folder `id`, written before that folder is open (a save, before bring-up): into ITS folder,
+   * whichever is open now. A Beacon-wide key goes to app.db as always.
+   */
+  setSettingFor(id: string, key: string, value: string): void {
+    if (this.single || settingScope(key) === 'beacon') return this.setSetting(key, value)
+    if (this.current?.id === id) return this.current.repo.setSetting(key, value)
+    const dir = join(this.root, DAEMONS_DIR, id)
+    mkdirSync(dir, { recursive: true })
+    const db = openCache(join(dir, CACHE_DB))
+    try {
+      new CacheRepo(db).setSetting(key, value)
+    } finally {
+      db.close()
+    }
+  }
+
+  /** Read back what setSettingFor wrote, the same way. */
+  getSettingFor(id: string, key: string): string | null {
+    if (this.single || settingScope(key) === 'beacon') return this.getSetting(key)
+    if (this.current?.id === id) return this.current.repo.getSetting(key)
+    const path = join(this.root, DAEMONS_DIR, id, CACHE_DB)
+    if (!existsSync(path)) return null
+    const db = openCache(path)
+    try {
+      return new CacheRepo(db).getSetting(key)
+    } finally {
+      db.close()
+    }
+  }
+
+  private instanceRow(id: string): InstanceRow | undefined {
+    return this.appDb
+      .prepare('SELECT id, fp, api_base, ws_url, pin, label, instance_id, node_pub, last_active FROM daemon_folders WHERE id = ? AND ws_url IS NOT NULL')
+      .get(id) as InstanceRow | undefined
   }
 
   /** The open folder's id, or null. */
@@ -291,17 +387,19 @@ export class DaemonFolders implements BeaconStore {
   pruneSessionSettings(): number {
     return this.cacheRepo()?.pruneSessionSettings() ?? 0
   }
+  // The saved connection, as main has always asked for it: now the active Prometheus's record (activeInstance, saveInstance,
+  // forgetActive). The gateway_profiles table is read once, by the migration, and no longer written.
   getDefaultGatewayProfile(): ReturnType<CacheRepo['getDefaultGatewayProfile']> {
-    return this.app.getDefaultGatewayProfile()
+    return this.activeInstance()?.gateway ?? null
   }
-  upsertGatewayProfile(name: string, apiBase: string, wsUrl: string, isDefault: boolean, pin: string | null = null): void {
-    this.app.upsertGatewayProfile(name, apiBase, wsUrl, isDefault, pin)
+  upsertGatewayProfile(name: string, apiBase: string, wsUrl: string, _isDefault: boolean, pin: string | null = null): void {
+    this.saveInstance({ name, apiBase, wsUrl, pin })
   }
   deleteGatewayProfiles(): void {
-    this.app.deleteGatewayProfiles()
+    this.forgetActive()
   }
   listGatewayProfiles(): ReturnType<CacheRepo['listGatewayProfiles']> {
-    return this.app.listGatewayProfiles()
+    return this.listInstances().map((i) => ({ name: i.label, apiBase: i.apiBase, wsUrl: i.wsUrl, isDefault: i.active }))
   }
   // The diagnostic tables are a Prometheus's (they name its sessions and its socket), so a support export from one holds nothing
   // from another. With no folder open there is nothing to describe, and the row is dropped.
@@ -349,12 +447,70 @@ function migrate(root: string, opts: DaemonFoldersOptions): void {
       renameSync(legacy, target)
       crash('move')
     }
-    moveKey(root, appDb)
-    crash('key')
+    if (layout !== '2') {
+      moveKey(root, appDb)
+      crash('key')
+    }
+    moveRecord(root, appDb)
+    crash('record')
     appDb.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(LAYOUT_KEY, LAYOUT)
   } finally {
     appDb.close()
   }
+}
+
+/** The settings that are one Prometheus's facts about its key, Beacon-wide until layout 3 (PR 2 left them beside the one key file). */
+const CREDENTIAL_FACTS = [CREDENTIAL_KIND_KEY, 'connection.deviceRole']
+
+/**
+ * Step 4: the saved connection onto its Prometheus's folder row, made the active one, and the facts about its key (the kind of
+ * credential, the remembered device role) from app.db into that folder's cache.db. Copied before they are deleted from app.db,
+ * so a crash between leaves them in both, and the next run copies again: the same value.
+ */
+function moveRecord(root: string, appDb: CacheDb): void {
+  const profiles = appDb.prepare('SELECT name, api_base, ws_url, is_default, pin FROM gateway_profiles ORDER BY is_default DESC, name').all() as Array<{
+    name: string
+    api_base: string
+    ws_url: string
+    is_default: number
+    pin: string | null
+  }>
+  let activeId: string | null = null
+  for (const p of profiles) {
+    const id = folderOfProfile(appDb, p.api_base, p.pin)
+    appDb.prepare('UPDATE daemon_folders SET label = ?, api_base = ?, ws_url = ?, pin = ? WHERE id = ?').run(p.name, p.api_base, p.ws_url, p.pin, id)
+    if (p.is_default === 1 && activeId === null) activeId = id
+  }
+  if (activeId === null) return
+  const facts = CREDENTIAL_FACTS.map((k) => [k, appDb.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(k)] as const).filter(
+    (f): f is readonly [string, string] => typeof f[1] === 'string'
+  )
+  if (facts.length > 0) {
+    const dir = join(root, DAEMONS_DIR, activeId)
+    mkdirSync(dir, { recursive: true })
+    const db = openCache(join(dir, CACHE_DB))
+    try {
+      const repo = new CacheRepo(db)
+      for (const [k, v] of facts) repo.setSetting(k, v)
+    } finally {
+      db.close()
+    }
+    for (const [k] of facts) appDb.prepare('DELETE FROM settings WHERE key = ?').run(k)
+  }
+  appDb.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ACTIVE_KEY, activeId)
+}
+
+/** The folder a saved profile belongs to (the one its key moved into in step 3), created when it has none. */
+function folderOfProfile(appDb: CacheDb, apiBase: string, pin: string | null): string {
+  const fp = fpFromPin(pin)
+  const row =
+    (fp ? (appDb.prepare('SELECT id FROM daemon_folders WHERE fp = ?').get(fp) as { id: string } | undefined) : undefined) ??
+    (appDb.prepare('SELECT id FROM daemon_folders WHERE api_base = ? ORDER BY last_active DESC LIMIT 1').get(apiBase) as { id: string } | undefined) ??
+    (appDb.prepare('SELECT id FROM daemon_folders WHERE api_base IS NULL AND fp IS NULL LIMIT 1').get() as { id: string } | undefined)
+  if (row) return row.id
+  const id = fp ?? `new-${randomBytes(4).toString('hex')}`
+  appDb.prepare('INSERT INTO daemon_folders (id, fp, api_base, last_active) VALUES (?, ?, ?, ?)').run(id, fp, apiBase, Date.now())
+  return id
 }
 
 /**

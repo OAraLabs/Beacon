@@ -158,6 +158,11 @@ CREATE TABLE IF NOT EXISTS daemon_folders (
   -- The node key pinned for it (base64 raw Ed25519) and its vault's instance_id (docs/MULTI-PROMETHEUS.md §2 rule 1), set by the
   -- first answer to the identity challenge or a confirmed move. A Prometheus is the same one by these from then on.
   instance_id  TEXT,
-  node_pub     TEXT
+  node_pub     TEXT,
+  -- The saved connection to it (docs/MULTI-PROMETHEUS.md §6): what Beacon calls it, and how it is reached. NULL ws_url: a folder
+  -- whose Prometheus Beacon no longer keeps (forgotten), its cache left in place. The active one is app.db's 'daemons:active'.
+  label        TEXT,
+  ws_url       TEXT,
+  pin          TEXT
 );
 `

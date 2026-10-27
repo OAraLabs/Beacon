@@ -55,6 +55,12 @@ function main(): void {
     folders.open({ apiBase: B.apiBase, fp: PIN_B.slice(0, 16) })
     assert(folders.getSetting(CREDENTIAL_KIND_KEY) === '', `with B open, B's (${folders.getSetting(CREDENTIAL_KIND_KEY)})`)
 
+    // Written for A while B's folder is the open one (a save of A while connected to B): it must land in A's folder, not B's.
+    folders.setSettingFor(a, CREDENTIAL_KIND_KEY, 'owner')
+    assert(folders.getSetting(CREDENTIAL_KIND_KEY) === '', `B's own kind is untouched (${folders.getSetting(CREDENTIAL_KIND_KEY)})`)
+    folders.open({ apiBase: A.apiBase, fp: PIN_A.slice(0, 16) })
+    assert(folders.getSetting(CREDENTIAL_KIND_KEY) === 'owner', `and A's became 'owner' (${folders.getSetting(CREDENTIAL_KIND_KEY)})`)
+
     console.log('\n[smoke] === 4. saving the same Prometheus again ===')
     assert(folders.saveInstance(A) === a && folders.listInstances().length === 2, 'adds nothing, and keeps its folder')
   } finally {

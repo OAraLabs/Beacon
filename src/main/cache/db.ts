@@ -26,6 +26,8 @@ export function openAppDb(path: string): CacheDb {
   const cols = db.prepare(`PRAGMA table_info(daemon_folders)`).all() as Array<{ name: string }>
   if (!cols.some((c) => c.name === 'instance_id')) db.exec(`ALTER TABLE daemon_folders ADD COLUMN instance_id TEXT`)
   if (!cols.some((c) => c.name === 'node_pub')) db.exec(`ALTER TABLE daemon_folders ADD COLUMN node_pub TEXT`)
+  // And before each Prometheus's saved connection lived on its folder's row (PR 2's): NULL until the migration fills them in.
+  for (const c of ['label', 'ws_url', 'pin']) if (!cols.some((x) => x.name === c)) db.exec(`ALTER TABLE daemon_folders ADD COLUMN ${c} TEXT`)
   return db
 }
 

@@ -42,3 +42,27 @@ export function copyProfileDbs(src, dest) {
 export function sqlEach(profile, stmt) {
   for (const f of profileDbFiles(profile)) execFileSync('sqlite3', [join(profile, f), stmt])
 }
+
+/** Whether a profile keeps its saved connections on its folder rows (layout 3 and later) rather than in gateway_profiles. */
+function recordsOnFolders(profile) {
+  const app = join(profile, 'app.db')
+  if (!existsSync(app)) return false
+  return execFileSync('sqlite3', [`file:${app}?mode=ro`, "SELECT count(*) FROM pragma_table_info('daemon_folders') WHERE name = 'ws_url'"]).toString().trim() === '1'
+}
+
+/** The saved connection Beacon connects to at launch, as 'api_base|ws_url|pin' (pin empty when none), or '' with none: from the
+ *  active folder's row (layout 3) or the default gateway_profiles row (before it), whichever this profile has. */
+export function savedConnection(profile) {
+  const db = profileDb(profile, 'beacon')
+  const sql = recordsOnFolders(profile)
+    ? "SELECT api_base || '|' || ws_url || '|' || COALESCE(pin, '') FROM daemon_folders WHERE ws_url IS NOT NULL AND id = (SELECT value FROM settings WHERE key = 'daemons:active')"
+    : "SELECT api_base || '|' || ws_url || '|' || COALESCE(pin, '') FROM gateway_profiles WHERE is_default = 1"
+  return execFileSync('sqlite3', [`file:${db}?mode=ro`, sql]).toString().trim()
+}
+
+/** How many Prometheus a profile keeps a saved connection for. */
+export function keptCount(profile) {
+  const db = profileDb(profile, 'beacon')
+  const sql = recordsOnFolders(profile) ? 'SELECT count(*) FROM daemon_folders WHERE ws_url IS NOT NULL' : 'SELECT count(*) FROM gateway_profiles'
+  return Number(execFileSync('sqlite3', [`file:${db}?mode=ro`, sql]).toString().trim())
+}
