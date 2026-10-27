@@ -303,10 +303,26 @@ export function decideStartupRoute(input: { hasConnection: boolean; probe: Launc
   return { kind: 'app' }
 }
 
+/**
+ * Whether a saved pairing is stale: the setup-mode Prometheus's answer to one authed GET /api/setup/detect made with it at launch.
+ * A reinstalled Prometheus refuses the old pairing (401/403), and nothing past Connect can work with it.
+ *
+ * TODAY: never stale, whatever it answers. smoke:setup-wizard and probe:setup-resume S5 are red against this on purpose.
+ */
+export function pairingStale(_answer: number | 'unreachable'): boolean {
+  return false
+}
+
+/** Whether a part-way setup resumes in the new first run, at A2 (@shared/onboarding resumeModel): on this Mac, and paired.
+ *  TODAY: the stale flag is not read. */
+export function resumesHere(resume: { here?: boolean; paired: boolean; stale?: boolean } | undefined): boolean {
+  return resume?.here === true && resume.paired
+}
+
 /** The wizard's starting data for a resumed setup. Paired → straight to the step after Connect
  * (stepAfterConnect: 'apply' when configure already ran, else 'model'). Not paired → Connect, on
  * the pairing-code tab, which is the only way a setup-mode Prometheus lets anyone in. */
-export function resumedWizardData(resume: { configured: boolean; paired: boolean }): WizardData {
+export function resumedWizardData(resume: { configured: boolean; paired: boolean; stale?: boolean }): WizardData {
   const base = initialWizardData()
   if (!resume.paired) return { ...base, step: 'connect' }
   return {
@@ -319,7 +335,7 @@ export function resumedWizardData(resume: { configured: boolean; paired: boolean
 }
 
 /** The line a resumed wizard shows above its step. */
-export function resumeNotice(resume: { paired: boolean }, address: string | undefined): string {
+export function resumeNotice(resume: { paired: boolean; stale?: boolean }, address: string | undefined): string {
   const where = address ? ` with ${address}` : ''
   return resume.paired
     ? `Picking up where you left off${where}.`

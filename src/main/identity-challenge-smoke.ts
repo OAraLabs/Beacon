@@ -215,6 +215,29 @@ async function main(): Promise<void> {
     assert(restAfter === restBefore, `and REST sent it none either (${restAfter - restBefore})`)
   }
 
+  console.log('\n[smoke] === Try again while the challenge is still being retried: the socket starts once ===')
+  {
+    const b: Behaviour = { key: K1, instanceId: I, failFirst: 100 } // no answer (503) until it is changed below
+    const http = await standIn(b)
+    let connections = 0
+    const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+    wss.on('connection', () => connections++)
+    await new Promise<void>((r) => wss.on('listening', () => r()))
+    const wsUrl = `ws://127.0.0.1:${(wss.address() as AddressInfo).port}`
+    const prove = createProver({ apiBase: http.base, request: requestSmall, pinned: () => pin, tlsSpki: null, verify: verifyRaw, nowS: () => Math.floor(Date.now() / 1000) })
+    const conn = new ConnectionManager({ name: 'smoke', apiBase: http.base, wsUrl }, 'THE-KEY', false, () => {}, undefined, Promise.resolve(null), prove)
+    conn.start()
+    await sleep(1_500) // the first retry has run; the loop is waiting 2 s for its next
+    b.failFirst = 0 // Prometheus is back
+    conn.reconnect() // the banner's Try again
+    await sleep(4_500) // past the old loop's next ask
+    const after = connections
+    conn.stop()
+    await new Promise<void>((r) => wss.close(() => r()))
+    http.srv.close()
+    assert(after === 1, `one socket connection, not one per retry loop (${after})`)
+  }
+
   console.log('\n[smoke] === no answer yet (503 once), then a good one ===')
   {
     const r = await connectOnce({ key: K1, instanceId: I, failFirst: 1 }, pin, 2_000)

@@ -5,6 +5,9 @@
 //   app.db                 this Beacon's own rows: settings classified Beacon-wide, saved connections ('beacon')
 //   daemons/<id>/cache.db  one Prometheus's rows: conversations, messages, outbox, drafts, groups ('prometheus')
 // 'prometheus' means the most recently used folder, the one the app opened last.
+//
+// Opened read-write, never `?mode=ro`: these are scratch profiles only, and a read-only open of a WAL database fails ("unable to
+// open database file") once the app has quit, because its -shm is gone and a read-only connection can't create one.
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -14,7 +17,7 @@ export function profileDb(profile, scope = 'prometheus') {
   const app = join(profile, 'app.db')
   if (!existsSync(app)) return join(profile, 'beacon.db')
   if (scope === 'beacon') return app
-  const id = execFileSync('sqlite3', [`file:${app}?mode=ro`, 'SELECT id FROM daemon_folders ORDER BY last_active DESC LIMIT 1']).toString().trim()
+  const id = execFileSync('sqlite3', [app, 'SELECT id FROM daemon_folders ORDER BY last_active DESC LIMIT 1']).toString().trim()
   if (!id) throw new Error(`no Prometheus folder in ${profile} yet`)
   return join(profile, 'daemons', id, 'cache.db')
 }
@@ -47,7 +50,7 @@ export function sqlEach(profile, stmt) {
 function recordsOnFolders(profile) {
   const app = join(profile, 'app.db')
   if (!existsSync(app)) return false
-  return execFileSync('sqlite3', [`file:${app}?mode=ro`, "SELECT count(*) FROM pragma_table_info('daemon_folders') WHERE name = 'ws_url'"]).toString().trim() === '1'
+  return execFileSync('sqlite3', [app, "SELECT count(*) FROM pragma_table_info('daemon_folders') WHERE name = 'ws_url'"]).toString().trim() === '1'
 }
 
 /** The saved connection Beacon connects to at launch, as 'api_base|ws_url|pin' (pin empty when none), or '' with none: from the
@@ -57,12 +60,12 @@ export function savedConnection(profile) {
   const sql = recordsOnFolders(profile)
     ? "SELECT api_base || '|' || ws_url || '|' || COALESCE(pin, '') FROM daemon_folders WHERE ws_url IS NOT NULL AND id = (SELECT value FROM settings WHERE key = 'daemons:active')"
     : "SELECT api_base || '|' || ws_url || '|' || COALESCE(pin, '') FROM gateway_profiles WHERE is_default = 1"
-  return execFileSync('sqlite3', [`file:${db}?mode=ro`, sql]).toString().trim()
+  return execFileSync('sqlite3', [db, sql]).toString().trim()
 }
 
 /** How many Prometheus a profile keeps a saved connection for. */
 export function keptCount(profile) {
   const db = profileDb(profile, 'beacon')
   const sql = recordsOnFolders(profile) ? 'SELECT count(*) FROM daemon_folders WHERE ws_url IS NOT NULL' : 'SELECT count(*) FROM gateway_profiles'
-  return Number(execFileSync('sqlite3', [`file:${db}?mode=ro`, sql]).toString().trim())
+  return Number(execFileSync('sqlite3', [db, sql]).toString().trim())
 }

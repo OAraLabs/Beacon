@@ -579,6 +579,9 @@ export interface SetupResume {
   paired: boolean
   /** The saved Prometheus is on this Mac (127.0.0.1): the new flow set it up, and resumes at A2 (O9). */
   here?: boolean
+  /** The saved pairing was refused at launch (the Prometheus was set up again): the wizard opens at Connect, saying to pair
+   *  again, and the new flow does not resume at A2 with a key that can't work. */
+  stale?: boolean
   /** Prometheus on this Mac is configured, and the credential Beacon holds is still its master token: A5 reopens to finish the
    *  owner trade (@shared/model-setup resumeAtTrade). */
   trade?: boolean
