@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeImage, nativeTheme, powerMonitor, screen, session, shell } from 'electron'
 import { createHash } from 'crypto'
-import { existsSync } from 'fs'
-import { isAbsolute, join, resolve } from 'path'
+import { existsSync, mkdirSync } from 'fs'
+import { dirname, isAbsolute, join, resolve } from 'path'
 import { refusedSwitches } from '@shared/release-gate'
 import { buildFlavor, debuggingAllowedHere } from './build-flavor'
 import { IPC } from '@shared/ipc'
@@ -105,7 +105,8 @@ import { overlayOptionsFrom, TITLEBAR_OVERLAY_HEIGHT, usesWindowControlsOverlay,
 import { createRendererRecovery, dialogNotifyStopped } from './renderer-recovery'
 import { DaemonFolders, type BeaconStore } from './cache/daemon-folders'
 import { CacheService } from './cache/service'
-import { CredentialStore, decideStartup, electronSafeStorageCipher } from './credentials'
+import { CredentialStore, decideStartup, electronSafeStorageCipher, type Cipher } from './credentials'
+import { sameOrigin } from '@shared/key-origin'
 import {
   INITIAL_PRESENCE,
   applyPresenceEvent,
@@ -250,15 +251,37 @@ app.on('open-url', (e, url) => {
 // The connection + cache live in the main process and outlive any window (spec §3.2/§3.3). The
 // connection is (re)built by bringUpConnection — at startup if configured, or on first-run save.
 let connection: ConnectionManager | null = null
-/** The REST base of the Prometheus `connection` talks to (null while there is none): what Settings → Other computers asks. */
-let connectedApiBase: string | null = null
-/** The gateway the live connection was brought up with (Settings → Make this Beacon an owner reconnects to it with the new token). */
-let connectedGateway: GatewayConfig | null = null
+/**
+ * The live link: the gateway `connection` was brought up with and the key it uses there, set TOGETHER and only once the address may be
+ * used (null until then, and while there is none). Every module that talks to "the connected Prometheus" with a key (the network and
+ * main-model settings, the pin, the owner promotion, model setup) reads both from this one value, so its address and its key can never
+ * come from two different moments, or two different Prometheus (docs/MULTI-PROMETHEUS.md §2 rule 2).
+ */
+let connectedLink: { gateway: GatewayConfig; token: string | null } | null = null
 let cache: CacheService | null = null
 let folders: DaemonFolders | null = null
 /** Settings (routed by key), the saved connection and the diagnostic tables: `folders` itself, as BeaconStore. */
 let repo: BeaconStore | null = null
-let creds: CredentialStore | null = null
+/** The keychain-backed cipher every key file is sealed with (one Keychain item for all of them, as before). */
+let keyCipher: Cipher | null = null
+
+/** The key file of the Prometheus whose folder is `id`: only ever read for that Prometheus (docs/MULTI-PROMETHEUS.md §3). */
+function keyFile(id: string): CredentialStore {
+  const path = folders!.keyPath(id)
+  mkdirSync(dirname(path), { recursive: true })
+  return new CredentialStore(path, keyCipher!)
+}
+
+/** Where a save keeps the key for the Prometheus at this gateway: the folder bringUpConnection will open for it. */
+function keyFor(gw: { apiBase: string; pin?: string | null }): CredentialStore {
+  return keyFile(folders!.folderFor({ apiBase: gw.apiBase, fp: fpFromPin(gw.pin) }))
+}
+
+/** The open folder's key, or null with no Prometheus open. */
+function currentKey(): CredentialStore | null {
+  const id = folders?.currentId()
+  return id ? keyFile(id) : null
+}
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -362,7 +385,7 @@ function roleMemory(gw: GatewayConfig, token: string | null): RoleMemory {
  * The cache is that Prometheus's own folder (docs/MULTI-PROMETHEUS.md §3). `knownFp` is its instance fingerprint when already
  * known (hello's, on a rebind); a pinned profile's comes from its pin. Without either, the folder last used at this address is
  * opened HELD until hello says who answers there (confirmIdentity). */
-function bringUpConnection(gw: GatewayConfig, token: string | null, knownFp: string | null = null): void {
+function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null): void {
   if (connection) {
     connection.removeAllListeners()
     connection.stop()
@@ -381,14 +404,17 @@ function bringUpConnection(gw: GatewayConfig, token: string | null, knownFp: str
   // sent, and the address is not published to the modules that talk to it with the key (the network and main-model settings, the pin,
   // the owner promotion), so they see "not connected" rather than send in plain.
   const gate = plainPublicRefusal(gw.apiBase, gw.wsUrl)
+  // That Prometheus's folder first, then ITS key: a key is read only from the folder of the Prometheus it was saved for.
+  const fp = knownFp ?? fpFromPin(gw.pin)
+  const before = folders!.currentId()
+  const folder = folders!.open({ apiBase: gw.apiBase, fp })
+  const token = keyFile(folder.id).getToken()
   const conn = new ConnectionManager(gw, token, false, (e) => repo?.recordSocketEvent(e), roleMemory(gw, token), gate)
   connection = conn
-  connectedApiBase = null
-  connectedGateway = null
+  connectedLink = null
   void gate.then((refused) => {
     if (refused || connection !== conn) return
-    connectedApiBase = gw.apiBase
-    connectedGateway = gw
+    connectedLink = { gateway: gw, token }
   })
   connection.on('status', onStatus)
   connection.on('stream', onStreamFrame)
@@ -399,12 +425,9 @@ function bringUpConnection(gw: GatewayConfig, token: string | null, knownFp: str
     maybeNotifyTask(ev as { type?: string; payload?: Record<string, unknown> })
     handleApprovalFrame(conn, ev as { type?: string; payload?: Record<string, unknown> })
   })
-  const fp = knownFp ?? fpFromPin(gw.pin)
-  const before = folders!.currentId()
-  const folder = folders!.open({ apiBase: gw.apiBase, fp })
   cache = new CacheService(folder.repo, connection, { held: fp === null })
   cache.attach()
-  if (fp === null) confirmIdentity(conn, cache, gw, token, folder.id)
+  if (fp === null) confirmIdentity(conn, cache, gw, folder.id)
   if (before !== null && before !== folder.id) broadcast(IPC.CACHE_FOLDER_CHANGED, null)
   connection.start()
   pairingWatcher.reset() // a new connection may be a different computer, or a different kind of device
@@ -422,7 +445,7 @@ const IDENTITY_RETRY_MS = 30_000
  * written into the folder and nothing queued in it is sent. Only an unreachable hello keeps it held, asked again on each reconnect
  * and every 30 s while connected; an answer with no fp releases it, as before folders existed.
  */
-function confirmIdentity(conn: ConnectionManager, held: CacheService, gw: GatewayConfig, token: string | null, folderId: string): void {
+function confirmIdentity(conn: ConnectionManager, held: CacheService, gw: GatewayConfig, folderId: string): void {
   let asking = false
   let retry: NodeJS.Timeout | null = null
   const ask = async (): Promise<void> => {
@@ -452,7 +475,7 @@ function confirmIdentity(conn: ConnectionManager, held: CacheService, gw: Gatewa
       if (home === folderId) held.release()
       else {
         console.info(`[cache] a different Prometheus answers at ${hostOf(gw.apiBase)}; opening its own folder`)
-        bringUpConnection(gw, token, hello.fp)
+        bringUpConnection(gw, hello.fp)
       }
     } finally {
       asking = false
@@ -499,7 +522,7 @@ async function setupStatus(): Promise<SetupStatus> {
   const probe = connection ? await probeSetupAt((profile ?? resolveGateway()).apiBase, 2_000) : null
   const here = currentAddress === '127.0.0.1' || currentAddress === 'localhost'
   const credential = repo?.getSetting(CREDENTIAL_KIND_KEY) ?? null
-  const route = decideStartupRoute({ hasConnection: connection !== null, probe, hasCredential: creds?.hasToken() ?? false, credential, thisMac: here })
+  const route = decideStartupRoute({ hasConnection: connection !== null, probe, hasCredential: currentKey()?.hasToken() ?? false, credential, thisMac: here })
   // The v0.4.0 first run is closed in a release build whatever the environment says (@shared/onboarding-gate).
   const onboarding = onboardingV4Visible({ flavor: buildFlavor(), isPackaged: app.isPackaged, env: process.env.BEACON_ONBOARDING })
   const localNetworkPrompt = process.platform === 'darwin'
@@ -521,13 +544,12 @@ function forgetConnection(): SetupForgetResult {
       connection = null
     }
     applyPins(null)
-    connectedApiBase = null
-    connectedGateway = null
+    connectedLink = null
     cache = null
+    currentKey()?.clear() // that Prometheus's key, before its folder is let go
     folders?.closeCurrent() // the conversations stay in their folder; nothing of theirs shows while no Prometheus is saved
     pairingWatcher.reset()
     repo?.deleteGatewayProfiles()
-    creds?.clear()
     repo?.setSetting(CREDENTIAL_KIND_KEY, '') // no credential, so nothing to trade
     // A new first run: a "Not now" from the last one must not decide where it opens (@shared/onboarding).
     repo?.setSetting(ONBOARDING_BROWSING_KEY, '0')
@@ -550,9 +572,9 @@ async function saveSetup(req: SetupRequest): Promise<SetupResult> {
     const publicRefused = await plainPublicRefusal(gw.apiBase, gw.wsUrl) // and none to the internet, ever
     if (publicRefused) return { ok: false, error: publicRefused }
     repo!.upsertGatewayProfile(gw.name, gw.apiBase, gw.wsUrl, true) // address → app-data (never source)
-    creds!.setToken(req.token ?? '') // token → OS keychain (or cleared if blank)
+    keyFor(gw).setToken(req.token ?? '') // token → this Prometheus's key file, sealed by the OS keychain (or cleared if blank)
     repo!.setSetting(CREDENTIAL_KIND_KEY, '') // typed in, not the master token A-inst kept
-    bringUpConnection(gw, creds!.getToken())
+    bringUpConnection(gw)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
@@ -566,14 +588,15 @@ let joinedGateway: GatewayConfig | null = null
  *  writes), the address in the gateway profile, the computer in the "known" list so a later change of identity is noticed.
  *  Throws when the connection could not be kept, and then leaves nothing half done (the old token is put back). */
 function saveJoinedConnection(c: SavedConnection): void {
-  const before = creds!.getToken()
+  const key = keyFor(c.gateway)
+  const before = key.getToken()
   try {
-    creds!.setToken(c.token)
+    key.setToken(c.token)
     repo!.upsertGatewayProfile(c.gateway.name, c.gateway.apiBase, c.gateway.wsUrl, true, c.gateway.pin ?? null)
     repo!.setSetting(CREDENTIAL_KIND_KEY, '') // an approved device's credential: no trade owed
   } catch (err) {
     try {
-      creds!.setToken(before ?? '')
+      key.setToken(before ?? '')
     } catch {
       /* the original error is the one to report */
     }
@@ -599,7 +622,7 @@ const joinSession = new JoinSession({
   now: () => Date.now(),
   save: saveJoinedConnection,
   activate: () => {
-    if (joinedGateway) bringUpConnection(joinedGateway, creds!.getToken())
+    if (joinedGateway) bringUpConnection(joinedGateway)
   }
 })
 
@@ -609,18 +632,19 @@ let localGateway: GatewayConfig | null = null
 /** Keep the connection to the Prometheus Beacon has just set up on this Mac: the token in the OS keychain (the entry every way of
  *  connecting writes), the address in the gateway profile. Throws when it could not be kept, and then puts the old token back. */
 function saveLocalConnection(c: SavedLocal): void {
-  const before = creds!.getToken()
+  const key = keyFor(c.gateway)
+  const before = key.getToken()
   const kindBefore = repo!.getSetting(CREDENTIAL_KIND_KEY) ?? ''
   try {
     // The master token is marked BEFORE it is kept, an owner credential AFTER: a stop between the two is then a trade owed (which
     // asks the daemon again), never the master token marked as an owner credential, which would open the app with it.
     if (c.credential === 'master') repo!.setSetting(CREDENTIAL_KIND_KEY, 'master')
-    creds!.setToken(c.token)
+    key.setToken(c.token)
     repo!.upsertGatewayProfile(c.gateway.name, c.gateway.apiBase, c.gateway.wsUrl, true, c.gateway.pin ?? null)
     if (c.credential === 'owner') repo!.setSetting(CREDENTIAL_KIND_KEY, 'owner')
   } catch (err) {
     try {
-      creds!.setToken(before ?? '')
+      key.setToken(before ?? '')
       repo!.setSetting(CREDENTIAL_KIND_KEY, kindBefore)
     } catch {
       /* the original error is the one to report */
@@ -645,15 +669,15 @@ const prometheusInstaller = new PrometheusInstaller({
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   save: saveLocalConnection,
   activate: () => {
-    if (localGateway) bringUpConnection(localGateway, creds!.getToken())
+    if (localGateway) bringUpConnection(localGateway)
   },
   publish: (view) => broadcast(IPC.PATHA_INSTALL_UPDATE, view)
 })
 
 // Settings → Other computers: the home-network switch on whichever Prometheus Beacon is connected to, with the credential it holds.
 const networkSetting = new NetworkSetting({
-  base: () => connectedApiBase,
-  token: () => creds?.getToken() ?? null,
+  base: () => connectedLink?.gateway.apiBase ?? null,
+  token: () => connectedLink?.token ?? null,
   request: requestSmall,
   now: () => Date.now(),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms))
@@ -662,7 +686,9 @@ const networkSetting = new NetworkSetting({
 // (the same pairing A-inst ends with). The launcher, the secret's path and the port are A-inst's, so a probe's stand-ins apply here too.
 const modelSetup = new ModelSetup({
   port: discoveryEnv(process.env, debuggingAllowedHere()).port,
-  masterToken: () => creds?.getToken() ?? null,
+  // The live link's key, with its address (connectedLink): the one Prometheus being set up on this Mac, which save() and activate() just
+  // brought up. Shared with local-first's ModelSetup work: see docs/MULTI-PROMETHEUS.md §10.
+  masterToken: () => connectedLink?.token ?? null,
   request: requestSmall,
   exec: execFileTool,
   launcher: prometheusInstaller.launcher,
@@ -672,7 +698,7 @@ const modelSetup = new ModelSetup({
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   save: saveLocalConnection,
   activate: () => {
-    if (localGateway) bringUpConnection(localGateway, creds!.getToken())
+    if (localGateway) bringUpConnection(localGateway)
   },
   publish: (view) => broadcast(IPC.MODEL_UPDATE, view)
 })
@@ -688,43 +714,44 @@ const newOpenRouterSignIn = async (): Promise<OpenRouterSignIn> =>
 // Devices → Enrol (0.4.3): the pairing code carries the daemon's TLS pin when it serves TLS, from the pinned profile or GET /api/network,
 // checked against what the code's host presents on the ports Beacon for iOS dials.
 const pairPin = new PairPin({
-  profilePin: () => connectedGateway?.pin ?? null,
-  base: () => connectedApiBase,
-  token: () => creds?.getToken() ?? null,
+  profilePin: () => connectedLink?.gateway.pin ?? null,
+  base: () => connectedLink?.gateway.apiBase ?? null,
+  token: () => connectedLink?.token ?? null,
   request: requestSmall,
   ports: pairTlsPorts(process.env, debuggingAllowedHere())
 })
 // Settings → Make this Beacon an owner (Prometheus #748): the owner token from a one-time code replaces the credential Beacon held (the
 // API token, on a Beacon on another computer), in the one keychain entry; then the connection comes up again with it.
 const ownerPromotion = new OwnerPromotion({
-  base: () => connectedApiBase,
+  base: () => connectedLink?.gateway.apiBase ?? null,
   request: requestSmall,
   deviceName: () => defaultDeviceName(),
   platform: process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux',
   keep: (token) => {
-    const gw = connectedGateway
+    const gw = connectedLink?.gateway
     if (!gw) throw new Error('not connected')
-    const before = creds!.getToken()
+    const key = keyFor(gw)
+    const before = key.getToken()
     const kindBefore = repo!.getSetting(CREDENTIAL_KIND_KEY) ?? ''
     try {
-      creds!.setToken(token)
+      key.setToken(token)
       repo!.setSetting(CREDENTIAL_KIND_KEY, 'owner')
     } catch (err) {
       try {
-        creds!.setToken(before ?? '')
+        key.setToken(before ?? '')
         repo!.setSetting(CREDENTIAL_KIND_KEY, kindBefore)
       } catch {
         /* the original error is the one to report */
       }
       throw err
     }
-    bringUpConnection(gw, token)
+    bringUpConnection(gw)
   }
 })
 // Config → Models → Main model: the connected Prometheus's AI choice, with the same OpenRouter sign-in as setup.
 const mainModelSetting = new MainModelSetting({
-  base: () => connectedApiBase,
-  token: () => creds?.getToken() ?? null,
+  base: () => connectedLink?.gateway.apiBase ?? null,
+  token: () => connectedLink?.token ?? null,
   request: requestSmall,
   newSignIn: newOpenRouterSignIn
 })
@@ -804,9 +831,9 @@ async function pairWithCode(req: PairRequest): Promise<PairResult> {
     // Honor the ports the daemon reported (defaults 8005/8010 when absent).
     const urls = pairedGatewayUrls(address, outcome)
     repo!.upsertGatewayProfile(gw.name, urls.apiBase, urls.wsUrl, true) // address → app-data (never source)
-    creds!.setToken(outcome.token) // token → OS keychain, same entry saveSetup writes
+    keyFor({ apiBase: urls.apiBase }).setToken(outcome.token) // token → this Prometheus's key file, as saveSetup keeps it
     repo!.setSetting(CREDENTIAL_KIND_KEY, '') // the old wizard's pairing: not a trade the new flow owes
-    bringUpConnection({ name: gw.name, apiBase: urls.apiBase, wsUrl: urls.wsUrl }, creds!.getToken())
+    bringUpConnection({ name: gw.name, apiBase: urls.apiBase, wsUrl: urls.wsUrl })
     return { ok: true }
   } catch (err) {
     return { ok: false, error: (err as Error).message }
@@ -835,8 +862,9 @@ async function pairPoll(): Promise<PairPollResult> {
   }
   let apiStatusOk = false
   try {
-    const token = creds?.getToken() ?? null
+    const token = keyFor(profile).getToken()
     const res = await fetch(`${profile.apiBase}/api/status`, {
+      redirect: 'error', // the key goes to this address, and nowhere it points at
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       signal: AbortSignal.timeout(2_500)
     })
@@ -883,7 +911,7 @@ async function probeSetupAt(apiBase: string, timeoutMs: number): Promise<SetupPr
 function getConnectionSettings(): ConnectionSettings {
   const profile = repo?.getDefaultGatewayProfile() ?? null
   const gw = profile ?? resolveGateway()
-  return { apiBase: gw.apiBase, wsUrl: gw.wsUrl, hasToken: creds?.hasToken() ?? false, notEncrypted: notEncrypted(gw.apiBase, gw.wsUrl) }
+  return { apiBase: gw.apiBase, wsUrl: gw.wsUrl, hasToken: currentKey()?.hasToken() ?? false, notEncrypted: notEncrypted(gw.apiBase, gw.wsUrl) }
 }
 
 /** Persist the URLs + token to the SAME store first-run uses (one credential store), rebuild the
@@ -903,10 +931,14 @@ async function saveConnectionSettings(req: SaveConnectionSettingsRequest): Promi
     if (publicRefused) return { saved: false, error: publicRefused }
     const name = current?.name ?? 'mini'
     repo!.upsertGatewayProfile(name, apiBase, wsUrl, true, edit.pin)
-    const token = nextToken(creds!.getToken(), { token: req.token, clearToken: req.clearToken })
-    if (token !== creds!.getToken()) repo!.setSetting(CREDENTIAL_KIND_KEY, '') // a credential typed in Settings: not the master token A-inst kept
-    creds!.setToken(token ?? '') // same keychain entry first-run writes — never a second store
-    bringUpConnection({ name, apiBase, wsUrl, pin: edit.pin }, token)
+    // A new address for the same Prometheus: its folder, key and all, moves with it (hello there still has the last word).
+    const open = folders!.currentId()
+    if (open && current && apiBase !== current.apiBase) folders!.moveAddress(open, apiBase)
+    const key = open ? keyFile(open) : keyFor({ apiBase, pin: edit.pin })
+    const token = nextToken(key.getToken(), { token: req.token, clearToken: req.clearToken })
+    if (token !== key.getToken()) repo!.setSetting(CREDENTIAL_KIND_KEY, '') // a credential typed in Settings: not the master token A-inst kept
+    key.setToken(token ?? '') // that Prometheus's own key file — never a second store
+    bringUpConnection({ name, apiBase, wsUrl, pin: edit.pin })
     const ws = await probeWsAuth(wsUrl, token)
     try {
       await connection!.getDaemon('/api/status')
@@ -928,7 +960,10 @@ async function testConnection(req: ConnectionTestRequest): Promise<ConnectionTes
   const fallback = repo?.getDefaultGatewayProfile() ?? resolveGateway()
   const apiBase = (req.apiBase ?? '').trim() || fallback.apiBase
   const wsUrl = (req.wsUrl ?? '').trim() || fallback.wsUrl
-  const token = resolveTestToken(creds?.getToken() ?? null, req)
+  // The saved key is that Prometheus's: it goes with a test of the saved address only. A test of another address sends a key only if
+  // one is typed for it (docs/MULTI-PROMETHEUS.md §8).
+  const saved = repo?.getDefaultGatewayProfile() ?? null
+  const token = resolveTestToken(saved && sameOrigin(apiBase, saved.apiBase) ? (currentKey()?.getToken() ?? null) : null, req)
   // A test sends the token: not in plain to a new home-network address (src/shared/plain-lan.ts).
   const plainRefused = refusePlain(apiBase, wsUrl, repo?.getDefaultGatewayProfile() ?? null)
   if (plainRefused) return { ok: false, label: plainRefused }
@@ -1688,7 +1723,8 @@ app.whenReady().then(() => {
   loadNotifyPrefs()
   loadCloseMode()
   // The credential blob lives in app-data, encrypted by the OS keychain — never in the renderer.
-  creds = new CredentialStore(join(app.getPath('userData'), 'api-credential.bin'), electronSafeStorageCipher())
+  // Each Prometheus's key is a file in its folder, sealed by the OS keychain (DaemonFolders.keyPath), never the renderer.
+  keyCipher = electronSafeStorageCipher()
 
   // Rendered artifacts: bytes are fetched in main by content id and served under their own
   // no-network CSP; the renderer only ever holds the beacon-artifact:// URL.
@@ -1907,7 +1943,7 @@ app.whenReady().then(() => {
   const storedGw = repo.getDefaultGatewayProfile()
   if (decideStartup({ hasStoredGateway: !!storedGw, hasEnvGateway: hasEnvGateway() }) === 'connect') {
     const gw: GatewayConfig = storedGw ?? resolveGateway()
-    bringUpConnection(gw, creds.getToken())
+    bringUpConnection(gw)
   }
 
   try {

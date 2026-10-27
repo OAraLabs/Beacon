@@ -8,9 +8,11 @@
  *   1. keys per Prometheus: the key saved for A is not the key Beacon would use with B, at another address or behind A's own;
  *   2. redirects: A answering with a redirect to B sends B no request carrying A's key (nor, here, any request at all); a redirect
  *      within A still works, key and all;
- *   3. a Prometheus that moved address keeps its own key (its folder moves with it).
+ *   3. a Prometheus that moved address keeps its own key (its folder moves with it);
+ *   4. main takes a Prometheus's key only from that Prometheus's folder (keyFile/keyFor) or the live link that holds address and key
+ *      together (connectedLink): read from src/main/index.ts, since main can't run here.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -98,6 +100,15 @@ async function main(): Promise<void> {
     const there = folders.open({ apiBase: 'http://127.0.0.1:18599', fp: null })
     assert(there.id === moved.id, `before hello, the new address opens A's folder (${there.id})`)
     assert(new CredentialStore(folders.keyPath(there.id), fakeCipher).getToken() === 'KEY-FOR-A', "and A's key with it")
+    console.log('\n[smoke] === 4. main reads a key one way ===')
+    const index = readFileSync(join(__dirname.replace(/out\/main.*$/, ''), 'src/main/index.ts'), 'utf8')
+    assert(!/\bcreds\b/.test(index) && !index.includes("'api-credential.bin'"), 'no single credential store is left in main')
+    const tokens = [...index.matchAll(/\btoken: \(\) => ([^,\n]+)/g)].map((m) => m[1].trim())
+    assert(tokens.length >= 3 && tokens.every((t) => t === 'connectedLink?.token ?? null'), `every module's key is the live link's (${tokens.join(' | ')})`)
+    const bases = [...index.matchAll(/\bbase: \(\) => ([^,\n]+)/g)].map((m) => m[1].trim())
+    assert(bases.length >= 4 && bases.every((b) => b === 'connectedLink?.gateway.apiBase ?? null'), `and its address the same link's (${bases.join(' | ')})`)
+    assert(/const token = keyFile\(folder\.id\)\.getToken\(\)/.test(index), "bringUpConnection takes the key from the folder it opened")
+    assert(/sameOrigin\(apiBase, saved\.apiBase\)/.test(index), 'the Test button sends the saved key only to the saved address')
   } finally {
     for (const s of servers) s.close()
     folders.close()

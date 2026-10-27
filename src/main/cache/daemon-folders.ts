@@ -44,13 +44,18 @@ const APP_DB = 'app.db'
 const DAEMONS_DIR = 'daemons'
 const CACHE_DB = 'cache.db'
 const BACKUP_DIR = 'backup-pre-daemons'
+/** The one key file before keys moved into folders, and each folder's own. */
+const LEGACY_KEY_FILE = 'api-credential.bin'
+const KEY_FILE = 'credential.bin'
 /** The folder the one pre-existing cache moves into. Its fp is bound on first contact (at once for a TLS profile: its pin says). */
 export const LEGACY_FOLDER_ID = 'legacy-1'
-/** app.db setting written LAST by the migration (and at once on a fresh install): the layout is in place. */
+/** app.db setting written LAST by each migration (and at once on a fresh install): which layout is in place. '1': conversations
+ *  in folders. '2': keys in folders too. */
 export const LAYOUT_KEY = 'daemons:layout'
+export const LAYOUT = '2'
 
 /** The migration's steps, for smoke:daemon-folders to stop the process after each. */
-export type MigrationStep = 'backup' | 'app' | 'move'
+export type MigrationStep = 'backup' | 'app' | 'move' | 'key'
 
 /** Thrown by an injected crash: the smoke's stand-in for the process dying there. Never caught by the fallback. */
 export class InjectedCrash extends Error {}
@@ -115,12 +120,17 @@ export class DaemonFolders implements BeaconStore {
   }
 
   /**
-   * The file that holds the key Beacon uses with the Prometheus whose folder is `id` (docs/MULTI-PROMETHEUS.md §3).
-   *
-   * TODAY: the one api-credential.bin, whichever Prometheus it is for. smoke:credential-origin is red against this on purpose.
+   * The file that holds the key Beacon uses with the Prometheus whose folder is `id` (docs/MULTI-PROMETHEUS.md §3): its own
+   * credential.bin, so a key is only ever read for the Prometheus that minted it, and goes when its folder goes. In the fallback
+   * single-file layout, the one api-credential.bin as before.
    */
-  keyPath(_id: string): string {
-    return join(this.root, 'api-credential.bin')
+  keyPath(id: string): string {
+    return this.single ? join(this.root, LEGACY_KEY_FILE) : join(this.root, DAEMONS_DIR, id, KEY_FILE)
+  }
+
+  /** The folder a Prometheus's things go in (see `resolve`), without opening it: where a save writes the key it is about to use. */
+  folderFor(who: DaemonIdentity): string {
+    return this.single ? LEGACY_DB : this.resolve(who)
   }
 
   /** The open folder's id, or null. */
@@ -269,8 +279,9 @@ function migrate(root: string, opts: DaemonFoldersOptions): void {
   const target = join(root, DAEMONS_DIR, LEGACY_FOLDER_ID, CACHE_DB)
   const appDb = openAppDb(join(root, APP_DB))
   try {
-    if (appDb.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(LAYOUT_KEY) === '1') return
-    if (existsSync(legacy)) {
+    const layout = appDb.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(LAYOUT_KEY)
+    if (layout === LAYOUT) return
+    if (layout !== '1' && existsSync(legacy)) {
       backupOnce(root, legacy)
       crash('backup')
       copyBeaconRows(legacy, appDb)
@@ -281,10 +292,40 @@ function migrate(root: string, opts: DaemonFoldersOptions): void {
       renameSync(legacy, target)
       crash('move')
     }
-    appDb.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(LAYOUT_KEY, '1')
+    moveKey(root, appDb)
+    crash('key')
+    appDb.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(LAYOUT_KEY, LAYOUT)
   } finally {
     appDb.close()
   }
+}
+
+/**
+ * Step 3: the one api-credential.bin into the folder of the Prometheus it was minted by, the saved connection's (docs/MULTI-PROMETHEUS.md
+ * §3.1). Copied to the backup first. A rename, so it is never in two places or none. With no saved connection it stays where it is:
+ * there is no Prometheus to give it to, and nothing reads it there.
+ */
+function moveKey(root: string, appDb: CacheDb): void {
+  const key = join(root, LEGACY_KEY_FILE)
+  if (!existsSync(key)) return
+  const backup = join(root, BACKUP_DIR, LEGACY_KEY_FILE)
+  if (!existsSync(backup)) {
+    mkdirSync(dirname(backup), { recursive: true })
+    copyFileSync(key, backup)
+  }
+  const def = appDb.prepare('SELECT api_base, pin FROM gateway_profiles WHERE is_default = 1 ORDER BY name LIMIT 1').get() as
+    | { api_base: string; pin: string | null }
+    | undefined
+  if (!def) return
+  const fp = fpFromPin(def.pin)
+  const row = (fp ? (appDb.prepare('SELECT id FROM daemon_folders WHERE fp = ?').get(fp) as { id: string } | undefined) : undefined) ??
+    (appDb.prepare('SELECT id FROM daemon_folders WHERE api_base = ? ORDER BY last_active DESC LIMIT 1').get(def.api_base) as { id: string } | undefined) ??
+    (appDb.prepare('SELECT id FROM daemon_folders WHERE id = ?').get(LEGACY_FOLDER_ID) as { id: string } | undefined)
+  const id = row?.id ?? fp ?? LEGACY_FOLDER_ID
+  if (!row) appDb.prepare('INSERT INTO daemon_folders (id, fp, api_base, last_active) VALUES (?, ?, ?, ?)').run(id, fp, def.api_base, Date.now())
+  const target = join(root, DAEMONS_DIR, id, KEY_FILE)
+  mkdirSync(dirname(target), { recursive: true })
+  if (!existsSync(target)) renameSync(key, target)
 }
 
 /** Step 0: a copy of beacon.db, taken once, before anything moves, with a MANIFEST written last (size and SHA-256). Never written
