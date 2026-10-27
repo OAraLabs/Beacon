@@ -53,6 +53,7 @@
     "smoke:background": "ELECTRON_RUN_AS_NODE=1 electron out/main/background-smoke.js",
     "smoke:attachment": "ELECTRON_RUN_AS_NODE=1 electron out/main/attachment-smoke.js",
     "smoke:forget": "ELECTRON_RUN_AS_NODE=1 electron out/main/forget-smoke.js",
+    "smoke:daemon-isolation": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-isolation-smoke.js",
     "smoke:panels": "ELECTRON_RUN_AS_NODE=1 electron out/main/panels-smoke.js",
     "smoke:window-chrome": "ELECTRON_RUN_AS_NODE=1 electron out/main/window-chrome-smoke.js",
     "smoke:watchdog-log": "ELECTRON_RUN_AS_NODE=1 electron out/main/watchdog-log-smoke.js",

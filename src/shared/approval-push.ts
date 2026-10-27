@@ -238,3 +238,13 @@ export function applyApprovalFrame(
   if (typeof rid !== 'string') return list
   return list.filter((x) => x.requestId !== rid)
 }
+
+/**
+ * Which link an approval notification's Approve/Deny goes out on (docs/MULTI-PROMETHEUS.md §1, bug 3): `raisedBy` is the
+ * connection whose Prometheus asked, `current` the one that is live when the button is pressed.
+ *
+ * TODAY: the current one, whoever asked.
+ */
+export function approvalActionTarget<T>(_raisedBy: T, current: T | null): T | null {
+  return current
+}

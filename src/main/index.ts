@@ -5,7 +5,7 @@ import { isAbsolute, join, resolve } from 'path'
 import { refusedSwitches } from '@shared/release-gate'
 import { buildFlavor, debuggingAllowedHere } from './build-flavor'
 import { IPC } from '@shared/ipc'
-import { notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
+import { approvalActionTarget, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
 import { coerceArguments, type ApprovalArguments } from '@shared/approval-arguments'
 import { describeLoginItem, type LoginItemPlatform } from '@shared/login-item'
 import { isLegalDoc, legalDocPath, type LegalDocResult } from '@shared/legal-docs'
@@ -101,8 +101,7 @@ import { probeWsAuth } from './connection/ws-probe'
 import { gatewayFromAddress, gatewayFromEndpoint, hasEnvGateway, resolveGateway, type GatewayConfig } from './connection/config'
 import { overlayOptionsFrom, TITLEBAR_OVERLAY_HEIGHT, usesWindowControlsOverlay, windowChromeOptions } from '@shared/window-chrome'
 import { createRendererRecovery, dialogNotifyStopped } from './renderer-recovery'
-import { openCache, type CacheDb } from './cache/db'
-import { CacheRepo } from './cache/repo'
+import { DaemonFolders, type BeaconStore } from './cache/daemon-folders'
 import { CacheService } from './cache/service'
 import { CredentialStore, decideStartup, electronSafeStorageCipher } from './credentials'
 import {
@@ -254,8 +253,9 @@ let connectedApiBase: string | null = null
 /** The gateway the live connection was brought up with (Settings → Make this Beacon an owner reconnects to it with the new token). */
 let connectedGateway: GatewayConfig | null = null
 let cache: CacheService | null = null
-let cacheDb: CacheDb | null = null
-let repo: CacheRepo | null = null
+let folders: DaemonFolders | null = null
+/** Settings (routed by key), the saved connection and the diagnostic tables: `folders` itself, as BeaconStore. */
+let repo: BeaconStore | null = null
 let creds: CredentialStore | null = null
 
 let mainWindow: BrowserWindow | null = null
@@ -391,9 +391,9 @@ function bringUpConnection(gw: GatewayConfig, token: string | null): void {
     if (pairingWatcher.takesFrame(ev.type, ev.payload, typeof ev.ts === 'number' ? ev.ts / 1000 : undefined)) return
     broadcast(IPC.GATEWAY_EVENT, ev)
     maybeNotifyTask(ev as { type?: string; payload?: Record<string, unknown> })
-    handleApprovalFrame(ev as { type?: string; payload?: Record<string, unknown> })
+    handleApprovalFrame(conn, ev as { type?: string; payload?: Record<string, unknown> })
   })
-  cache = new CacheService(repo!, connection)
+  cache = new CacheService(folders!.open({ apiBase: gw.apiBase, fp: null }).repo, connection)
   cache.attach()
   connection.start()
   pairingWatcher.reset() // a new connection may be a different computer, or a different kind of device
@@ -1436,6 +1436,8 @@ const notifiedApprovalIds = new Set<string>()
  *
  * Scope is ONCE only: the wide verbs stay in-app where extents are shown. */
 function notifyApproval(
+  /** The connection whose Prometheus asked: the buttons answer it, never a link brought up since (@shared/approval-push). */
+  raisedBy: ConnectionManager | null,
   requestId: string,
   toolName: string,
   description: string,
@@ -1471,7 +1473,7 @@ function notifyApproval(
     // to a clean no-op (ok:false / 404), so acting on an already-resolved
     // notification can never double-run.
     const decision: ApprovalDecision = index === 0 ? { kind: 'approve', scope: 'once' } : { kind: 'deny' }
-    void connection?.resolveApproval(requestId, decision).catch(() => undefined)
+    void approvalActionTarget(raisedBy, connection)?.resolveApproval(requestId, decision).catch(() => undefined)
   })
   n.on('click', () => showWindow())
   n.show()
@@ -1481,11 +1483,11 @@ function notifyApproval(
  * Pending → notification; resolved → drop the id from the dedupe set so a
  * FUTURE request with the same id can notify again. The renderer's overlay
  * list is driven by its own frame+poll paths; main owns only the notification. */
-function handleApprovalFrame(ev: { type?: string; payload?: Record<string, unknown> }): void {
+function handleApprovalFrame(raisedBy: ConnectionManager, ev: { type?: string; payload?: Record<string, unknown> }): void {
   const p = ev.payload ?? {}
   if (ev.type === 'approval_pending') {
     const a = rawToApproval(p as RawApprovalPush)
-    if (a) notifyApproval(a.requestId, a.toolName, a.description, a.arguments)
+    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments)
   } else if (ev.type === 'approval_resolved') {
     const rid = typeof p.request_id === 'string' ? p.request_id : null
     if (rid) notifiedApprovalIds.delete(rid)
@@ -1602,8 +1604,8 @@ app.whenReady().then(() => {
     })
   }
 
-  cacheDb = openCache(join(app.getPath('userData'), 'beacon.db'))
-  repo = new CacheRepo(cacheDb)
+  folders = new DaemonFolders(app.getPath('userData'))
+  repo = folders
   // A6 hygiene: sweep session-scoped settings rows orphaned by forgets that predate the
   // forget-time cleanup. Logged so a sweep that finds something is visible, not silent.
   const prunedSettings = repo.pruneSessionSettings()
@@ -1732,7 +1734,7 @@ app.whenReady().then(() => {
       // shaped like an ApprovalRequest rather than known to be one. Idempotent on an
       // already-coerced map, and it is the same function both daemon mappers use.
       if (a && typeof a.requestId === 'string')
-        notifyApproval(a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments))
+        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments))
     }
   })
   onFromShell(IPC.CAPTURE_OPEN_MAIN, (_e, sessionId: string) => {
@@ -1899,5 +1901,5 @@ app.on('before-quit', () => {
   const shells = killAllTerminals()
   if (shells > 0) console.log(`[terminal] killed ${shells} shell(s) on quit`)
   connection?.stop()
-  cacheDb?.close()
+  folders?.close()
 })
