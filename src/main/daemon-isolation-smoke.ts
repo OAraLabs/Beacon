@@ -106,6 +106,22 @@ async function main(): Promise<void> {
     await new CacheService(folders.open(A).repo, asConn(upA)).drainOutbox()
     assert(upA.sent.length === 1 && upA.sent[0].message === 'for A only', `A's message goes to A when A is back (A got ${upA.sent.length})`)
 
+    console.log('\n[smoke] === a reply for A that lands after the switch to B ===')
+    {
+      let release: () => void = () => undefined
+      const slowA = new FakeConnection('A', [], 'connected')
+      slowA.listSessions = async (): Promise<SessionSummary[]> => {
+        await new Promise<void>((r) => (release = r))
+        return [{ id: 'desktop:a-late', title: 'late', lastActive: Date.now(), messageCount: 1, watermark: 1 }]
+      }
+      const late = new CacheService(folders.open(A).repo, asConn(slowA)).listSessions().catch(() => null)
+      const onB = folders.open(B) // the switch: A's folder is closed under the reply still on its way
+      release()
+      await late
+      const bNow = ids(await new CacheService(onB.repo, asConn(new FakeConnection('B', ['desktop:b1'], 'connected'))).listSessions())
+      assert(!bNow.includes('desktop:a-late'), `nothing of A's late reply is in B's folder (${bNow.join()})`)
+    }
+
     console.log('\n[smoke] === 3. notification actions ===')
     const raisedOnA = asConn(connA)
     assert(approvalActionTarget(raisedOnA, raisedOnA) === raisedOnA, "with A still connected, A's notification answers A")
