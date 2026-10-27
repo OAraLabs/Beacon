@@ -159,8 +159,14 @@ If the disk refuses, the old layout keeps working with one Prometheus and the fa
 4. If it can't be reached, ask. Never delete silently.
 5. Removing the active one switches to the most recently used other. Removing the last one opens Welcome.
 
-**Edit address** asks hello at the new address first. Same `fp`: save it. Different `fp`: "That's a different Prometheus.
-Add it as a new one?" [Add it] [Cancel].
+**Edit address** asks who answers at the new address before anything is saved, moved or sent, with no key: the identity
+challenge when that Prometheus has a pinned node key, and hello's `fp`.
+- The same Prometheus (its pinned key signs, or the same `fp`), or the same one moved to new hardware: saved, its folder,
+  key and record moved together.
+- Another Prometheus: nothing is saved and no key is sent. "That's a different Prometheus. Add it as a new one?" [Add it]
+  [Cancel]. Add it keeps it as a new one, in its own folder, with only a key typed for it; the one Beacon was on stays kept.
+- One Beacon already keeps: "You already have this Prometheus, as Work box." [Switch to Work box].
+- Nothing to tell them apart by (no pin, no `fp`, no answer): saved as before, and the connection's own hold sorts it out.
 
 **Set up again** retires once Add and Remove exist.
 

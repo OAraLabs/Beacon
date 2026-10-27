@@ -165,6 +165,12 @@ export class DaemonFolders implements BeaconStore {
     return this.single ? LEGACY_DB : this.resolve(who)
   }
 
+  /** The fp bound to folder `id`, or null. */
+  fpOf(id: string): string | null {
+    if (this.single) return null
+    return (this.row('SELECT id, fp, api_base FROM daemon_folders WHERE id = ?', id)?.fp ?? null) as string | null
+  }
+
   /** The node key (and instance_id) pinned for folder `id`, or null when none is yet. */
   identityOf(id: string): PinnedIdentity | null {
     if (this.single) return null

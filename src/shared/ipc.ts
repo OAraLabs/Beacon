@@ -233,7 +233,7 @@ export type ConnectionState =
   | 'reconnecting'
   | 'failed'
 
-/** One Prometheus Beacon keeps, as the renderer may see it (docs/MULTI-PROMETHEUS.md §5): no key, no address beyond its host. */
+/** One Prometheus Beacon keeps, as the renderer may see it (docs/MULTI-PROMETHEUS.md §5): no key, no address beyond host:port. */
 export interface InstanceSummary {
   id: string
   label: string
@@ -751,6 +751,9 @@ export interface SaveConnectionSettingsRequest {
   wsUrl: string
   token?: string
   clearToken?: boolean
+  /** "Add it": the new address is another Prometheus (SaveConnectionSettingsResult.other); keep it as a new one, with only the
+   *  key typed in the form, and leave the one Beacon was on kept as it is (docs/MULTI-PROMETHEUS.md §6). */
+  addAsNew?: boolean
 }
 
 /** Outcome of a connection test. `ok`/`code`/`label` are the REST probe (GET /api/status). `ws`,
@@ -788,6 +791,8 @@ export interface SaveConnectionSettingsResult {
   saved: boolean
   error?: string
   test?: ConnectionTestResult
+  /** Not saved because the new address is another Prometheus: one to offer as new, or one Beacon already keeps. */
+  other?: { kind: 'different' } | { kind: 'kept'; id: string; label: string }
 }
 
 /**

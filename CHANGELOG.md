@@ -6,6 +6,7 @@ later update themselves.
 
 ## Unreleased
 
+- **A new address that leads to another Prometheus is no longer taken for the same one.** Settings → Connection asks who answers at a new address before saving, without sending a key. If it's a different Prometheus, nothing is saved and you're offered to add it as a new one (with only a key you type for it); if it's one Beacon already keeps, you're offered to switch to it. Editing an address no longer leaves a second copy of the same Prometheus in the list.
 - **Beacon checks on the other Prometheus it keeps.** Every 60 seconds (every 5 minutes for one it can't reach), each Prometheus Beacon keeps but isn't on is asked how it is and which AI it's on, with its own key and only after it has proved who it is. Nothing is relayed between them. The list that shows this comes in a later release.
 - **Beacon keeps each Prometheus it has connected to.** Each saved connection (its name, address and pin) and the facts about its key now live with that Prometheus, so connecting to another one no longer overwrites the first, and Beacon can switch between them (the list to switch from comes in a later release). Set up again forgets only the Prometheus you are on. On the first launch Beacon moves the saved connection into its Prometheus's folder.
 - **Spec: Beacon is a client, never a router.** [docs/MULTI-PROMETHEUS.md](docs/MULTI-PROMETHEUS.md) §2 rule 5: Beacon shows and controls each Prometheus, but never relays tasks, messages or approvals between them; work between instances goes Prometheus to Prometheus.

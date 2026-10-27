@@ -112,6 +112,8 @@ import type { InstanceSummary } from '@shared/ipc'
 import { UNKNOWN, type InstanceHealth } from '@shared/instance-watch'
 import { InstanceWatch } from './instance-watch'
 import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
+import { whoIsAt } from './edit-address'
+import { EDIT_ADDRESS_COPY } from '@shared/edit-address'
 import {
   INITIAL_PRESENCE,
   applyPresenceEvent,
@@ -528,6 +530,29 @@ function onIdentityVerdict(conn: ConnectionManager, gw: GatewayConfig, folderId:
   } else if (v.kind === 'other') conn.setIdentity({ kind: 'other' })
   else if (v.kind === 'refused') conn.setIdentity({ kind: 'refused', why: v.why })
   return NOT_PROVED
+}
+
+/** host:port of a REST base: two Prometheus on one computer differ by their port, and the list must tell them apart. */
+function hostPortOf(apiBase: string): string {
+  try {
+    return new URL(apiBase).host
+  } catch {
+    return hostOf(apiBase)
+  }
+}
+
+/** hello's fp at a REST base, or null when it doesn't answer with one. No key: hello never carries one. */
+async function helloFpAt(apiBase: string): Promise<string | null> {
+  const ep = endpointOf(apiBase)
+  const h = ep ? await askHello(ep).catch(() => 'unreachable' as const) : 'unreachable'
+  return typeof h === 'string' || !validFp(h.fp) ? null : h.fp
+}
+
+/** Another Prometheus Beacon keeps (not folder `self`) that is pinned to this node key, or bound to this fp, as Settings names it. */
+function keptOther(self: string, q: { nodePub?: string; instanceId?: string | null; fp?: string }): { id: string; label: string } | null {
+  const kept = folders!.listInstances().filter((i) => i.id !== self)
+  const hit = q.nodePub ? kept.find((i) => i.nodePub === q.nodePub) : q.fp ? kept.find((i) => i.fp === q.fp) : undefined
+  return hit ? { id: hit.id, label: hit.label } : null
 }
 
 /** How often a held cache asks hello again while its connection stays up and hello has not answered. */
@@ -1024,16 +1049,46 @@ async function saveConnectionSettings(req: SaveConnectionSettingsRequest): Promi
     if (plainRefused) return { saved: false, error: plainRefused }
     const publicRefused = await plainPublicRefusal(apiBase, wsUrl) // plain to the internet: not even the saved one
     if (publicRefused) return { saved: false, error: publicRefused }
-    const name = current?.name ?? 'mini'
-    repo!.upsertGatewayProfile(name, apiBase, wsUrl, true, edit.pin)
-    // A new address for the same Prometheus: its folder, key and all, moves with it (hello there still has the last word).
     const open = folders!.currentId()
-    if (open && current && apiBase !== current.apiBase) folders!.moveAddress(open, apiBase)
-    const key = open ? keyFile(open) : keyFor({ apiBase, pin: edit.pin })
-    const token = nextToken(key.getToken(), { token: req.token, clearToken: req.clearToken })
-    if (token !== key.getToken()) setKind({ apiBase, pin: edit.pin }, '') // a credential typed in Settings: not the master token A-inst kept
-    key.setToken(token ?? '') // that Prometheus's own key file — never a second store
-    bringUpConnection({ name, apiBase, wsUrl, pin: edit.pin })
+    const moving = !!(open && current && apiBase !== current.apiBase)
+    // A new address: who answers there, asked with no key, before anything is saved, moved or sent (docs/MULTI-PROMETHEUS.md §6).
+    if (moving && !req.addAsNew) {
+      const at = await whoIsAt(apiBase, {
+        request: requestSmall,
+        pinned: folders!.identityOf(open!),
+        folderFp: folders!.fpOf(open!),
+        hello: helloFpAt,
+        keptWith: (q) => keptOther(open!, q),
+        verify: verifyEd25519,
+        nowS: () => Math.floor(Date.now() / 1000)
+      })
+      if (at.kind === 'different') return { saved: false, other: at, error: EDIT_ADDRESS_COPY.different }
+      if (at.kind === 'kept') return { saved: false, other: at, error: EDIT_ADDRESS_COPY.kept.replace('{label}', at.label) }
+    }
+    let id: string
+    let token: string | null
+    if (req.addAsNew && moving) {
+      // "Add it": another Prometheus, kept as a new one in its own folder, with ONLY a key typed for it (never the one Beacon was on's).
+      // The one Beacon was on stays kept as it was; this one becomes the active one.
+      const fp = await helloFpAt(apiBase)
+      id = folders!.folderFor({ apiBase, fp })
+      folders!.saveInstance({ name: hostPortOf(apiBase), apiBase, wsUrl, pin: null }, id)
+      token = req.token?.trim() || null
+      keyFile(id).setToken(token ?? '')
+      folders!.setSettingFor(id, CREDENTIAL_KIND_KEY, '')
+      bringUpConnection({ name: hostPortOf(apiBase), apiBase, wsUrl }, fp, id)
+    } else {
+      // The same Prometheus at a new address (or the same address): its folder, key and record, moved together, then saved.
+      if (moving) folders!.moveAddress(open!, apiBase)
+      id = open ?? folders!.folderFor({ apiBase, fp: fpFromPin(edit.pin) })
+      const name = current?.name ?? 'mini'
+      folders!.saveInstance({ name, apiBase, wsUrl, pin: edit.pin }, id)
+      const key = keyFile(id)
+      token = nextToken(key.getToken(), { token: req.token, clearToken: req.clearToken })
+      if (token !== key.getToken()) folders!.setSettingFor(id, CREDENTIAL_KIND_KEY, '') // a credential typed in Settings: not the master token A-inst kept
+      key.setToken(token ?? '') // that Prometheus's own key file — never a second store
+      bringUpConnection({ name, apiBase, wsUrl, pin: edit.pin }, null, id)
+    }
     const ws = await probeWsAuth(wsUrl, token)
     try {
       await connection!.getDaemon('/api/status')
@@ -1876,7 +1931,7 @@ app.whenReady().then(() => {
   handleFromShell(IPC.INSTANCES_LIST, async (): Promise<InstanceSummary[]> =>
     (folders?.listInstances() ?? []).map((i) => {
       const h = i.active ? activeHealth() : instanceWatch.health(i.id)
-      return { id: i.id, label: i.label, host: hostOf(i.apiBase), pinned: i.pin !== null, active: i.active, lastActive: i.lastActive, ...h }
+      return { id: i.id, label: i.label, host: hostPortOf(i.apiBase), pinned: i.pin !== null, active: i.active, lastActive: i.lastActive, ...h }
     })
   )
   handleFromShell(IPC.INSTANCE_SWITCH, async (_e, id: unknown): Promise<boolean> => {

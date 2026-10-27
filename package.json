@@ -250,6 +250,7 @@
     "probe:make-owner": "node scripts/make-owner-app-probe.mjs",
     "probe:owner-only": "node scripts/owner-only-app-probe.mjs",
     "probe:plain-public": "node scripts/plain-public-app-probe.mjs",
+    "probe:edit-address": "node scripts/edit-address-app-probe.mjs",
     "probe:markdown-lists": "node scripts/markdown-lists-app-probe.mjs",
     "probe:models-health": "node scripts/models-health-app-probe.mjs",
     "probe:pair-pin": "node scripts/pair-pin-app-probe.mjs",
