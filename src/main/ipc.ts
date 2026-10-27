@@ -33,13 +33,13 @@ import type {
 } from '@shared/ipc'
 import type { ConnectionManager } from './connection'
 import type { CacheService } from './cache/service'
-import type { CacheRepo } from './cache/repo'
+import type { BeaconStore } from './cache/daemon-folders'
 import { handleFromShell, onFromShell } from './shell-windows'
 
 /** The connection + cache are built lazily (at startup if configured, or on first-run save), so the
  * handlers read them through getters and degrade gracefully before a connection exists (setup mode). */
 export interface IpcDeps {
-  repo: CacheRepo
+  repo: BeaconStore
   getConnection: () => ConnectionManager | null
   getCache: () => CacheService | null
   setupStatus: () => Promise<SetupStatus>

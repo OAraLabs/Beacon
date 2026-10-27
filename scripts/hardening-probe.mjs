@@ -18,7 +18,7 @@
 //   DYLD_PRINT_LIBRARIES, DYLD_INSERT_LIBRARIES=<ad-hoc dylib>          ignored, the dylib never runs
 //   app.asar edited after signing; a Resources/app/ folder instead      neither runs
 // A "nothing happened" check means something only beside proof that the app DID come up in that
-// launch: the [sqlite] line on stdout and beacon.db in the scratch profile. Every such check
+// launch: the [sqlite] line on stdout and app.db in the scratch profile. Every such check
 // requires it.
 // PROBE build: same fuses but one, same entitlements, same Team ID, its own bundle id and name;
 // CDP and the inspector answer; through the inspector, better-sqlite3 and node-pty load and run in
@@ -183,7 +183,7 @@ async function launch(app, { args = [], env = {}, port = null, expectUp = true, 
   const deadline = t0 + (expectUp ? UP_TIMEOUT : DOWN_WAIT)
   while (!exit && Date.now() < deadline) {
     if (port && (await portOpen(port))) listened = true
-    if (upAt === null && out.includes(UP_LINE) && existsSync(join(profile, 'beacon.db'))) {
+    if (upAt === null && out.includes(UP_LINE) && existsSync(join(profile, 'app.db'))) {
       upAt = Date.now() - t0
       if (expectUp) break
     }

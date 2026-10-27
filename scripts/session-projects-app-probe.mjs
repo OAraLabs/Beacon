@@ -19,6 +19,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { copyProfileDbs, profileDb, sqlEach } from './lib/profile-db.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = process.env.BEACON_PROFILE_SRC ?? join(homedir(), 'Library/Application Support/beacon-desktop')
@@ -59,9 +60,9 @@ if (await answers(PORT)) {
 }
 const profile = mkdtempSync(join(tmpdir(), 'beacon-projects-probe-'))
 // A consistent snapshot of a live WAL database: sqlite's own backup, read-only.
-execFileSync('sqlite3', ['-readonly', join(SRC, 'beacon.db'), `.backup '${join(profile, 'beacon.db')}'`])
+copyProfileDbs(SRC, profile) // beacon.db, or app.db and each Prometheus folder (lib/profile-db.mjs)
 // Start from no projects, so the probe's assertions are about what IT did.
-execFileSync('sqlite3', [join(profile, 'beacon.db'), "DELETE FROM settings WHERE key = 'sessions:projects:v1'"])
+sqlEach(profile, "DELETE FROM settings WHERE key = 'sessions:projects:v1'")
 for (const f of ['window-state.json']) if (existsSync(join(SRC, f))) writeFileSync(join(profile, f), execFileSync('cat', [join(SRC, f)]))
 
 const child = spawn('npx', ['electron', '.', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, '--use-mock-keychain'], {

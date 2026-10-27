@@ -145,6 +145,7 @@ export const IPC = {
   SESSION_WINDOWS_CHANGED: 'session-window:changed', // main -> renderers: the popped-out set changed
   SESSION_WINDOW_CLOSING: 'session-window:closing', // main -> one session window: save, then say ready
   OPEN_SETTINGS: 'app:open-settings', // main -> renderer: app menu Preferences (⌘,) → open Connection Settings
+  CACHE_FOLDER_CHANGED: 'cache:folder-changed', // main -> renderer: another Prometheus's folder is open now (docs/MULTI-PROMETHEUS.md §4): remount
   // Auto-update (electron-updater): status surface + manual controls.
   UPDATER_STATUS: 'updater:status', // renderer -> main: current updater state
   UPDATER_CHECK: 'updater:check', // renderer -> main: check the release feed now
@@ -782,6 +783,9 @@ export interface BeaconBridge {
     saveSettings(req: SaveConnectionSettingsRequest): Promise<SaveConnectionSettingsResult>
     /** App menu Preferences (⌘,) → main asks the renderer to open Connection Settings. */
     onOpenSettings(cb: () => void): Unsubscribe
+    /** Main opened another Prometheus's cache folder (hello named a different one at this address): everything on screen came from
+     *  the old one, so the app remounts. */
+    onFolderChanged(cb: () => void): Unsubscribe
     /** Manual retry: drop + redial the WS now (resets the backoff clock). No-op before setup. */
     reconnect(): Promise<void>
     /** Probe GET /api/status with form values WITHOUT saving — the Settings "Test" button. */

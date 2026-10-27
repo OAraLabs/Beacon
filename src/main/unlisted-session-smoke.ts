@@ -81,7 +81,10 @@ console.log('[smoke] === 4. a throwing cache write must not kill the app ===')
 // exception. Proven by SHAPE here (the guard is a source assertion — a real disk error cannot be
 // staged in a smoke), and the shape is what regressed.
 const svc = readFileSync(join(REPO_SRC, 'cache/service.ts'), 'utf8')
-const onFrameBody = svc.slice(svc.indexOf('private onFrame'), svc.indexOf('isConnected()'))
+// The method that follows onFrame ends the slice, searched for FROM onFrame: an isConnected() call earlier in the file (release()
+// has one) would otherwise end the slice before it starts and leave nothing to check.
+const onFrameStart = svc.indexOf('private onFrame')
+const onFrameBody = svc.slice(onFrameStart, svc.indexOf('\n  isConnected()', onFrameStart))
 // A real try{…}catch BLOCK. An earlier draft matched /catch\s*\(/ and passed on the pre-fix
 // source, because the slice contains `.catch(() => undefined)` from the reconcile line — a guard
 // that green-lights the bug it exists for.

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { SCHEMA } from './schema'
+import { APP_SCHEMA, SCHEMA } from './schema'
 
 export type CacheDb = Database.Database
 
@@ -14,6 +14,14 @@ export function openCache(path: string): CacheDb {
   db.pragma('foreign_keys = ON')
   db.exec(SCHEMA)
   migrate(db)
+  return db
+}
+
+/** Open Beacon's own store, app.db (APP_SCHEMA): settings, the saved connection, the list of Prometheus folders. */
+export function openAppDb(path: string): CacheDb {
+  const db = new Database(path)
+  db.pragma('journal_mode = WAL')
+  db.exec(APP_SCHEMA)
   return db
 }
 

@@ -85,10 +85,13 @@ export default function App() {
       setSettingsAt(null)
       setSettingsOpen(true)
     })
+    // Main opened another Prometheus's folder: what is on screen is the old one's, so remount the same way.
+    const offFolder = window.beacon?.connection.onFolderChanged(onChanged)
     return () => {
       window.removeEventListener('beacon:open-settings', onOpen)
       window.removeEventListener('beacon:connection-changed', onChanged)
       off?.()
+      offFolder?.()
     }
   }, [])
 

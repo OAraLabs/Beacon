@@ -45,6 +45,11 @@ const api: BeaconBridge = {
       ipcRenderer.on(IPC.OPEN_SETTINGS, listener)
       return () => ipcRenderer.removeListener(IPC.OPEN_SETTINGS, listener)
     },
+    onFolderChanged: (cb: () => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on(IPC.CACHE_FOLDER_CHANGED, listener)
+      return () => ipcRenderer.removeListener(IPC.CACHE_FOLDER_CHANGED, listener)
+    },
     reconnect: () => ipcRenderer.invoke(IPC.CONNECTION_RECONNECT),
     test: (req?: ConnectionTestRequest) => ipcRenderer.invoke(IPC.CONNECTION_TEST, req)
   },

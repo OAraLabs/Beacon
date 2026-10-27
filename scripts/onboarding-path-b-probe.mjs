@@ -340,7 +340,7 @@ try {
   check((await screenId(app)) === 'B3' && outside.length === 0, 'P8 the screens asked nothing of the network themselves (only main asked, through discovery)', JSON.stringify(outside))
   const profiles = [dead.profile, p1.profile, p3.profile, p4.profile, p5.profile, p6.profile, p7.profile]
   await app.quit()
-  check(helloGets(stub).length > 0 && profiles.every((p) => sql(p, 'SELECT count(*) FROM gateway_profiles') === '0' && !existsSync(join(p, 'api-credential.bin'))), 'P8 after every walk above, no address was saved and no credential stored, in any of the profiles', `${profiles.length} profiles`)
+  check(helloGets(stub).length > 0 && profiles.every((p) => sql(p, 'SELECT count(*) FROM gateway_profiles', 'beacon') === '0' && !existsSync(join(p, 'api-credential.bin'))), 'P8 after every walk above, no address was saved and no credential stored, in any of the profiles', `${profiles.length} profiles`)
   // B4 is a real screen now: opening it asks the computer once (POST /api/pair/requests, no credential), here twice (P2 and P7).
   const asks = stub.requests.filter((q) => q.method === 'POST' && q.url === '/api/pair/requests')
   check(helloGets(stub).length > 0 && noCreds(stub) && asks.length === 2 && asks.every((q) => !('authorization' in q.headers) && !('cookie' in q.headers) && !('origin' in q.headers)) && stub.requests.length === helloGets(stub).length + asks.length, 'P8 and the stub saw only GET /api/hello and one credential-free ask (POST /api/pair/requests) for each of the two times the wait for approval opened', `${helloGets(stub).length} hellos, ${asks.length} asks, ${stub.requests.length} requests`)

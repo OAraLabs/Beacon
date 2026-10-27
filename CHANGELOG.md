@@ -6,6 +6,7 @@ later update themselves.
 
 ## Unreleased
 
+- **Each Prometheus keeps its own conversations.** Pointing Beacon at a different Prometheus (Settings → Connection, or Set up again and join another) used to leave the old one's conversations in the sidebar, send messages queued for the old one to the new one, and let Approve on an old notification answer the new one. Beacon now keeps a folder per Prometheus (conversations, queued messages, drafts, groups), told apart by the Prometheus's own fingerprint, and a notification's buttons only answer the Prometheus that asked while it is still the one connected. On the first launch Beacon backs up its cache, then moves it into the folder of the Prometheus it is connected to. Your theme, window and notification choices stay Beacon's own.
 - **Spec: one Beacon, several Prometheus.** [docs/MULTI-PROMETHEUS.md](docs/MULTI-PROMETHEUS.md) says how Beacon will hold more than one Prometheus at once: a folder and a key per Prometheus, a list in the sidebar, one approvals inbox, and the PRs that build it, red tests first.
 - **Computer use: start the next desktop task.** After a desktop task ended, the progress pane showed only that task and offered no way to start another in the same conversation. The start form now comes back under an ended task. It still never shows while a task runs.
 

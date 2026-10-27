@@ -356,12 +356,12 @@ for (const r of ['capture', 'hud']) {
 // ── 2. the sender check ───────────────────────────────────────────────────────────────────────────
 section('2. the sender check: only a Beacon window showing the shell page is accepted')
 {
-  // The settings sentinel, written straight into the scratch profile's cache DB from main (a second
+  // The settings sentinel, written straight into the scratch profile's app.db from main (a second
   // connection; WAL lets it share the file). Not through settings.set or any other handler.
   const seeded = await M(`(() => {
     // Resolved from the built main bundle, as the app resolves it: process.mainModule here is Electron's own.
     const Database = process.getBuiltinModule('module').createRequire(${JSON.stringify(join(APP_ROOT, 'out/main/index.js'))})('better-sqlite3')
-    const db = new Database(${JSON.stringify(join(USER_DATA, 'beacon.db'))}, { fileMustExist: true })
+    const db = new Database(${JSON.stringify(join(USER_DATA, 'app.db'))}, { fileMustExist: true })
     try {
       db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(${JSON.stringify(SENTINEL_KEY)}, ${JSON.stringify(SENTINEL_VALUE)})
       return db.prepare('SELECT value FROM settings WHERE key = ?').get(${JSON.stringify(SENTINEL_KEY)})?.value ?? null

@@ -12,14 +12,16 @@
 //     keeps its single-instance lock and its data. The copy's outbox is EMPTIED: replaying a pending
 //     send from a copy would post the user's message to the daemon a second time.
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, statSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { profileDb, profileDbFiles } from './lib/profile-db.mjs'
+
+export { profileDb }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const LIVE_PROFILE = join(homedir(), 'Library/Application Support/beacon-desktop')
-const LIVE_DB = join(LIVE_PROFILE, 'beacon.db')
 // The Electron binary inside the driven checkout's own node_modules. It used to be one hard-coded
 // checkout's path under the home folder: rename or move that checkout and every probe failed to
 // launch, or drove another tree's Electron. A worktree has no node_modules until `npm ci` runs in it.
@@ -48,35 +50,42 @@ function liveProfileHolder() {
   if (pg.status !== 1) return `pgrep failed (${pg.error?.code ?? pg.status})`
   // Side files mean a WAL connection is open, or a crash left a hot WAL that an immutable read
   // would silently skip, dropping committed rows. -readonly reads through them.
-  const side = ['-wal', '-shm'].filter((s) => existsSync(LIVE_DB + s))
-  return side.length ? `beacon.db${side.join(', beacon.db')} present` : null
+  const side = profileDbFiles(LIVE_PROFILE).flatMap((f) => ['-wal', '-shm'].filter((s) => existsSync(join(LIVE_PROFILE, f + s))).map((s) => f + s))
+  return side.length ? `${side.join(', ')} present` : null
 }
 
-/** Copy the live cache DB to `dest` through SQLite's backup API, so the copy is consistent. Never
- *  writes the live DB. beacon.db is in WAL mode, and a `-readonly` connection to a WAL database needs
+/** Copy the live profile's databases into `dir` through SQLite's backup API, so each copy is
+ *  consistent: beacon.db, or app.db and each Prometheus folder's cache.db (lib/profile-db.mjs). Never
+ *  writes the live ones. They are in WAL mode, and a `-readonly` connection to a WAL database needs
  *  the -shm the running app keeps: with Beacon closed there is none, a read-only open cannot create
  *  one, and sqlite3 fails "unable to open database file". So: in use, `-readonly` (immutable would
  *  ignore a concurrent writer); closed, `immutable=1`, which takes no locks and opens no side files. */
-function backupLiveDb(dest) {
+function backupLiveDbs(dir) {
   const holder = liveProfileHolder()
-  const src = holder ? LIVE_DB : `file:${LIVE_DB.replace(/[%?#]/g, (c) => '%' + c.charCodeAt(0).toString(16))}?mode=ro&immutable=1`
   const how = holder ? `-readonly (${holder})` : 'immutable (Beacon is not running)'
-  try {
-    execFileSync('sqlite3', [...(holder ? ['-readonly'] : []), src, `.backup '${dest}'`], { stdio: 'pipe' })
-  } catch (e) {
-    throw new Error(`copying beacon.db ${how} failed: ${String(e.stderr ?? e.message).trim()}`)
+  const files = profileDbFiles(LIVE_PROFILE)
+  if (files.length === 0) throw new Error(`no Beacon database in ${LIVE_PROFILE}`)
+  for (const f of files) {
+    const live = join(LIVE_PROFILE, f)
+    const src = holder ? live : `file:${live.replace(/[%?#]/g, (c) => '%' + c.charCodeAt(0).toString(16))}?mode=ro&immutable=1`
+    mkdirSync(dirname(join(dir, f)), { recursive: true })
+    try {
+      execFileSync('sqlite3', [...(holder ? ['-readonly'] : []), src, `.backup '${join(dir, f)}'`], { stdio: 'pipe' })
+    } catch (e) {
+      throw new Error(`copying ${f} ${how} failed: ${String(e.stderr ?? e.message).trim()}`)
+    }
   }
   // An immutable read is only consistent if nothing wrote during it.
   const after = holder ? null : liveProfileHolder()
   if (after) throw new Error(`the live profile came into use during the immutable copy (${after}) — rerun`)
-  console.log(`[app-driver] beacon.db copied ${how}`)
+  console.log(`[app-driver] ${files.join(', ')} copied ${how}`)
 }
 
-/** A scratch profile cloned from the live one: the cache DB (see backupLiveDb) and window state.
+/** A scratch profile cloned from the live one: the databases (see backupLiveDbs) and window state.
  *  Returns its directory. */
 export function scratchProfile() {
   const dir = mkdtempSync(join(tmpdir(), 'beacon-probe-profile-'))
-  backupLiveDb(join(dir, 'beacon.db'))
+  backupLiveDbs(dir)
   // NOT the credential. Decrypting it goes through the macOS Keychain, whose permission prompt is a
   // system modal that blocks main's thread (the app never comes up) and asks the user for their
   // password on behalf of a scratch copy. Without it the app still starts in connect mode — the
@@ -85,14 +94,17 @@ export function scratchProfile() {
   for (const f of ['window-state.json', 'loop-projects.json']) {
     if (existsSync(join(LIVE_PROFILE, f))) copyFileSync(join(LIVE_PROFILE, f), join(dir, f))
   }
-  sql(dir, 'DELETE FROM outbox')
+  // Every Prometheus's outbox, not only the last used one's: a copy must replay nothing to any of them.
+  for (const f of profileDbFiles(dir)) if (f !== 'app.db') execFileSync('sqlite3', [join(dir, f), 'DELETE FROM outbox'])
   return dir
 }
 
-/** Run one statement against a scratch profile's cache (only ever a scratch one). */
-export function sql(profile, stmt) {
+/** Run one statement against a scratch profile (only ever a scratch one): in the file that holds
+ *  rows of `scope` (lib/profile-db.mjs): 'prometheus' (conversations, drafts, groups) or 'beacon'
+ *  (Beacon-wide settings, saved connections). */
+export function sql(profile, stmt, scope = 'prometheus') {
   if (resolve(profile) === resolve(LIVE_PROFILE)) throw new Error('refusing to write the live profile')
-  return execFileSync('sqlite3', [join(profile, 'beacon.db'), stmt]).toString().trim()
+  return execFileSync('sqlite3', [profileDb(profile, scope), stmt]).toString().trim()
 }
 
 function newestMtime(dir, exts) {

@@ -128,6 +128,8 @@ export default defineConfig({
           'background-smoke': resolve('src/main/background-smoke.ts'),
           'attachment-smoke': resolve('src/main/attachment-smoke.ts'),
           'forget-smoke': resolve('src/main/forget-smoke.ts'),
+          'daemon-isolation-smoke': resolve('src/main/daemon-isolation-smoke.ts'),
+          'daemon-folders-smoke': resolve('src/main/daemon-folders-smoke.ts'),
           'panels-smoke': resolve('src/main/panels-smoke.ts'),
           'trust-smoke': resolve('src/main/trust-smoke.ts'),
           'ws-auth-smoke': resolve('src/main/ws-auth-smoke.ts'),

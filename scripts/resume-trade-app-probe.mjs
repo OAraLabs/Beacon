@@ -21,7 +21,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launchApp, sleep } from './app-driver.mjs'
+import { launchApp, profileDb, sleep } from './app-driver.mjs'
 
 const PY = process.env.BEACON_SIGNED_PYTHON
 const SRC = process.env.BEACON_PROMETHEUS_SRC
@@ -151,7 +151,7 @@ const keptSha = () =>
     const f = path.join(__electron.app.getPath('userData'), 'api-credential.bin')
     return fs.existsSync(f) ? crypto.createHash('sha256').update(__electron.safeStorage.decryptString(fs.readFileSync(f))).digest('hex') : null
   })()`)
-const marker = (profile) => spawnSync('/usr/bin/sqlite3', [`file:${join(profile, 'beacon.db')}?mode=ro`, `SELECT value FROM settings WHERE key = 'onboarding:credential'`], { encoding: 'utf8' }).stdout.trim()
+const marker = (profile) => spawnSync('/usr/bin/sqlite3', [`file:${profileDb(profile, 'beacon')}?mode=ro`, `SELECT value FROM settings WHERE key = 'onboarding:credential'`], { encoding: 'utf8' }).stdout.trim()
 const inApp = () => page().evaluate(`!!document.querySelector('nav[aria-label="Views"]')`)
 const calls = () => (existsSync(join(root, 'launcher-calls')) ? readFileSync(join(root, 'launcher-calls'), 'utf8').trim().split('\n') : [])
 const env = { BEACON_ONBOARDING: 'v4', BEACON_DISCOVERY_PORT: String(api), BEACON_PROMETHEUS_HOME: home, BEACON_PROMETHEUS_LAUNCHER: launcher, BEACON_OPENROUTER_BASE: STUB }
