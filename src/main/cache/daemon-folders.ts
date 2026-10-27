@@ -114,6 +114,15 @@ export class DaemonFolders implements BeaconStore {
     return this.current
   }
 
+  /**
+   * The file that holds the key Beacon uses with the Prometheus whose folder is `id` (docs/MULTI-PROMETHEUS.md §3).
+   *
+   * TODAY: the one api-credential.bin, whichever Prometheus it is for. smoke:credential-origin is red against this on purpose.
+   */
+  keyPath(_id: string): string {
+    return join(this.root, 'api-credential.bin')
+  }
+
   /** The open folder's id, or null. */
   currentId(): string | null {
     return this.single ? LEGACY_DB : (this.current?.id ?? null)
@@ -134,6 +143,13 @@ export class DaemonFolders implements BeaconStore {
       return id
     }
     return this.resolve({ apiBase: row?.api_base ?? '', fp })
+  }
+
+  /** This Prometheus is reached at a new address now (Settings → Connection, Edit address): its folder, key and all, goes with it, so
+   *  the new address opens it. hello at the new address still has the last word (`bind`). */
+  moveAddress(id: string, apiBase: string): void {
+    if (this.single) return
+    this.appDb.prepare('UPDATE daemon_folders SET api_base = ?, last_active = ? WHERE id = ?').run(apiBase, Date.now(), id)
   }
 
   /** Stop using the open folder (Start over): a Prometheus's settings then read as absent and are not written. */
