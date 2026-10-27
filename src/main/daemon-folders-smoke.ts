@@ -29,7 +29,8 @@ import type { ConnectionManager } from './connection'
 import { openCache } from './cache/db'
 import { CacheRepo } from './cache/repo'
 import { CacheService } from './cache/service'
-import { DaemonFolders, InjectedCrash, LAYOUT_KEY, LEGACY_FOLDER_ID, type MigrationStep } from './cache/daemon-folders'
+import { writeFileSync } from 'node:fs'
+import { DaemonFolders, InjectedCrash, LAYOUT, LAYOUT_KEY, LEGACY_FOLDER_ID, type MigrationStep } from './cache/daemon-folders'
 
 let failures = 0
 function assert(cond: boolean, label: string): void {
@@ -41,6 +42,8 @@ const PIN = 'ab'.repeat(32)
 const API = 'http://127.0.0.1:18201'
 const SESSION = 'desktop:old-1'
 const roots: string[] = []
+/** Stands in for a keychain-sealed key: the move must carry these bytes as they are, never read them. */
+const SEALED_KEY = Buffer.from('v10-sealed-bytes-of-a-key')
 
 function tempRoot(): string {
   const r = mkdtempSync(join(tmpdir(), 'beacon-daemon-folders-'))
@@ -63,6 +66,7 @@ function legacyUserData(pin: string | null): string {
   repo.setSetting(SESSION_GROUPS_SETTING_KEY, '[{"id":"g1"}]')
   repo.upsertGatewayProfile('mini', API, 'ws://127.0.0.1:18202', true, pin)
   db.close()
+  writeFileSync(join(root, 'api-credential.bin'), SEALED_KEY, { mode: 0o600 }) // the one key file, as 0.4.9 kept it (sealed bytes)
   return root
 }
 
@@ -82,7 +86,13 @@ function checkMoved(root: string, label: string): void {
   try {
     assert(!existsSync(join(root, 'beacon.db')), `${label}: beacon.db is gone from where it was`)
     assert(existsSync(join(root, 'daemons', LEGACY_FOLDER_ID, 'cache.db')), `${label}: it is daemons/${LEGACY_FOLDER_ID}/cache.db now`)
-    assert(folders.app.getSetting(LAYOUT_KEY) === '1', `${label}: app.db says the layout is in place`)
+    assert(folders.app.getSetting(LAYOUT_KEY) === LAYOUT, `${label}: app.db says the layout is in place (${folders.app.getSetting(LAYOUT_KEY)})`)
+    assert(!existsSync(join(root, 'api-credential.bin')), `${label}: api-credential.bin is gone from where it was`)
+    const key = join(root, 'daemons', LEGACY_FOLDER_ID, 'credential.bin')
+    assert(existsSync(key) && readFileSync(key).equals(SEALED_KEY), `${label}: the key is in its Prometheus's folder, byte for byte`)
+    assert(folders.keyPath(LEGACY_FOLDER_ID) === key, `${label}: and that is the file Beacon reads it from`)
+    const keyBackup = join(root, 'backup-pre-daemons', 'api-credential.bin')
+    assert(existsSync(keyBackup) && readFileSync(keyBackup).equals(SEALED_KEY), `${label}: a copy of the key was backed up first`)
     assert(folders.getSetting(THEME_KEY) === 'dusk', `${label}: the theme moved into app.db`)
     assert(folders.getDefaultGatewayProfile()?.apiBase === API, `${label}: the saved connection moved into app.db`)
     assert(!tables(join(root, 'app.db')).includes('sessions') && !tables(join(root, 'app.db')).includes('outbox'), `${label}: app.db holds no conversation or outbox table`)
@@ -167,7 +177,7 @@ async function main(): Promise<void> {
     db.prepare(`INSERT INTO sessions (id, gateway, title, last_active) VALUES (?, 'desktop', 'seeded', ?)`).run(SESSION, Date.now())
     db.close()
     const folders = new DaemonFolders(root)
-    assert(folders.app.getSetting(LAYOUT_KEY) === '1' && existsSync(join(root, 'daemons', LEGACY_FOLDER_ID, 'cache.db')), 'it moves all the same')
+    assert(folders.app.getSetting(LAYOUT_KEY) === LAYOUT && existsSync(join(root, 'daemons', LEGACY_FOLDER_ID, 'cache.db')), 'it moves all the same')
     const first = folders.open({ apiBase: 'http://127.0.0.1:18400', fp: null })
     assert(first.id === LEGACY_FOLDER_ID && first.repo.getSessions().some((s) => s.id === SESSION), `the first connection, at any address, claims it (${first.id})`)
     assert(folders.open({ apiBase: 'http://127.0.0.1:18401', fp: null }).id !== LEGACY_FOLDER_ID, 'once claimed, another address does not')
@@ -175,7 +185,7 @@ async function main(): Promise<void> {
   }
 
   console.log('\n[smoke] === 2. a crash after each step is finished by the next launch ===')
-  for (const step of ['backup', 'app', 'move'] as MigrationStep[]) {
+  for (const step of ['backup', 'app', 'move', 'key'] as MigrationStep[]) {
     const root = legacyUserData(PIN)
     let injected = false
     try {
@@ -187,11 +197,27 @@ async function main(): Promise<void> {
     checkMoved(root, `after a crash at "${step}"`)
   }
 
+  console.log("\n[smoke] === 2b. a profile already in PR 1's layout gets its key moved ===")
+  {
+    // Conversations already in folders ('1'), the key still the one file, the saved connection's folder not the legacy one.
+    const root = tempRoot()
+    const first = new DaemonFolders(root)
+    first.upsertGatewayProfile('mini', 'http://127.0.0.1:18210', 'ws://127.0.0.1:18211', true, null)
+    const id = first.open({ apiBase: 'http://127.0.0.1:18210', fp: '9'.repeat(16) }).id
+    first.app.setSetting(LAYOUT_KEY, '1')
+    first.close()
+    writeFileSync(join(root, 'api-credential.bin'), SEALED_KEY, { mode: 0o600 })
+    const folders = new DaemonFolders(root)
+    assert(folders.app.getSetting(LAYOUT_KEY) === LAYOUT, `the layout moves on to ${LAYOUT}`)
+    assert(readFileSync(join(root, 'daemons', id, 'credential.bin')).equals(SEALED_KEY) && !existsSync(join(root, 'api-credential.bin')), `the key goes to the saved connection's folder (${id})`)
+    folders.close()
+  }
+
   console.log('\n[smoke] === 3. a fresh install ===')
   {
     const root = tempRoot()
     const folders = new DaemonFolders(root)
-    assert(folders.app.getSetting(LAYOUT_KEY) === '1', 'starts in the new layout')
+    assert(folders.app.getSetting(LAYOUT_KEY) === LAYOUT, 'starts in the new layout')
     assert(!existsSync(join(root, 'backup-pre-daemons')) && !existsSync(join(root, 'beacon.db')), 'with no backup and no beacon.db')
     assert(folders.getSetting(`${DRAFT_PREFIX}x`) === null, "with no Prometheus open, a Prometheus's setting reads as absent")
     folders.setSetting(`${DRAFT_PREFIX}x`, 'nowhere to go')

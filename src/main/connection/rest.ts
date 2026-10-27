@@ -1,3 +1,4 @@
+import { originOf, sameOrigin } from '@shared/key-origin'
 import { pinnedFromWire } from '@shared/session-pins'
 import { isTrustedFromWire } from '@shared/provenance'
 import type { ApprovalDecision, ApprovalRequest, ArtifactEntry, ChatInterruptResult, ChatReference, ChatSendResult, DaemonWriteMethod, SessionSummary } from '@shared/ipc'
@@ -96,11 +97,24 @@ export class RestClient {
     private readonly gate: Promise<string | null> = Promise.resolve(null)
   ) {}
 
-  /** Every request of this client: after the gate, never before it. */
+  /**
+   * Every request of this client: after the gate, never before it, and only to this client's own Prometheus.
+   *
+   * A redirect is not followed by fetch (docs/MULTI-PROMETHEUS.md §8): one to another origin fails the call, so neither the key nor
+   * the body (a 307 re-sends it: a message for this Prometheus) reaches anything else. One within the origin (a trailing slash) is
+   * followed once, by hand, with the same request.
+   */
   private async send(url: string, init?: RequestInit): Promise<Response> {
     const refused = await this.gate
     if (refused) throw new Error(refused)
-    return fetch(url, init)
+    if (!sameOrigin(url, this.apiBase)) throw new Error(`refused: ${originOf(url) ?? 'that address'} is not this Prometheus`)
+    const res = await fetch(url, { ...init, redirect: 'manual' })
+    if (res.status < 300 || res.status > 399 || !res.headers.get('location')) return res
+    const next = new URL(res.headers.get('location')!, url).toString()
+    if (!sameOrigin(next, this.apiBase)) {
+      throw new Error(`HTTP ${res.status}: redirect to another address (${originOf(next) ?? 'unknown'}) refused; nothing was sent there`)
+    }
+    return fetch(next, { ...init, redirect: 'error' })
   }
 
   private headers(extra?: Record<string, string>): Record<string, string> {
