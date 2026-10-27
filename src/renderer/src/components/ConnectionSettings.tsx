@@ -1,7 +1,8 @@
+import { EDIT_ADDRESS_COPY } from '@shared/edit-address'
 import { thisComputer } from '@shared/this-computer'
 import { NOT_ENCRYPTED_NOTICE } from '@shared/plain-lan'
 import { useEffect, useState, type CSSProperties } from 'react'
-import type { ConnectionTestResult, UpdaterStatus } from '@shared/ipc'
+import type { ConnectionTestResult, SaveConnectionSettingsResult, UpdaterStatus } from '@shared/ipc'
 import type { NotifyPrefs } from '@shared/notification-prefs'
 import type { CloseMode } from '@shared/tray-hint'
 import { loginItemNote, type LoginItemState } from '@shared/login-item'
@@ -601,6 +602,8 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
   const [testing, setTesting] = useState(false)
   const [test, setTest] = useState<ConnectionTestResult | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  // The new address is another Prometheus (docs/MULTI-PROMETHEUS.md §6): nothing was saved; offer to add it, or switch to it.
+  const [other, setOther] = useState<SaveConnectionSettingsResult['other'] | null>(null)
   // "Make this Beacon an owner" (the end of path B, an owner-only note) opens this sheet with that section only: a new person never
   // meets the connection's address or key there (filming Path B on 0.4.6 found both at the top of the sheet).
   const ownerOnly = at === 'make-owner'
@@ -674,19 +677,25 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
     }
   }
 
-  const save = async (): Promise<void> => {
+  const save = async (addAsNew = false): Promise<void> => {
     const b = window.beacon
     if (!b) return
     setBusy(true)
     setErr(null)
     setTest(null)
+    setOther(null)
     try {
       const res = await b.connection.saveSettings({
         apiBase: apiBase.trim(),
         wsUrl: wsUrl.trim(),
         token: token.trim() || undefined,
-        clearToken: clearToken || undefined
+        clearToken: clearToken || undefined,
+        ...(addAsNew ? { addAsNew: true } : {})
       })
+      if (!res.saved && res.other) {
+        setOther(res.other)
+        return
+      }
       if (!res.saved) {
         setErr(res.error ?? 'Save failed.')
         return
@@ -819,6 +828,38 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
               </>
             ) : null}
             {err ? <div style={{ fontSize: 12, color: 'var(--c-err)' }}>{err}</div> : null}
+            {other ? (
+              <div role="alert" data-testid="edit-address-other" style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                <div style={{ fontWeight: 600, color: 'var(--c-text)' }}>
+                  {other.kind === 'kept' ? EDIT_ADDRESS_COPY.kept.replace('{label}', other.label) : EDIT_ADDRESS_COPY.different}
+                </div>
+                {other.kind === 'different' ? <div style={{ color: 'var(--c-text-dim)' }}>{EDIT_ADDRESS_COPY.differentBody}</div> : null}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {other.kind === 'kept' ? (
+                    <button
+                      style={btn(true, busy)}
+                      disabled={busy}
+                      onClick={() =>
+                        void window.beacon?.instances.switch(other.id).then((ok) => {
+                          if (!ok) return
+                          window.dispatchEvent(new Event('beacon:connection-changed'))
+                          onClose()
+                        })
+                      }
+                    >
+                      {EDIT_ADDRESS_COPY.switchTo.replace('{label}', other.label)}
+                    </button>
+                  ) : (
+                    <button style={btn(true, busy)} disabled={busy} onClick={() => void save(true)}>
+                      {EDIT_ADDRESS_COPY.addIt}
+                    </button>
+                  )}
+                  <button style={btn(false, busy)} disabled={busy} onClick={() => setOther(null)}>
+                    {EDIT_ADDRESS_COPY.cancel}
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <SetupAgainSection onSetUpAgain={onSetUpAgain} />
             <OtherComputersSection />

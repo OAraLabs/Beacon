@@ -63,6 +63,13 @@ function main(): void {
 
     console.log('\n[smoke] === 4. saving the same Prometheus again ===')
     assert(folders.saveInstance(A) === a && folders.listInstances().length === 2, 'adds nothing, and keeps its folder')
+
+    console.log('\n[smoke] === 5. a new address for the same Prometheus (Settings) ===')
+    const moved = { ...A, apiBase: 'https://127.0.0.1:18799', wsUrl: 'wss://127.0.0.1:18798' }
+    folders.moveAddress(a, moved.apiBase)
+    folders.saveInstance(moved, a)
+    const after = folders.listInstances()
+    assert(after.length === 2 && after.find((i) => i.id === a)?.apiBase === moved.apiBase, `still two kept, A at its new address (${after.map((i) => i.apiBase).join(', ')})`)
   } finally {
     folders.close()
     rmSync(root, { recursive: true, force: true })
