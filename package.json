@@ -56,6 +56,7 @@
     "smoke:daemon-isolation": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-isolation-smoke.js",
     "smoke:daemon-folders": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-folders-smoke.js",
     "smoke:credential-origin": "ELECTRON_RUN_AS_NODE=1 electron out/main/credential-origin-smoke.js",
+    "smoke:identity-challenge": "ELECTRON_RUN_AS_NODE=1 electron out/main/identity-challenge-smoke.js",
     "smoke:panels": "ELECTRON_RUN_AS_NODE=1 electron out/main/panels-smoke.js",
     "smoke:window-chrome": "ELECTRON_RUN_AS_NODE=1 electron out/main/window-chrome-smoke.js",
     "smoke:watchdog-log": "ELECTRON_RUN_AS_NODE=1 electron out/main/watchdog-log-smoke.js",
