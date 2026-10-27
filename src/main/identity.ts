@@ -45,9 +45,11 @@ export function createProver(deps: ProverDeps): (control?: ProofControl) => Prom
     for (let attempt = 1; ; attempt++) {
       const nonce = randomBytes(NONCE_BYTES).toString('base64url')
       const r = await deps.request({ method: 'POST', url: `${deps.apiBase}${CHALLENGE_PATH}`, body: JSON.stringify({ v: 1, nonce }), timeoutMs: 5_000 })
-      // A pinned TLS connection that met another certificate: nothing was sent, and the existing wrong-key card says so.
-      const reply = r === 'unreachable' || r === 'too-big' || r === 'wrong-key' ? 'unreachable' : { status: r.status, json: r.json }
-      if (r === 'wrong-key') return NOT_PROVED
+      // A pinned TLS connection that met another certificate. The TLS pin is the earlier and stronger check here: it fails every
+      // handshake to that server before a byte of the key is sent, REST and socket alike (src/main/tls-pin.ts), and reports it with
+      // its own card (docs/MULTI-COMPUTER-v0.4.md §3.4, the pinned and the presented keys). So the proof steps aside for it.
+      if (r === 'wrong-key') return null
+      const reply = r === 'unreachable' || r === 'too-big' ? 'unreachable' : { status: r.status, json: r.json }
       const v = judge({ reply, nonce, nowS: deps.nowS(), pinned: deps.pinned(), tlsSpki: deps.tlsSpki, verify: deps.verify })
       if (v.kind === 'unreachable') {
         if (control?.stopped()) return NOT_PROVED
