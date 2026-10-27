@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync
 import { dirname, join } from 'node:path'
 import Database from 'better-sqlite3'
 import { fpFromPin, settingScope, validFp } from '@shared/daemon-profiles'
+import type { PinnedIdentity } from '@shared/identity-challenge'
 import type { SocketEvent } from '@shared/socket-log'
 import type { UiTraceEvent } from '@shared/ui-trace'
 import type { WatchdogEvent } from '@shared/watchdog-log'
@@ -102,9 +103,10 @@ export class DaemonFolders implements BeaconStore {
   }
 
   /** The cache for this Prometheus, opened (and the one before it closed). See `resolve` for which folder that is. */
-  open(who: DaemonIdentity): DaemonFolder {
+  open(who: DaemonIdentity & { id?: string }): DaemonFolder {
     if (this.single) return { id: LEGACY_DB, repo: this.app }
-    const id = this.resolve(who)
+    // `id`: a folder already known to be this Prometheus's (its pinned node key answered), whatever the address and fp say.
+    const id = who.id && this.row('SELECT id FROM daemon_folders WHERE id = ?', who.id) ? who.id : this.resolve(who)
     this.touch(id, who.apiBase)
     if (this.current?.id === id) return this.current
     this.closeCurrent()
@@ -131,6 +133,30 @@ export class DaemonFolders implements BeaconStore {
   /** The folder a Prometheus's things go in (see `resolve`), without opening it: where a save writes the key it is about to use. */
   folderFor(who: DaemonIdentity): string {
     return this.single ? LEGACY_DB : this.resolve(who)
+  }
+
+  /** The node key (and instance_id) pinned for folder `id`, or null when none is yet. */
+  identityOf(id: string): PinnedIdentity | null {
+    if (this.single) return null
+    const r = this.appDb.prepare('SELECT instance_id, node_pub FROM daemon_folders WHERE id = ?').get(id) as
+      | { instance_id: string | null; node_pub: string | null }
+      | undefined
+    return r?.node_pub ? { instanceId: r.instance_id, nodePub: r.node_pub } : null
+  }
+
+  /** Pin a Prometheus's node key (and instance_id) to its folder: from its first good answer, or a move the person confirmed. */
+  pinIdentity(id: string, pin: PinnedIdentity): void {
+    if (this.single) return
+    this.appDb.prepare('UPDATE daemon_folders SET instance_id = ?, node_pub = ? WHERE id = ?').run(pin.instanceId, pin.nodePub, id)
+  }
+
+  /** The folder already pinned to this node key and instance_id: the same Prometheus, reached by another address or fp. */
+  folderWithIdentity(pin: PinnedIdentity): string | undefined {
+    if (this.single) return undefined
+    const r = this.appDb
+      .prepare('SELECT id FROM daemon_folders WHERE node_pub = ? AND (instance_id IS ? OR instance_id = ?) LIMIT 1')
+      .get(pin.nodePub, pin.instanceId, pin.instanceId) as { id: string } | undefined
+    return r?.id
   }
 
   /** The open folder's id, or null. */

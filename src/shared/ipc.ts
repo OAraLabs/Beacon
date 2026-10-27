@@ -2,6 +2,7 @@
 // main process, the preload bridge, and the renderer. No Node/Electron imports here so
 // the renderer can consume the types without pulling in the main-process world.
 
+import type { IdentityNotice } from './identity-challenge'
 import type { GatewayEvent, EventRow } from './gateway-events'
 import type { ExportFormat } from './session-export'
 import type { ProjectHint } from './session-projects'
@@ -131,6 +132,7 @@ export const IPC = {
   CONNECTION_GET_SETTINGS: 'connection:getSettings', // renderer -> main: current gateway URLs + hasToken
   CONNECTION_SAVE_SETTINGS: 'connection:saveSettings', // renderer -> main: persist URLs+token, rebuild, re-test
   CONNECTION_RECONNECT: 'connection:reconnect', // renderer -> main: drop + redial the WS now (manual retry)
+  IDENTITY_TRUST_NEW_KEY: 'identity:trust-new-key', // renderer -> main: the person confirms the connected Prometheus moved to new hardware (docs/MULTI-PROMETHEUS.md §8)
   CONNECTION_TEST: 'connection:test', // renderer -> main: GET /api/status with form values, WITHOUT saving
   // main -> renderer (webContents.send / on)
   CHAT_STREAM: 'chat:stream',
@@ -246,6 +248,9 @@ export interface ConnectionStatus {
   /** A pinned (home-network, TLS) Prometheus answered with another key, so Beacon sent it nothing (docs/MULTI-COMPUTER-v0.4.md
    *  §3.4). The hashes are for Copy details; `name` is what the profile calls the computer. Absent otherwise. */
   wrongKey?: { pinned: string; presented: string | null; name: string }
+  /** What the identity challenge found (docs/MULTI-PROMETHEUS.md §8): a card when Beacon would not send the key, 'unproved' for a
+   *  Prometheus too old to be asked (connected as before). Absent when the pinned key proved it. */
+  identity?: IdentityNotice
   /** This connection goes plain to the home network (saved before Beacon refused that): src/shared/plain-lan.ts. */
   notEncrypted?: boolean
   /** Owner of this Prometheus, or an approved device that may only chat (src/shared/device-role.ts), from GET /api/devices after each
@@ -788,6 +793,9 @@ export interface BeaconBridge {
     onFolderChanged(cb: () => void): Unsubscribe
     /** Manual retry: drop + redial the WS now (resets the backoff clock). No-op before setup. */
     reconnect(): Promise<void>
+    /** "It moved — trust the new key": pin the node key the Prometheus just signed with under its pinned instance_id, and connect. False
+     *  when there is no such move waiting (it was answered, or the connection changed since). */
+    trustNewKey(): Promise<boolean>
     /** Probe GET /api/status with form values WITHOUT saving — the Settings "Test" button. */
     test(req?: ConnectionTestRequest): Promise<ConnectionTestResult>
   }

@@ -1,3 +1,4 @@
+import { identityCard } from '@shared/identity-challenge'
 import { rejectedKeyLine } from '@shared/this-computer'
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { ConnectionStatus } from '@shared/ipc'
@@ -81,6 +82,26 @@ export function UnreachableBanner({ onChangeConnection, onConnectAgain }: { onCh
   // there is no "continue anyway". Beacon sent it nothing; the way on is connecting again (a new approval and a new code).
   // Plain to the internet: Beacon will not use this address at all (src/main/plain-public.ts), so there is nothing to wait out and
   // nothing to try again; the words say what to do instead.
+  // The Prometheus there did not prove who it is (docs/MULTI-PROMETHEUS.md §8): like an SSH host-key warning, shown at once, and Beacon
+  // sent it nothing. Before the plain-public card, whose words are about encryption.
+  const proof = status.identity ? identityCard(hostOf(status.gateway), status.identity) : null
+  if (proof)
+    return (
+      <div className="unreachable-banner" role="alert" style={card} data-testid="identity-card">
+        <div style={{ fontWeight: 600 }}>{proof.title}</div>
+        <div style={{ color: 'var(--text-dim)', lineHeight: 1.4 }}>{proof.body}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {proof.trust ? (
+            <button style={btn} onClick={() => void window.beacon?.connection.trustNewKey()}>
+              It moved — trust the new key
+            </button>
+          ) : null}
+          <button style={btn} onClick={onChangeConnection}>
+            Change connection…
+          </button>
+        </div>
+      </div>
+    )
   if (status.refused)
     return (
       <div className="unreachable-banner" role="alert" style={card} data-testid="plain-public-card">

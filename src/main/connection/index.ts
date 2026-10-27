@@ -24,6 +24,8 @@ import { resolveGateway, type GatewayConfig } from './config'
 import { RestClient, type DaemonHistory } from './rest'
 import { GatewaySocket } from './ws'
 import type { SocketEvent } from '@shared/socket-log'
+import type { IdentityNotice } from '@shared/identity-challenge'
+import type { ProofControl } from '../identity'
 
 /**
  * Owns the live link to one Prometheus gateway: REST (`:8005`) for reads/sends and the
@@ -50,6 +52,8 @@ export class ConnectionManager extends EventEmitter {
   private halted = false
   /** The gate refused this address (ConnectionStatus.refused). */
   private refused: string | null = null
+  /** What the identity challenge found, for ConnectionStatus.identity. */
+  private identity: IdentityNotice | null = null
 
   constructor(
     cfg: GatewayConfig = resolveGateway(),
@@ -66,14 +70,18 @@ export class ConnectionManager extends EventEmitter {
     private readonly roles: RoleMemory = { recall: () => null, remember: () => undefined },
     /** Whether this address may be used at all (src/main/plain-public.ts): the words to refuse with, or null. Nothing is sent, REST
      *  or socket, until it answers; refused, nothing is sent at all and the status carries the words. */
-    private readonly gate: Promise<string | null> = Promise.resolve(null)
+    private readonly gate: Promise<string | null> = Promise.resolve(null),
+    /** Proof of who answers at this address, asked before the key goes out (docs/MULTI-PROMETHEUS.md §8): null to go ahead, or the
+     *  words to refuse with. Asked after the gate, on every start and reconnect; REST and the socket wait for the latest answer.
+     *  Defaults to asking nothing. */
+    private readonly prove: (control: ProofControl) => Promise<string | null> = () => Promise.resolve(null)
   ) {
     super()
     // The bearer token goes on BOTH transports now: REST as the Authorization header, and the WS
     // (:8010) as a first-frame auth message — the daemon (>= dbcce28) requires it on the socket
     // whenever a token is configured. No token => WS auth is off daemon-side, so we send none.
     // (The legacy `_wsAuth` capability flag is no longer a gate; kept only for call-site compat.)
-    this.rest = new RestClient(cfg.apiBase, token, gate)
+    this.rest = new RestClient(cfg.apiBase, token, () => this.clearance())
     this.plainHome = notEncrypted(cfg.apiBase, cfg.wsUrl)
     this.role = roles.recall()
     this.status = { state: 'idle', gateway: gatewayLabel(cfg), ...(this.plainHome ? { notEncrypted: true } : {}), ...(this.role ? { role: this.role } : {}) }
@@ -83,16 +91,47 @@ export class ConnectionManager extends EventEmitter {
         onState: (state, meta) => this.setState(state, meta),
         onFrame: (frame: ChatStreamFrame) => this.emit('stream', frame),
         onGatewayEvent: (ev: GatewayEvent) => this.emit('gatewayEvent', ev),
-        onAuthFailure: () => this.setWsAuth('unauthorized')
+        onAuthFailure: () => this.setWsAuth('unauthorized'),
+        // A redial is a new connect: whoever answers now proves who it is first, and REST waits for the same answer.
+        beforeRedial: async () => {
+          this.cleared = null
+          const refused = await this.clearance()
+          if (this.halted) return false
+          if (refused) {
+            this.socket.stop()
+            this.refuse(refused)
+            return false
+          }
+          return true
+        }
       },
       token ?? null,
       onSocketLifecycle
     )
   }
 
+  /** The gate's answer and then the proof's, once per start: what every REST call and the socket wait for. */
+  private cleared: Promise<string | null> | null = null
+  private started = false
+
+  private clearance(): Promise<string | null> {
+    this.cleared ??= this.gate.then(
+      (refused) =>
+        refused ??
+        this.prove({
+          // No answer to the challenge yet: say so the way the socket's own retries do, so the banner reads the same.
+          waiting: (attempt) => this.setState('reconnecting', { attempt }),
+          stopped: () => this.halted
+        })
+    )
+    return this.cleared
+  }
+
   start(): void {
     this.halted = false
-    void this.gate.then((refused) => {
+    if (this.started) this.cleared = null // a reconnect asks again: the Prometheus answering may not be the one that answered last
+    this.started = true
+    void this.clearance().then((refused) => {
       if (this.halted) return
       if (refused) this.refuse(refused)
       else this.socket.start()
@@ -119,7 +158,8 @@ export class ConnectionManager extends EventEmitter {
       since: Date.now(),
       refused: words,
       ...(this.plainHome ? { notEncrypted: true } : {}),
-      ...(this.role ? { role: this.role } : {})
+      ...(this.role ? { role: this.role } : {}),
+      ...(this.identity ? { identity: this.identity } : {})
     }
     this.emit('status', this.status)
   }
@@ -164,6 +204,14 @@ export class ConnectionManager extends EventEmitter {
     this.wrongKey = next ?? null
     const { wrongKey: _old, ...rest } = this.status
     this.status = { ...rest, ...(this.wrongKey ? { wrongKey: this.wrongKey } : {}) }
+    this.emit('status', this.status)
+  }
+
+  /** What the identity challenge found (docs/MULTI-PROMETHEUS.md §8), for the card; null clears it. Kept across state changes. */
+  setIdentity(next: IdentityNotice | null): void {
+    this.identity = next
+    const { identity: _old, ...rest } = this.status
+    this.status = { ...rest, ...(next ? { identity: next } : {}) }
     this.emit('status', this.status)
   }
 
@@ -322,7 +370,8 @@ export class ConnectionManager extends EventEmitter {
       ...(this.wrongKey ? { wrongKey: this.wrongKey } : {}),
       ...(this.plainHome ? { notEncrypted: true } : {}),
       ...(this.role ? { role: this.role } : {}),
-      ...(this.refused ? { refused: this.refused } : {})
+      ...(this.refused ? { refused: this.refused } : {}),
+      ...(this.identity ? { identity: this.identity } : {})
     }
     this.emit('status', this.status)
   }

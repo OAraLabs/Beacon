@@ -107,6 +107,8 @@ import { DaemonFolders, type BeaconStore } from './cache/daemon-folders'
 import { CacheService } from './cache/service'
 import { CredentialStore, decideStartup, electronSafeStorageCipher, type Cipher } from './credentials'
 import { sameOrigin } from '@shared/key-origin'
+import type { PinnedIdentity, Verdict } from '@shared/identity-challenge'
+import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
 import {
   INITIAL_PRESENCE,
   applyPresenceEvent,
@@ -385,11 +387,12 @@ function roleMemory(gw: GatewayConfig, token: string | null): RoleMemory {
  * The cache is that Prometheus's own folder (docs/MULTI-PROMETHEUS.md §3). `knownFp` is its instance fingerprint when already
  * known (hello's, on a rebind); a pinned profile's comes from its pin. Without either, the folder last used at this address is
  * opened HELD until hello says who answers there (confirmIdentity). */
-function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null): void {
+function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, knownFolder?: string): void {
   if (connection) {
     connection.removeAllListeners()
     connection.stop()
   }
+  pendingMove = null // a move belongs to the connection that found it
   presence = applyPresenceEvent(INITIAL_PRESENCE, { type: 'conn', state: 'idle' })
   // The token now authenticates the WS too (daemon >= dbcce28 requires first-frame auth); the
   // ConnectionManager always sends it when a token exists, so there's no capability flag to read.
@@ -407,9 +410,20 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null): vo
   // That Prometheus's folder first, then ITS key: a key is read only from the folder of the Prometheus it was saved for.
   const fp = knownFp ?? fpFromPin(gw.pin)
   const before = folders!.currentId()
-  const folder = folders!.open({ apiBase: gw.apiBase, fp })
+  const folder = folders!.open({ apiBase: gw.apiBase, fp, id: knownFolder })
   const token = keyFile(folder.id).getToken()
-  const conn = new ConnectionManager(gw, token, false, (e) => repo?.recordSocketEvent(e), roleMemory(gw, token), gate)
+  // No key before proof (docs/MULTI-PROMETHEUS.md §8): the Prometheus there signs a nonce with the node key pinned for this folder
+  // first. Over the pinned channel for a TLS profile, so its answer is bound to the certificate the pin proved.
+  const prove = createProver({
+    apiBase: gw.apiBase,
+    request: gw.pin ? requestWith(pinnedFetch(gw.pin)) : requestSmall,
+    pinned: () => folders!.identityOf(folder.id),
+    tlsSpki: gw.pin ?? null,
+    verify: verifyEd25519,
+    nowS: () => Math.floor(Date.now() / 1000),
+    onVerdict: (v) => onIdentityVerdict(conn, gw, folder.id, v)
+  })
+  const conn: ConnectionManager = new ConnectionManager(gw, token, false, (e) => repo?.recordSocketEvent(e), roleMemory(gw, token), gate, prove)
   connection = conn
   connectedLink = null
   void gate.then((refused) => {
@@ -433,6 +447,41 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null): vo
   pairingWatcher.reset() // a new connection may be a different computer, or a different kind of device
   pairingWatcher.start()
   updateTray()
+}
+
+/** A move the person has yet to confirm: the Prometheus at `gw` signed with a new node key under its pinned instance_id. */
+let pendingMove: { gw: GatewayConfig; folderId: string; pin: PinnedIdentity } | null = null
+
+/**
+ * What one identity verdict does (docs/MULTI-PROMETHEUS.md §8). Returns the words to refuse with, or null to let the key go.
+ * - proved: go. first: pin it, then go.
+ * - first or other, by a node key another folder is already pinned to: that is a Prometheus Beacon knows, answering at this address
+ *   now; its own folder (and key) is brought up instead, and this attempt sends nothing.
+ * - moved: nothing is sent until the person confirms (IDENTITY_TRUST_NEW_KEY). other, refused: nothing is sent; the card says why.
+ * - unproved (too old to be asked, nothing pinned): go, as before.
+ */
+function onIdentityVerdict(conn: ConnectionManager, gw: GatewayConfig, folderId: string, v: Verdict): string | null {
+  if (connection !== conn) return NOT_PROVED
+  if (v.kind === 'first' || v.kind === 'other') {
+    const known = folders!.folderWithIdentity({ instanceId: v.instanceId, nodePub: v.nodePub })
+    if (known && known !== folderId) {
+      setImmediate(() => {
+        if (connection === conn) bringUpConnection(gw, null, known)
+      })
+      return NOT_PROVED
+    }
+  }
+  if (v.kind === 'proved' || v.kind === 'first' || v.kind === 'unproved') {
+    if (v.kind === 'first') folders!.pinIdentity(folderId, { instanceId: v.instanceId, nodePub: v.nodePub })
+    conn.setIdentity(v.kind === 'unproved' ? { kind: 'unproved' } : null)
+    return null
+  }
+  if (v.kind === 'moved') {
+    pendingMove = { gw, folderId, pin: { instanceId: v.instanceId, nodePub: v.nodePub } }
+    conn.setIdentity({ kind: 'moved' })
+  } else if (v.kind === 'other') conn.setIdentity({ kind: 'other' })
+  else if (v.kind === 'refused') conn.setIdentity({ kind: 'refused', why: v.why })
+  return NOT_PROVED
 }
 
 /** How often a held cache asks hello again while its connection stays up and hello has not answered. */
@@ -1775,6 +1824,15 @@ app.whenReady().then(() => {
     tokenFor: (entry) => (entry.authRef === 'stored' ? integrationTokenStore(entry.id).getToken() : null),
     setToken: (id, token) => integrationTokenStore(id).setToken(token),
     reveal: (path) => shell.showItemInFolder(path)
+  })
+  // "It moved — trust the new key" (docs/MULTI-PROMETHEUS.md §8): only the move this connection found, for the folder it found it in.
+  handleFromShell(IPC.IDENTITY_TRUST_NEW_KEY, async () => {
+    const m = pendingMove
+    if (!m) return false
+    pendingMove = null
+    folders!.pinIdentity(m.folderId, m.pin)
+    bringUpConnection(m.gw, null, m.folderId)
+    return true
   })
   onFromShell(IPC.SESSION_ACTIVE, (_e, sessionId: string) => {
     activeSessionId = typeof sessionId === 'string' && sessionId ? sessionId : null

@@ -51,6 +51,7 @@ const api: BeaconBridge = {
       return () => ipcRenderer.removeListener(IPC.CACHE_FOLDER_CHANGED, listener)
     },
     reconnect: () => ipcRenderer.invoke(IPC.CONNECTION_RECONNECT),
+    trustNewKey: () => ipcRenderer.invoke(IPC.IDENTITY_TRUST_NEW_KEY),
     test: (req?: ConnectionTestRequest) => ipcRenderer.invoke(IPC.CONNECTION_TEST, req)
   },
   chat: {

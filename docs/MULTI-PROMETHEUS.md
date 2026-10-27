@@ -184,14 +184,17 @@ Add it as a new one?" [Add it] [Cancel].
   - The answer carries `instance_id`, `node_pub`, the TLS SPKI digest the listener serves (empty on a plain one), a
     timestamp, and an Ed25519 signature over all of them under a domain-separation line.
   - Beacon checks the signature, the pinned `node_pub` and `instance_id`, the timestamp, and on TLS the SPKI against the
-    certificate it saw. Only then does the key go out.
+    certificate it saw. Only then does the key go out. It asks again before every redial, so a Prometheus that takes over the address while
+    Beacon is connected gets nothing either. While no answer comes at all, Beacon keeps asking at the socket's pace and sends
+    nothing meanwhile. Until Prometheus serves the route (PD-2), the first good answer is pinned (trust on first use); pairing
+    hands the key over with the owner's confirmation once PD-3 lands.
   - What each outcome shows:
 
     | The challenge says | Beacon |
     |---|---|
     | the pinned key, the pinned `instance_id` | connects |
-    | another key, another `instance_id` | sends nothing: "Something else is answering as Work box." The key is never sent |
-    | another key, the same `instance_id` | sends nothing until confirmed: "Work box's computer key has changed. If Work box moved to a new computer, confirm it; if not, don't connect." [It moved — trust the new key] [Don't connect] |
+    | another key, another `instance_id` | sends nothing: "Something else is answering at {address}." The key is never sent. A node key another folder is pinned to is that Prometheus, at a new address: its own folder and key are used instead |
+    | another key, the same `instance_id` | sends nothing until confirmed: "Work box's computer key has changed. If Work box moved to a new computer, confirm it; if not, don't connect." [It moved — trust the new key] [Change connection…]; while the card shows, nothing is sent |
     | nothing (404), for a Prometheus pinned with a node key | sends nothing; treated as the second row |
     | nothing (404), for one paired before the challenge existed | connects on the TLS pin and `fp` as in PR 1, and says it can't prove who it is |
 

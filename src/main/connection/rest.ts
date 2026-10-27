@@ -92,9 +92,10 @@ export class RestClient {
   constructor(
     private readonly apiBase: string,
     private readonly token: string | null = null,
-    /** Whether this address may be used at all (src/main/plain-public.ts): the words to refuse with, or null. Every request waits for
-     *  it, so a plain connection to the internet sends nothing, the key least of all. */
-    private readonly gate: Promise<string | null> = Promise.resolve(null)
+    /** Whether this address may be used at all (src/main/plain-public.ts), and, from ConnectionManager, whether the Prometheus there has
+     *  proved who it is (docs/MULTI-PROMETHEUS.md §8): the words to refuse with, or null. Every request waits for it, so a plain
+     *  connection to the internet, or an unproved Prometheus, is sent nothing, the key least of all. A function is asked per request. */
+    private readonly gate: Promise<string | null> | (() => Promise<string | null>) = Promise.resolve(null)
   ) {}
 
   /**
@@ -105,7 +106,7 @@ export class RestClient {
    * followed once, by hand, with the same request.
    */
   private async send(url: string, init?: RequestInit): Promise<Response> {
-    const refused = await this.gate
+    const refused = await (typeof this.gate === 'function' ? this.gate() : this.gate)
     if (refused) throw new Error(refused)
     if (!sameOrigin(url, this.apiBase)) throw new Error(`refused: ${originOf(url) ?? 'that address'} is not this Prometheus`)
     const res = await fetch(url, { ...init, redirect: 'manual' })

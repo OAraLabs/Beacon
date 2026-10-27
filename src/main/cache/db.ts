@@ -22,6 +22,10 @@ export function openAppDb(path: string): CacheDb {
   const db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.exec(APP_SCHEMA)
+  // An app.db made before the identity pins (PR 1's): the two columns, NULL (nothing pinned yet) on every row.
+  const cols = db.prepare(`PRAGMA table_info(daemon_folders)`).all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'instance_id')) db.exec(`ALTER TABLE daemon_folders ADD COLUMN instance_id TEXT`)
+  if (!cols.some((c) => c.name === 'node_pub')) db.exec(`ALTER TABLE daemon_folders ADD COLUMN node_pub TEXT`)
   return db
 }
 
