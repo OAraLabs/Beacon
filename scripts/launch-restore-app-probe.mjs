@@ -247,7 +247,7 @@ for (let run = 1; run <= RUNS; run++) {
   console.log(`[probe] ── run ${run}/${RUNS} ──`)
   const profile = scratchProfile()
   // The side panel can hide the session list; this probe needs the list.
-  sql(profile, `INSERT OR REPLACE INTO settings (key, value) VALUES ('panel:open:v1', '0')`)
+  sql(profile, `INSERT OR REPLACE INTO settings (key, value) VALUES ('panel:open:v1', '0')`, 'beacon')
   const app = await launchApp({ profile })
   try {
     const inst = await app.mainEval(INSTRUMENT)

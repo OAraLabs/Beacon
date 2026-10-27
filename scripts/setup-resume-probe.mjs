@@ -286,7 +286,7 @@ try {
   check((await activeStep(app)) === 'Welcome', 'S4 …from the start (Welcome)', await activeStep(app))
   check(!existsSync(join(P1, 'api-credential.bin')), 'S4 the stored credential is deleted')
   await app.quit()
-  check(sql(P1, 'SELECT count(*) FROM gateway_profiles') === '0', 'S4 the saved address is deleted')
+  check(sql(P1, 'SELECT count(*) FROM gateway_profiles', 'beacon') === '0', 'S4 the saved address is deleted')
   app = await launch(P1)
   check((await screen(app)) === 'wizard' && (await activeStep(app)) === 'Welcome', 'S4 a relaunch stays in setup')
   await app.quit()
@@ -339,7 +339,7 @@ try {
   check(step7 === 'Welcome', 'S7 Start over returns to Welcome', step7)
   check(!existsSync(join(P4, 'api-credential.bin')), 'S7 …and deletes the stored credential')
   await app.quit()
-  check(sql(P4, 'SELECT count(*) FROM gateway_profiles') === '0', 'S7 …and the saved address')
+  check(sql(P4, 'SELECT count(*) FROM gateway_profiles', 'beacon') === '0', 'S7 …and the saved address')
 } catch (e) {
   check(false, 'probe ran to completion', e?.stack ?? String(e))
 } finally {

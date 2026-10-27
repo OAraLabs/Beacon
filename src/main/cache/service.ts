@@ -22,17 +22,41 @@ const MAX_ATTEMPTS = 5
  */
 export class CacheService {
   private prevState: ConnectionStatus['state'] = 'idle'
+  /**
+   * Held while it is not yet known that the Prometheus on this connection is the one this cache's folder belongs to (a plain
+   * connection, before hello has answered: docs/MULTI-PROMETHEUS.md §2). Held, nothing it says is written here (no session list,
+   * no history, no frame) and nothing queued here is sent to it: a new message is queued instead. `release` lifts it.
+   */
+  private held: boolean
 
   constructor(
     private readonly repo: CacheRepo,
-    private readonly connection: ConnectionManager
-  ) {}
+    private readonly connection: ConnectionManager,
+    opts: { held?: boolean } = {}
+  ) {
+    this.held = opts.held === true
+  }
+
+  /** The folder is confirmed as this Prometheus's: catch up as a reconnect would (drain the outbox, reconcile). */
+  release(): void {
+    if (!this.held) return
+    this.held = false
+    if (this.isConnected()) void this.onReconnect().catch(() => undefined)
+  }
+
+  isHeld(): boolean {
+    return this.held
+  }
+
+  private refuseWhileHeld(): void {
+    if (this.held) throw new Error('not yet confirmed that this is the Prometheus this cache belongs to')
+  }
 
   attach(): void {
     this.connection.on('status', (s: ConnectionStatus) => {
       const reconnected = this.prevState !== 'connected' && s.state === 'connected'
       this.prevState = s.state
-      if (reconnected) void this.onReconnect()
+      if (reconnected && !this.held) void this.onReconnect()
     })
     this.connection.on('stream', (f: ChatStreamFrame) => this.onFrame(f))
   }
@@ -40,6 +64,7 @@ export class CacheService {
   /** Re-key the cache from the live WS user echo (deterministic, by client_msg_id); reconcile a
    * finished turn so assistant rows land by rowid. */
   private onFrame(f: ChatStreamFrame): void {
+    if (this.held) return
     // CONTAINED, because this is a fire-and-forget listener on the socket's 'stream' event: a
     // throw here has no caller to catch it and reaches the main process as an uncaught exception —
     // Electron error dialog, app dead. That is what a single FK violation did on 2026-08-30. The
@@ -107,6 +132,7 @@ export class CacheService {
    * Offline → returns the cache as-is. */
   async listSessions(): Promise<SessionSummary[]> {
     try {
+      this.refuseWhileHeld()
       for (const s of await this.connection.listSessions()) {
         this.repo.upsertSessionMeta(
           s.id,
@@ -139,13 +165,14 @@ export class CacheService {
     // silently drop the chips (a shorter prompt than the user believed they attached — the exact
     // failure PR 382 was built to prevent). So: not connected → refuse loudly, queue nothing.
     const hasRefs = Array.isArray(req.references) && req.references.length > 0
-    if (hasRefs && !this.isConnected()) {
+    const live = this.isConnected() && !this.held
+    if (hasRefs && !live) {
       return { runId: clientMsgId, status: 'not-connected', error: 'not connected — a message with @-references is not queued (the daemon resolves them at send time)' }
     }
     this.repo.ensureSession(req.sessionId, this.connection.getStatus().gateway ?? undefined)
     const optimisticId = this.repo.addOptimisticMessage(req.sessionId, 'user', req.message, clientMsgId)
 
-    if (this.isConnected()) {
+    if (live) {
       try {
         return await this.connection.send({ ...req, idempotencyKey, clientMsgId })
       } catch (err) {
@@ -169,6 +196,7 @@ export class CacheService {
   }
 
   async onReconnect(): Promise<{ drained: number; reconciled: ReconcileStats[] }> {
+    if (this.held) return { drained: 0, reconciled: [] }
     const drainedSessions = await this.drainOutbox()
     const reconciled: ReconcileStats[] = []
     for (const sessionId of drainedSessions) reconciled.push(await this.reconcile(sessionId))
@@ -177,6 +205,7 @@ export class CacheService {
 
   /** Send every pending outbox row (with its client_msg_id). Returns distinct sessions drained. */
   async drainOutbox(): Promise<string[]> {
+    if (this.held) return []
     const pending = this.repo.getPendingOutbox()
     const touched = new Set<string>()
     for (const row of pending) {
@@ -213,6 +242,7 @@ export class CacheService {
    * GET /api/sessions poll would re-surface the session we just dropped from the cache. */
   async forgetSession(sessionId: string): Promise<void> {
     try {
+      this.refuseWhileHeld() // a forget is not sent to a Prometheus this cache may not belong to; the local purge still runs
       await this.connection.deleteSession(sessionId)
     } catch {
       // Offline / daemon error — proceed with the local purge regardless. If the session still
@@ -230,6 +260,7 @@ export class CacheService {
    * rows the cache already holds is a no-op beyond a watermark bump.
    */
   async backfill(sessionId: string): Promise<HistoryMessage[]> {
+    this.refuseWhileHeld()
     const history = await this.connection.fetchHistory(sessionId, 0)
     this.repo.reconcileSession(sessionId, history.messages, history.watermark)
     return this.getHistory(sessionId)
@@ -239,6 +270,7 @@ export class CacheService {
    * The cursor is the cached-message maximum, NOT the session watermark — the watermark column
    * tracks the daemon's high-water mark for unread dots and may run ahead of the cache. */
   async reconcile(sessionId: string): Promise<ReconcileStats> {
+    this.refuseWhileHeld()
     const since = this.repo.getMaxMessageRowId(sessionId)
     const history = await this.connection.fetchHistory(sessionId, since)
     return this.repo.reconcileSession(sessionId, history.messages, history.watermark)

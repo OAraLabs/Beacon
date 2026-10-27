@@ -18,6 +18,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'no
 import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { copyProfileDbs, profileDb, sqlEach } from './lib/profile-db.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = process.env.BEACON_PROFILE_SRC ?? join(homedir(), 'Library/Application Support/beacon-desktop')
@@ -155,10 +156,10 @@ if (await answers(PORT)) {
   process.exit(1)
 }
 const profile = mkdtempSync(join(tmpdir(), 'beacon-panes-probe-'))
-execFileSync('sqlite3', ['-readonly', join(SRC, 'beacon.db'), `.backup '${join(profile, 'beacon.db')}'`])
+copyProfileDbs(SRC, profile) // beacon.db, or app.db and each Prometheus folder (lib/profile-db.mjs)
 // No saved layout, drafts, list width or projects: what the probe sees is what it did.
-execFileSync('sqlite3', [join(profile, 'beacon.db'), "DELETE FROM settings WHERE key LIKE 'draft:%' OR key IN ('sessions:last', 'chat:panes:v1', 'sessions:width:v1', 'side-panel:open', 'sessions:projects:v1')"])
-const ids = execFileSync('sqlite3', [join(profile, 'beacon.db'), "SELECT s.id FROM sessions s WHERE s.pinned = 0 AND (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.role IN ('user','assistant')) >= 4 ORDER BY s.last_active DESC LIMIT 6"])
+sqlEach(profile, "DELETE FROM settings WHERE key LIKE 'draft:%' OR key IN ('sessions:last', 'chat:panes:v1', 'sessions:width:v1', 'side-panel:open', 'sessions:projects:v1')")
+const ids = execFileSync('sqlite3', [profileDb(profile), "SELECT s.id FROM sessions s WHERE s.pinned = 0 AND (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.role IN ('user','assistant')) >= 4 ORDER BY s.last_active DESC LIMIT 6"])
   .toString()
   .trim()
   .split('\n')

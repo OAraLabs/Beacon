@@ -25,7 +25,7 @@ import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launchApp, sleep } from './app-driver.mjs'
+import { launchApp, profileDb, sleep } from './app-driver.mjs'
 
 const PY = process.env.BEACON_SIGNED_PYTHON
 const SRC = process.env.BEACON_PROMETHEUS_SRC
@@ -236,7 +236,7 @@ try {
   const devicesDb = spawnSync('/usr/bin/find', [home, '-name', 'devices.db'], { encoding: 'utf8' }).stdout.trim().split('\n')[0]
   const ownerRow = kept && devicesDb ? spawnSync('/usr/bin/sqlite3', [`file:${devicesDb}?mode=ro`, `SELECT d.name || '|' || (d.revoked_at IS NULL) FROM api_devices d JOIN owner_devices o ON o.device_id = d.id WHERE d.token_sha256 = '${kept}'`], { encoding: 'utf8' }).stdout.trim() : ''
   check(!!kept && kept !== sha256(master) && ownerRow === 'Beacon on this Mac|1', 'the credential Beacon keeps is an owner credential in the daemon\'s own registry ("Beacon on this Mac", unrevoked), not the setup credential', `owner row: "${ownerRow}", master: ${kept === sha256(master)}`)
-  const setting = spawnSync('/usr/bin/sqlite3', [`file:${join(profile, 'beacon.db')}?mode=ro`, `SELECT value FROM settings WHERE key = 'onboarding:credential'`], { encoding: 'utf8' }).stdout.trim()
+  const setting = spawnSync('/usr/bin/sqlite3', [`file:${profileDb(profile, 'beacon')}?mode=ro`, `SELECT value FROM settings WHERE key = 'onboarding:credential'`], { encoding: 'utf8' }).stdout.trim()
   const calls = existsSync(join(root, 'launcher-calls')) ? readFileSync(join(root, 'launcher-calls'), 'utf8').trim().split('\n') : []
   check(setting === 'owner' && JSON.stringify(calls) === '["--pair"]', 'Beacon records the connection as an owner one; the launcher was asked for a secret once', JSON.stringify({ setting, calls }))
   const status = await until(async () => {

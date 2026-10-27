@@ -243,8 +243,10 @@ export function applyApprovalFrame(
  * Which link an approval notification's Approve/Deny goes out on (docs/MULTI-PROMETHEUS.md §1, bug 3): `raisedBy` is the
  * connection whose Prometheus asked, `current` the one that is live when the button is pressed.
  *
- * TODAY: the current one, whoever asked.
+ * The one that asked, and only while it is still the live one. Once Beacon has brought up another link (another Prometheus, or
+ * the same one re-joined), the button sends nothing: the decision is not carried to a Prometheus that never asked, and the old
+ * link's key is not used after Beacon let it go. The request is still waiting on that Prometheus, in the app, when it is back.
  */
-export function approvalActionTarget<T>(_raisedBy: T, current: T | null): T | null {
-  return current
+export function approvalActionTarget<T>(raisedBy: T, current: T | null): T | null {
+  return current !== null && current === raisedBy ? current : null
 }

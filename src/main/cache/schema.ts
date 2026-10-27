@@ -128,3 +128,32 @@ CREATE TABLE IF NOT EXISTS watchdog_events (
 );
 CREATE INDEX IF NOT EXISTS idx_watchdog_events_at ON watchdog_events(at);
 `
+
+/**
+ * app.db (docs/MULTI-PROMETHEUS.md §3): what belongs to this Beacon whichever Prometheus is open. Settings classified 'beacon'
+ * by @shared/daemon-profiles, the saved connection, and the list of Prometheus folders. NO conversation, message or outbox
+ * table: those live in each Prometheus's own daemons/<id>/cache.db (SCHEMA above), so there is nothing here to mix.
+ */
+export const APP_SCHEMA = /* sql */ `
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS gateway_profiles (
+  name        TEXT PRIMARY KEY,
+  api_base    TEXT NOT NULL,
+  ws_url      TEXT NOT NULL,
+  is_default  INTEGER DEFAULT 0,
+  pin         TEXT
+);
+
+-- One row per Prometheus folder under daemons/. The folder's name is only an id: a cache that predates fp is 'legacy-1', and
+-- a plain connection opened before hello answers gets a fresh id. fp is bound once it is known and never changes after.
+CREATE TABLE IF NOT EXISTS daemon_folders (
+  id           TEXT PRIMARY KEY,
+  fp           TEXT UNIQUE,
+  api_base     TEXT,
+  last_active  INTEGER NOT NULL
+);
+`

@@ -81,7 +81,9 @@ import { requestSmall, requestWith } from './pairing/http'
 import { JoinSession, type SavedConnection } from './pairing/session'
 import { PrometheusInstaller, execFileTool, type SavedLocal } from './prometheus-install'
 import { installEnv } from '@shared/prometheus-app'
-import { discoveryEnv } from '@shared/discovery'
+import { discoveryEnv, type Endpoint } from '@shared/discovery'
+import { fpFromPin, validFp } from '@shared/daemon-profiles'
+import { askHello } from './discovery'
 import { macMajor } from '@shared/mac-check'
 import { homedir, tmpdir } from 'os'
 import { pairingPollMs } from '@shared/join-owner'
@@ -355,8 +357,12 @@ function roleMemory(gw: GatewayConfig, token: string | null): RoleMemory {
 }
 
 /** (Re)build the connection + cache for a gateway + optional token. Idempotent — tears down any
- * existing connection first, so it's safe at startup AND on first-run / re-config. */
-function bringUpConnection(gw: GatewayConfig, token: string | null): void {
+ * existing connection first, so it's safe at startup AND on first-run / re-config.
+ *
+ * The cache is that Prometheus's own folder (docs/MULTI-PROMETHEUS.md §3). `knownFp` is its instance fingerprint when already
+ * known (hello's, on a rebind); a pinned profile's comes from its pin. Without either, the folder last used at this address is
+ * opened HELD until hello says who answers there (confirmIdentity). */
+function bringUpConnection(gw: GatewayConfig, token: string | null, knownFp: string | null = null): void {
   if (connection) {
     connection.removeAllListeners()
     connection.stop()
@@ -393,12 +399,79 @@ function bringUpConnection(gw: GatewayConfig, token: string | null): void {
     maybeNotifyTask(ev as { type?: string; payload?: Record<string, unknown> })
     handleApprovalFrame(conn, ev as { type?: string; payload?: Record<string, unknown> })
   })
-  cache = new CacheService(folders!.open({ apiBase: gw.apiBase, fp: null }).repo, connection)
+  const fp = knownFp ?? fpFromPin(gw.pin)
+  const before = folders!.currentId()
+  const folder = folders!.open({ apiBase: gw.apiBase, fp })
+  cache = new CacheService(folder.repo, connection, { held: fp === null })
   cache.attach()
+  if (fp === null) confirmIdentity(conn, cache, gw, token, folder.id)
+  if (before !== null && before !== folder.id) broadcast(IPC.CACHE_FOLDER_CHANGED, null)
   connection.start()
   pairingWatcher.reset() // a new connection may be a different computer, or a different kind of device
   pairingWatcher.start()
   updateTray()
+}
+
+/** How often a held cache asks hello again while its connection stays up and hello has not answered. */
+const IDENTITY_RETRY_MS = 30_000
+
+/**
+ * A plain connection's Prometheus says who it is (docs/MULTI-PROMETHEUS.md §2): hello, with no key, once the connection is up.
+ * The same Prometheus the folder belongs to (or a folder no fp was bound to yet): the cache is released and catches up. Another
+ * one: its own folder is opened instead, and the app remounts. Until then the cache stays held: nothing from this connection is
+ * written into the folder and nothing queued in it is sent. Only an unreachable hello keeps it held, asked again on each reconnect
+ * and every 30 s while connected; an answer with no fp releases it, as before folders existed.
+ */
+function confirmIdentity(conn: ConnectionManager, held: CacheService, gw: GatewayConfig, token: string | null, folderId: string): void {
+  let asking = false
+  let retry: NodeJS.Timeout | null = null
+  const ask = async (): Promise<void> => {
+    if (asking || connection !== conn || !held.isHeld()) return
+    asking = true
+    try {
+      const ep = endpointOf(gw.apiBase)
+      const hello = ep ? await askHello(ep) : 'unreachable'
+      if (connection !== conn || !held.isHeld()) return
+      if (hello === 'not-prometheus' || (typeof hello !== 'string' && !validFp(hello.fp))) {
+        // Something answers there, but not with an fp (a Prometheus too old to say it, or a hello it does not serve): nothing to tell
+        // it apart by, so the folder at its address is taken as its own, as before folders existed.
+        console.warn('[cache] this Prometheus does not say its instance fingerprint; using the folder at its address')
+        held.release()
+        return
+      }
+      if (typeof hello === 'string') {
+        if (retry === null && conn.getStatus().state === 'connected') {
+          retry = setTimeout(() => {
+            retry = null
+            void ask()
+          }, IDENTITY_RETRY_MS)
+        }
+        return
+      }
+      const home = folders!.bind(folderId, hello.fp)
+      if (home === folderId) held.release()
+      else {
+        console.info(`[cache] a different Prometheus answers at ${hostOf(gw.apiBase)}; opening its own folder`)
+        bringUpConnection(gw, token, hello.fp)
+      }
+    } finally {
+      asking = false
+    }
+  }
+  conn.on('status', (s: ConnectionStatus) => {
+    if (s.state === 'connected') void ask()
+  })
+}
+
+/** host:port out of a REST base, for hello. */
+function endpointOf(apiBase: string): Endpoint | null {
+  try {
+    const u = new URL(apiBase)
+    const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+    return { host: u.hostname.replace(/^\[|\]$/g, ''), port }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -451,6 +524,7 @@ function forgetConnection(): SetupForgetResult {
     connectedApiBase = null
     connectedGateway = null
     cache = null
+    folders?.closeCurrent() // the conversations stay in their folder; nothing of theirs shows while no Prometheus is saved
     pairingWatcher.reset()
     repo?.deleteGatewayProfiles()
     creds?.clear()
@@ -1604,12 +1678,10 @@ app.whenReady().then(() => {
     })
   }
 
+  // app.db plus one folder per Prometheus (docs/MULTI-PROMETHEUS.md §3); the first launch moves beacon.db in, backup first.
+  // The A6 sweep of orphaned per-conversation settings runs per folder, as each is opened.
   folders = new DaemonFolders(app.getPath('userData'))
   repo = folders
-  // A6 hygiene: sweep session-scoped settings rows orphaned by forgets that predate the
-  // forget-time cleanup. Logged so a sweep that finds something is visible, not silent.
-  const prunedSettings = repo.pruneSessionSettings()
-  if (prunedSettings > 0) console.log(`[cache] pruned ${prunedSettings} orphaned session-scoped settings row(s)`)
   // Load the two window/notification choices before anything can fire one. Reading them here (not
   // lazily at the call site) means the gate uses a settled value from the first event onward — a
   // notification that arrives before the renderer has round-tripped the preference still respects it.
