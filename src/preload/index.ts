@@ -54,6 +54,10 @@ const api: BeaconBridge = {
     trustNewKey: () => ipcRenderer.invoke(IPC.IDENTITY_TRUST_NEW_KEY),
     test: (req?: ConnectionTestRequest) => ipcRenderer.invoke(IPC.CONNECTION_TEST, req)
   },
+  instances: {
+    list: () => ipcRenderer.invoke(IPC.INSTANCES_LIST),
+    switch: (id: string) => ipcRenderer.invoke(IPC.INSTANCE_SWITCH, id)
+  },
   chat: {
     send: (req: ChatSendRequest) => ipcRenderer.invoke(IPC.CHAT_SEND, req),
     upload: (req: ChatUploadRequest) => ipcRenderer.invoke(IPC.CHAT_UPLOAD, req),

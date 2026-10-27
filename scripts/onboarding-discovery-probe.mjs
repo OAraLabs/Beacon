@@ -31,6 +31,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchApp, sleep, sql } from './app-driver.mjs'
+import { keptCount } from './lib/profile-db.mjs'
 import { startChecks, waitFor } from './lib/probe-kit.mjs'
 import { FP_A, FP_B, advertise, dnssdChildren, helloGets, helloStub, makeFakes, noCreds, stopAdvertisers, stopStub } from './lib/discovery-fixtures.mjs'
 
@@ -140,7 +141,7 @@ try {
   const st = await app.page.evaluate(`window.beacon.setup.status()`)
   await app.quit()
   check(c?.fp === FP_A && st?.needsSetup === true, 'G1d after finding it, and everything else,, this Mac is still not connected to anything', JSON.stringify(st))
-  check(c?.fp === FP_A && sql(g1.profile, 'SELECT count(*) FROM gateway_profiles', 'beacon') === '0' && !existsSync(join(g1.profile, 'api-credential.bin')), 'G1d …no address saved, no credential stored')
+  check(c?.fp === FP_A && keptCount(g1.profile) === 0 && !existsSync(join(g1.profile, 'api-credential.bin')), 'G1d …no address saved, no credential stored')
 
   // ── G2: Bonjour, real, on the local-only interface ───────────────────────────────────────────
   console.log('\n[probe] === G2: the home network (Bonjour) ===')

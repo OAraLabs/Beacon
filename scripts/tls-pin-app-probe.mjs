@@ -19,7 +19,8 @@ import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
-import { launchApp, profileDb, sleep } from './app-driver.mjs'
+import { launchApp, sleep } from './app-driver.mjs'
+import { savedConnection } from './lib/profile-db.mjs'
 
 if (process.platform !== 'darwin') {
   console.log('[probe] SKIPPED: macOS only (app-driver)')
@@ -158,7 +159,7 @@ try {
   check((await until(async () => (await cardText()) === null, 5000)) === true || (await cardText()) === null, 'and the card is gone')
 
   // 4. Settings' Save on the pinned connection (review of PR 244, F1).
-  const row = () => spawnSync('/usr/bin/sqlite3', [`file:${profileDb(profile, 'beacon')}?mode=ro`, `SELECT api_base || '|' || ws_url || '|' || COALESCE(pin, '') FROM gateway_profiles WHERE is_default = 1`], { encoding: 'utf8' }).stdout.trim()
+  const row = () => savedConnection(profile) // 'api_base|ws_url|pin' (lib/profile-db.mjs, either layout)
   const pinnedRow = `https://${HOST}:${API}|wss://${HOST}:${WS}|${A.pin}`
   const same = await app.page.evaluate(`window.beacon.connection.saveSettings({ apiBase: 'https://${HOST}:${API}', wsUrl: 'wss://${HOST}:${WS}' })`)
   const again = await until(async () => (await status())?.state === 'connected', 15000)

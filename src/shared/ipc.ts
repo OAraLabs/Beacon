@@ -132,6 +132,8 @@ export const IPC = {
   CONNECTION_GET_SETTINGS: 'connection:getSettings', // renderer -> main: current gateway URLs + hasToken
   CONNECTION_SAVE_SETTINGS: 'connection:saveSettings', // renderer -> main: persist URLs+token, rebuild, re-test
   CONNECTION_RECONNECT: 'connection:reconnect', // renderer -> main: drop + redial the WS now (manual retry)
+  INSTANCES_LIST: 'instances:list', // renderer -> main: every Prometheus Beacon keeps (no key), the active one marked
+  INSTANCE_SWITCH: 'instances:switch', // renderer -> main: make one the active Prometheus and bring it up (docs/MULTI-PROMETHEUS.md §4)
   IDENTITY_TRUST_NEW_KEY: 'identity:trust-new-key', // renderer -> main: the person confirms the connected Prometheus moved to new hardware (docs/MULTI-PROMETHEUS.md §8)
   CONNECTION_TEST: 'connection:test', // renderer -> main: GET /api/status with form values, WITHOUT saving
   // main -> renderer (webContents.send / on)
@@ -228,6 +230,16 @@ export type ConnectionState =
   | 'connected'
   | 'reconnecting'
   | 'failed'
+
+/** One Prometheus Beacon keeps, as the renderer may see it (docs/MULTI-PROMETHEUS.md §5): no key, no address beyond its host. */
+export interface InstanceSummary {
+  id: string
+  label: string
+  host: string
+  pinned: boolean
+  active: boolean
+  lastActive: number
+}
 
 export interface ConnectionStatus {
   state: ConnectionState
@@ -798,6 +810,12 @@ export interface BeaconBridge {
     trustNewKey(): Promise<boolean>
     /** Probe GET /api/status with form values WITHOUT saving — the Settings "Test" button. */
     test(req?: ConnectionTestRequest): Promise<ConnectionTestResult>
+  }
+  instances: {
+    /** Every Prometheus Beacon keeps, most recently used first. */
+    list(): Promise<InstanceSummary[]>
+    /** Make `id` the active Prometheus and connect to it. False for an id Beacon doesn't keep. */
+    switch(id: string): Promise<boolean>
   }
   chat: {
     send(req: ChatSendRequest): Promise<ChatSendResult>

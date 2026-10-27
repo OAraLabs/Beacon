@@ -19,7 +19,8 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
-import { launchApp, profileDb, sleep } from './app-driver.mjs'
+import { launchApp, sleep } from './app-driver.mjs'
+import { savedConnection } from './lib/profile-db.mjs'
 
 if (process.platform !== 'darwin') {
   console.log('[probe] SKIPPED: macOS only (app-driver)')
@@ -84,7 +85,7 @@ execFileSync('sqlite3', [
    INSERT INTO gateway_profiles VALUES ('mini', 'http://127.0.0.1:${API}', 'ws://127.0.0.1:${WS}', 1, NULL);`
 ])
 const fresh = mkdtempSync(join(tmpdir(), 'beacon-plain-lan-probe-fresh-'))
-const row = () => execFileSync('sqlite3', [`file:${profileDb(profile, 'beacon')}?mode=ro`, `SELECT api_base || '|' || ws_url FROM gateway_profiles WHERE is_default = 1`], { encoding: 'utf8' }).trim()
+const row = () => savedConnection(profile).replace(/\|[^|]*$/, '') // 'api_base|ws_url' (lib/profile-db.mjs, either layout)
 const until = async (fn, ms) => {
   const end = Date.now() + ms
   for (;;) {

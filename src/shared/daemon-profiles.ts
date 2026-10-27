@@ -43,14 +43,13 @@ export const PROMETHEUS_SETTING_KEYS: readonly string[] = [
   SESSION_UNFILED_SETTING_KEY,
   LAST_SESSION_KEY,
   SPLIT_LAYOUT_KEY,
-  'capture:session' // QuickCapture's last target (a session id)
+  'capture:session', // QuickCapture's last target (a session id)
+  // The facts about that Prometheus's key (layout 3): which kind of credential it is, and the device role it last answered.
+  CREDENTIAL_KIND_KEY,
+  'connection.deviceRole' // src/main/index.ts DEVICE_ROLE_KEY
 ]
 
-/**
- * This Beacon's own. The credential's kind and the remembered device role are a Prometheus's facts, but they stay here, beside
- * the one key file, until PR 2 gives each Prometheus its own key (docs/MULTI-PROMETHEUS.md §3.1 step 3): split from the key,
- * they would describe a key that is not there.
- */
+/** This Beacon's own, whichever Prometheus is open. */
 export const BEACON_SETTING_KEYS: readonly string[] = [
   THEME_KEY,
   CLOSE_MODE_KEY,
@@ -65,9 +64,8 @@ export const BEACON_SETTING_KEYS: readonly string[] = [
   ONBOARDING_BROWSING_KEY,
   ONBOARDING_KNOWN_KEY,
   ONBOARDING_LAN_ASKED_KEY,
-  CREDENTIAL_KIND_KEY,
-  'connection.deviceRole', // src/main/index.ts DEVICE_ROLE_KEY
-  'daemons:layout' // src/main/cache/daemon-folders.ts LAYOUT_KEY: app.db's own marker that the folders are in place
+  'daemons:layout', // src/main/cache/daemon-folders.ts LAYOUT_KEY: app.db's own marker that the folders are in place
+  'daemons:active' // src/main/cache/daemon-folders.ts ACTIVE_KEY: which Prometheus Beacon connects to at launch
 ]
 
 /** Keys that start with one of these are Beacon's: the side panel's width, one row per width group (@shared/side-panel). */

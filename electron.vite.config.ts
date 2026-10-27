@@ -132,6 +132,7 @@ export default defineConfig({
           'daemon-folders-smoke': resolve('src/main/daemon-folders-smoke.ts'),
           'credential-origin-smoke': resolve('src/main/credential-origin-smoke.ts'),
           'identity-challenge-smoke': resolve('src/main/identity-challenge-smoke.ts'),
+          'daemon-list-smoke': resolve('src/main/daemon-list-smoke.ts'),
           'panels-smoke': resolve('src/main/panels-smoke.ts'),
           'trust-smoke': resolve('src/main/trust-smoke.ts'),
           'ws-auth-smoke': resolve('src/main/ws-auth-smoke.ts'),

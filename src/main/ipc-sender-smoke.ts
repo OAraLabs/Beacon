@@ -168,7 +168,7 @@ const files: SourceFile[] = walk(MAIN).map((p) => ({ path: relative(ROOT, p).spl
  *  someone should look at. */
 const REGISTRATIONS: Record<string, { helper: number; raw: number }> = {
   'src/main/ipc.ts': { helper: 40, raw: 0 },
-  'src/main/index.ts': { helper: 19, raw: 0 },
+  'src/main/index.ts': { helper: 21, raw: 0 },
   'src/main/integrations-ipc.ts': { helper: 6, raw: 0 },
   'src/main/loop-ipc.ts': { helper: 5, raw: 0 },
   'src/main/discovery-ipc.ts': { helper: 4, raw: 0 },

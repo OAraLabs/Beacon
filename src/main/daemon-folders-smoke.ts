@@ -95,6 +95,9 @@ function checkMoved(root: string, label: string): void {
     assert(existsSync(keyBackup) && readFileSync(keyBackup).equals(SEALED_KEY), `${label}: a copy of the key was backed up first`)
     assert(folders.getSetting(THEME_KEY) === 'dusk', `${label}: the theme moved into app.db`)
     assert(folders.getDefaultGatewayProfile()?.apiBase === API, `${label}: the saved connection moved into app.db`)
+    const act = folders.activeInstance()
+    assert(act?.id === LEGACY_FOLDER_ID && act.gateway.pin === PIN && act.gateway.name === 'mini', `${label}: it is the legacy folder's record, the active one (${act?.id})`)
+    assert(folders.listInstances().length === 1, `${label}: one Prometheus kept (${folders.listInstances().length})`)
     assert(!tables(join(root, 'app.db')).includes('sessions') && !tables(join(root, 'app.db')).includes('outbox'), `${label}: app.db holds no conversation or outbox table`)
     const folder = folders.open({ apiBase: API, fp: fpFromPin(PIN) })
     assert(folder.id === LEGACY_FOLDER_ID, `${label}: the pinned Prometheus opens the legacy folder (got ${folder.id})`)
@@ -185,7 +188,7 @@ async function main(): Promise<void> {
   }
 
   console.log('\n[smoke] === 2. a crash after each step is finished by the next launch ===')
-  for (const step of ['backup', 'app', 'move', 'key'] as MigrationStep[]) {
+  for (const step of ['backup', 'app', 'move', 'key', 'record'] as MigrationStep[]) {
     const root = legacyUserData(PIN)
     let injected = false
     try {
@@ -202,14 +205,20 @@ async function main(): Promise<void> {
     // Conversations already in folders ('1'), the key still the one file, the saved connection's folder not the legacy one.
     const root = tempRoot()
     const first = new DaemonFolders(root)
-    first.upsertGatewayProfile('mini', 'http://127.0.0.1:18210', 'ws://127.0.0.1:18211', true, null)
     const id = first.open({ apiBase: 'http://127.0.0.1:18210', fp: '9'.repeat(16) }).id
-    first.app.setSetting(LAYOUT_KEY, '1')
     first.close()
+    // As PR 1 left app.db: the saved connection in gateway_profiles, the credential's kind in app.db's settings, layout '1'.
+    const app = new Database(join(root, 'app.db'))
+    app.exec(`INSERT INTO gateway_profiles (name, api_base, ws_url, is_default, pin) VALUES ('mini', 'http://127.0.0.1:18210', 'ws://127.0.0.1:18211', 1, NULL);
+      INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding:credential', 'master'), ('${LAYOUT_KEY}', '1');`)
+    app.close()
     writeFileSync(join(root, 'api-credential.bin'), SEALED_KEY, { mode: 0o600 })
     const folders = new DaemonFolders(root)
     assert(folders.app.getSetting(LAYOUT_KEY) === LAYOUT, `the layout moves on to ${LAYOUT}`)
     assert(readFileSync(join(root, 'daemons', id, 'credential.bin')).equals(SEALED_KEY) && !existsSync(join(root, 'api-credential.bin')), `the key goes to the saved connection's folder (${id})`)
+    const act = folders.activeInstance()
+    assert(act?.id === id && act.gateway.wsUrl === 'ws://127.0.0.1:18211' && act.gateway.name === 'mini', `the saved connection is that folder's record, and the active one (${act?.id})`)
+    assert(folders.getSettingFor(id, 'onboarding:credential') === 'master' && folders.app.getSetting('onboarding:credential') === null, "the credential's kind moved into that Prometheus's folder")
     folders.close()
   }
 
