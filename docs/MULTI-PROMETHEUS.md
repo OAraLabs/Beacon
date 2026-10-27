@@ -53,6 +53,12 @@ address is paired with A's key.
 4. **One folder per Prometheus, nothing shared.** Mixing then can't happen through a forgotten `WHERE`, because there is
    nothing to join across. (Rejected: one cache with a `daemon_id` column on every table. Every query would need the
    filter, and a missing filter is an absence no test reliably finds.)
+5. **Beacon is a client, never a router.** It shows each Prometheus and controls each one, over that Prometheus's own link
+   and key. It never carries a task, a message, a file or an approval from one Prometheus to another, and never acts as
+   the go-between for work that spans them, not even when both are on screen at once. Work between instances goes daemon
+   to daemon (a future agent-to-agent adapter in Prometheus), and Beacon at most shows it, read from each Prometheus. This
+   keeps every key with its own Prometheus (rule 2), and keeps Beacon out of the path a task depends on: a laptop that
+   closes its lid must not strand work between two always-on instances.
 
 ## 3. Storage
 
@@ -230,7 +236,8 @@ None of these block Beacon; each has a fallback.
 
 ## 9. Out of v1
 
-- Tasks that span or move between Prometheus instances.
+- Tasks that span or move between Prometheus instances. Not in v1, and never through Beacon (§2 rule 5): when it comes, it
+  goes daemon to daemon.
 - Shared state across instances.
 - One merged conversation list, or search across instances.
 - Moving or forking a conversation to another Prometheus.
