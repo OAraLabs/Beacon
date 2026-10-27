@@ -59,6 +59,7 @@
     "smoke:identity-challenge": "ELECTRON_RUN_AS_NODE=1 electron out/main/identity-challenge-smoke.js",
     "smoke:daemon-list": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-list-smoke.js",
     "smoke:instance-watch": "ELECTRON_RUN_AS_NODE=1 electron out/main/instance-watch-smoke.js",
+    "smoke:edit-address": "ELECTRON_RUN_AS_NODE=1 electron out/main/edit-address-smoke.js",
     "smoke:panels": "ELECTRON_RUN_AS_NODE=1 electron out/main/panels-smoke.js",
     "smoke:window-chrome": "ELECTRON_RUN_AS_NODE=1 electron out/main/window-chrome-smoke.js",
     "smoke:watchdog-log": "ELECTRON_RUN_AS_NODE=1 electron out/main/watchdog-log-smoke.js",

@@ -134,6 +134,7 @@ export default defineConfig({
           'identity-challenge-smoke': resolve('src/main/identity-challenge-smoke.ts'),
           'daemon-list-smoke': resolve('src/main/daemon-list-smoke.ts'),
           'instance-watch-smoke': resolve('src/main/instance-watch-smoke.ts'),
+          'edit-address-smoke': resolve('src/main/edit-address-smoke.ts'),
           'panels-smoke': resolve('src/main/panels-smoke.ts'),
           'trust-smoke': resolve('src/main/trust-smoke.ts'),
           'ws-auth-smoke': resolve('src/main/ws-auth-smoke.ts'),
