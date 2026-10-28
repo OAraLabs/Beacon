@@ -12,6 +12,8 @@
 //   * a fact Beacon cannot read never blocks anyone;
 //   * checking and confirming DOWNLOAD NOTHING: the stub sees only credential-free GETs, and the confirmation is the
 //     one decision before anything starts;
+//   * the confirmation says the size the release manifest gives (the only thing it asks the release for), and the
+//     constant at once when the release cannot answer or stalls;
 //   * no banned word on any of it, in the RENDERED text.
 //
 // The facts of this Mac are overridden through BEACON_MAC_CHECK, honoured only by a non-release build; the probe
@@ -23,7 +25,8 @@
 // SAFE BY CONSTRUCTION: the stub is on an EPHEMERAL loopback port (BEACON_DISCOVERY_PORT, honoured only by a
 // non-release build), never 8005, so another session's daemon is never asked; shell.openExternal is replaced before
 // it is clicked; a fresh profile and --use-mock-keychain per launch. Confirming starts setting Prometheus up, which this probe
-// does not follow (probe:onboarding-install does): its release is a loopback port where nothing listens, its home a scratch
+// does not follow (probe:onboarding-install does): its release is a loopback port where nothing listens (or, for the size, a
+// stub on an ephemeral loopback port that serves a manifest and no zip), its home a scratch
 // folder and its launcher /usr/bin/false (all BEACON_PROMETHEUS_*, non-release only), so nothing is fetched from GitHub,
 // nothing is put in the real Applications and nothing is run.
 import { mkdtempSync, readFileSync } from 'node:fs'
@@ -33,8 +36,9 @@ import { launchApp, sleep } from './app-driver.mjs'
 import { bannedHits, clickText, pageText, startChecks, waitFor } from './lib/probe-kit.mjs'
 import { stubDaemon } from './lib/stub-daemon.mjs'
 import { createServer } from 'node:net'
+import http from 'node:http'
 
-const check = startChecks('onboarding-path-a', 41)
+const check = startChecks('onboarding-path-a', 46)
 const WORDS = JSON.parse(readFileSync(new URL('../src/shared/onboarding-banned-words.json', import.meta.url), 'utf8')).words
 const STORAGE_URL = 'x-apple.systempreferences:com.apple.settings.Storage'
 const UPDATE_URL = 'https://support.apple.com/en-us/108382'
@@ -47,11 +51,27 @@ const d = await stubDaemon()
 d.profile = 'none'
 const CLOSED = await new Promise((res) => { const s = createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) }) })
 
+// The constant the confirmation falls back to, read from the source the app was built from (DOWNLOAD_ESTIMATE_FROM).
+const FALLBACK_MB = Math.round(Number(readFileSync(new URL('../src/shared/mac-check.ts', import.meta.url), 'utf8').match(/DOWNLOAD_ESTIMATE_FROM = \{[^}]*zipBytes: ([\d_]+)/)[1].replace(/_/g, '')) / 1e6)
+// The release stub for the size: a manifest only (no zip is served), or a release that takes the request and never answers.
+const STUB_SIZE = 64_400_000
+const rel = { mode: 'answer', requests: [] }
+const relServer = http.createServer((req, res) => {
+  rel.requests.push({ method: req.method, path: req.url, auth: 'authorization' in req.headers, cookie: 'cookie' in req.headers })
+  if (rel.mode === 'stall') return // never answered; the app gives up on its own
+  if (req.url === '/rel/prometheus-mac.json') return res.writeHead(302, { location: '/rel/download/v0.9.99/prometheus-mac.json' }).end()
+  if (req.url === '/rel/download/v0.9.99/prometheus-mac.json') {
+    return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ version: '0.9.99', asset: 'Prometheus-0.9.99-arm64.zip', sha256: 'a'.repeat(64), size: STUB_SIZE, team_id: '53JM8W47RL' }))
+  }
+  res.writeHead(404).end()
+})
+const REL = await new Promise((r) => relServer.listen(0, '127.0.0.1', () => r(relServer.address().port)))
+
 const GOOD = { platform: 'darwin', arch: 'arm64', macos: '15.6.1', freeBytes: 50 * GB, memoryBytes: 16 * GB }
-async function launch(facts, profile = 'none') {
+async function launch(facts, profile = 'none', releasePort = CLOSED) {
   d.profile = profile
   for (const k of Object.keys(process.env)) if (k.startsWith('BEACON_DISCOVERY') || k.startsWith('BEACON_PROMETHEUS') || k === 'BEACON_MAC_CHECK') delete process.env[k]
-  Object.assign(process.env, { BEACON_PROMETHEUS_RELEASE: `http://127.0.0.1:${CLOSED}/rel`, BEACON_PROMETHEUS_HOME: join(root, 'home'), BEACON_PROMETHEUS_LAUNCHER: '/usr/bin/false' })
+  Object.assign(process.env, { BEACON_PROMETHEUS_RELEASE: `http://127.0.0.1:${releasePort}/rel`, BEACON_PROMETHEUS_HOME: join(root, 'home'), BEACON_PROMETHEUS_LAUNCHER: '/usr/bin/false' })
   process.env.BEACON_ONBOARDING = 'v4'
   Object.assign(process.env, { BEACON_DISCOVERY_SOURCES: 'loopback', BEACON_DISCOVERY_PORT: String(d.apiPort), BEACON_DISCOVERY_WINDOW_MS: '2500', BEACON_MAC_CHECK: JSON.stringify({ ...GOOD, ...facts }) })
   const app = await launchApp({ profile: mkdtempSync(join(root, 'profile-')), readySelector: '[data-screen], .wiz-card, nav[aria-label="Views"]' })
@@ -97,6 +117,7 @@ try {
   check(confirm.includes('Beacon will get Prometheus from OAra Labs') && confirm.includes('Applications folder') && confirm.includes('keeps running when you log in') && !/Settings|turn (it|that) off|newer/.test(confirm), 'P1 it says what will happen (where it comes from, where it goes, that it keeps running) and promises no switch or check Beacon does not have yet')
   await noJargon(app, 'P1 the confirmation', 'Set up Prometheus on this Mac')
   check((await hasButton(app, 'Set up Prometheus')) && (await hasButton(app, 'Back')), 'P1 one button to go on, and Back')
+  check(confirm.includes(`(about ${FALLBACK_MB} MB)`), `P1 with a release that cannot be reached, it says the constant (about ${FALLBACK_MB} MB)`, confirm.match(/\(about [^)]*\)/)?.[0])
   const paths = new Set(d.requests.map((q) => q.path))
   check(paths.size === 3 && d.requests.every((q) => q.method === 'GET' && ['/api/hello', '/api/setup/status', '/api/status'].includes(q.path)) && credFree(), 'P1 checking looked for a Prometheus already here by all three ways it can show itself (hello, setup mode, a daemon that asks for a credential), as GETs with no credential', JSON.stringify([...new Set(d.requests.map((q) => `${q.method} ${q.path}`))]))
   check((await h1(app)) === 'Set up Prometheus on this Mac' && (await clickText(app, 'Back')) === 'clicked' && (await onScreen(app, 'W2')) === 'W2', 'P1 Back from the confirmation is the question')
@@ -106,6 +127,32 @@ try {
   check((await clickText(app, 'Set up Prometheus')) === 'clicked' && (await onScreen(app, 'A-inst')) === 'A-inst' && (await waitFor(() => h1(app), (t) => t === 'Setting up Prometheus' || t === "We couldn't get Prometheus", 5000)) !== 'Not built yet', 'P1 confirming goes on to setting it up (A-inst), a real screen', `${await screenId(app)}: ${await h1(app)}`)
   check((await screenId(app)) === 'A-inst' && d.requests.length === before && d.requests.every((q) => q.method === 'GET'), 'P1 …and the computer the check looked at was sent nothing (getting Prometheus asks its release, never the computer)')
   await app.quit()
+
+  // ── P1s: the size, from the release manifest ─────────────────────────────────────────────────
+  console.log('\n[probe] === P1s: the confirmation says the release manifest\'s size ===')
+  rel.mode = 'answer'
+  rel.requests = []
+  app = await launch({}, 'none', REL)
+  await toCheck(app)
+  await onScreen(app, 'A-confirm', 6000)
+  const sized = await waitFor(() => screenText(app), (t) => t.includes('(about 64 MB)'), 4000)
+  check(sized.includes('(about 64 MB)'), 'P1s the manifest says 64,400,000 bytes, and the confirmation says about 64 MB', sized.match(/\(about [^)]*\)/)?.[0])
+  check(rel.requests.length > 0 && rel.requests.every((q) => q.method === 'GET' && !q.auth && !q.cookie && q.path.endsWith('/prometheus-mac.json')), 'P1s …and the release was asked for its manifest only (no zip), as GETs with no credential', JSON.stringify(rel.requests))
+  await app.quit()
+
+  console.log('\n[probe] === P1t: a release that never answers ===')
+  rel.mode = 'stall'
+  rel.requests = []
+  app = await launch({}, 'none', REL)
+  await toCheck(app)
+  await onScreen(app, 'A-confirm', 6000)
+  const atOnce = await screenText(app)
+  check(atOnce.includes(`(about ${FALLBACK_MB} MB)`), `P1t the confirmation says the constant (about ${FALLBACK_MB} MB) as soon as it is on screen, without waiting for the release`, atOnce.match(/\(about [^)]*\)/)?.[0])
+  await sleep(3500) // past main's timeout for the manifest
+  const after = await screenText(app)
+  check(rel.requests.length > 0 && after.includes(`(about ${FALLBACK_MB} MB)`) && (await hasButton(app, 'Set up Prometheus')), 'P1t …the release was asked, and once main gave up it still says the constant, with the button there', JSON.stringify({ asked: rel.requests.length, said: after.match(/\(about [^)]*\)/)?.[0] }))
+  await app.quit()
+  rel.mode = 'answer'
 
   // ── P2: not enough room ──────────────────────────────────────────────────────────────────────
   console.log('\n[probe] === P2: not enough free space ===')
@@ -202,5 +249,7 @@ try {
 } finally {
   await app?.quit().catch(() => undefined)
   await d.stop()
+  relServer.closeAllConnections?.()
+  relServer.close()
   console.log('\n[probe] profiles left in tmp for inspection (fresh, probe-only).')
 }

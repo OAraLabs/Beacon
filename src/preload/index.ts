@@ -227,6 +227,7 @@ const api: BeaconBridge = {
   },
   pathA: {
     check: () => ipcRenderer.invoke(IPC.PATHA_CHECK),
+    downloadSize: () => ipcRenderer.invoke(IPC.PATHA_DOWNLOAD_SIZE),
     openStorageSettings: () => ipcRenderer.invoke(IPC.PATHA_OPEN_STORAGE),
     installStart: () => ipcRenderer.invoke(IPC.PATHA_INSTALL_START),
     installCancel: () => ipcRenderer.invoke(IPC.PATHA_INSTALL_CANCEL),

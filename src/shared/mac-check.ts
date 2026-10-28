@@ -16,13 +16,22 @@ import type { DiscoveredComputer } from './discovery'
 /** What setting Prometheus up needs free on the volume it goes on. macOS shows storage in decimal GB, so so do we. */
 export const REQUIRED_FREE_BYTES = 2_000_000_000
 export const MIN_MACOS_MAJOR = 13
-/** The release the confirmation's estimate comes from, and its zip's size in bytes (the size of that release's
- *  Prometheus-mac-arm64.zip asset; 0.9.17's, read 2026-10-27). To move the estimate to a new release, change this line
+/** The release the fallback estimate comes from, and its zip's size in bytes (the size of that release's
+ *  Prometheus-mac-arm64.zip asset; 0.9.17's, read 2026-10-27). The confirmation says the release manifest's own size when
+ *  main can read it (downloadEstimateMB); this is only for when it cannot. To move it to a new release, change this line
  *  and the measured size in smoke:onboarding-mac-check. */
 export const DOWNLOAD_ESTIMATE_FROM = { version: '0.9.17', zipBytes: 71_538_835 } as const
-/** What the confirmation says the download is (decimal MB, as macOS shows sizes); the progress row shows the manifest's
- *  own size once the download starts. */
+/** What the confirmation says the download is (decimal MB, as macOS shows sizes) when the manifest cannot be read; the
+ *  progress row shows the manifest's own size once the download starts. */
 export const DOWNLOAD_ESTIMATE_MB = Math.round(DOWNLOAD_ESTIMATE_FROM.zipBytes / 1e6)
+/** How long main gives the release manifest before the confirmation keeps DOWNLOAD_ESTIMATE_MB. The screen never waits on
+ *  it: it says the constant at once, and the manifest's size if that comes in time. */
+export const DOWNLOAD_SIZE_TIMEOUT_MS = 3_000
+
+/** The MB the confirmation says: the release manifest's size when main could read it, DOWNLOAD_ESTIMATE_MB when not. */
+export function downloadEstimateMB(manifestBytes: number | null): number {
+  return manifestBytes !== null && Number.isFinite(manifestBytes) && manifestBytes > 0 ? Math.max(1, Math.round(manifestBytes / 1e6)) : DOWNLOAD_ESTIMATE_MB
+}
 
 /** How a Prometheus already on this Mac showed itself, in the order Beacon asks (settled with the installer
  *  session): the discovery hello (P5), else setup mode (`GET /api/setup/status`, unauthenticated, with a `version`),

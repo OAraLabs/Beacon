@@ -12,8 +12,8 @@ export const STORAGE_SETTINGS_URL = 'x-apple.systempreferences:com.apple.setting
 /** System Settings → General → Login Items (macOS 13 and later), where Prometheus is switched on. */
 export const LOGIN_ITEMS_URL = 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension'
 
-// Path A IPC (v0.4.0 onboarding): the check of this Mac and the button on the "not enough room" card; then, after the person
-// confirmed, setting Prometheus up (src/main/prometheus-install.ts) and the button on the "Login Items" card. The page names no
+// Path A IPC (v0.4.0 onboarding): the check of this Mac and the button on the "not enough room" card; the size the confirmation
+// says (the release manifest only); then, after the person confirmed, setting Prometheus up (src/main/prometheus-install.ts) and the button on the "Login Items" card. The page names no
 // URL and no path: main owns every one it opens, and the install's updates carry no secret and no credential.
 export function registerPathAHandlers(installer: PrometheusInstaller): void {
   handleFromShell(IPC.PATHA_CHECK, async (): Promise<MacCheckResult> => {
@@ -23,6 +23,7 @@ export function registerPathAHandlers(installer: PrometheusInstaller): void {
     const facts = await gatherMacFacts({ port, systemVersion: process.getSystemVersion?.() ?? null, env: process.env, allowOverride: allowed })
     return { verdict: evaluateMacCheck(facts), freeBytes: facts.freeBytes, memoryBytes: facts.memoryBytes, port }
   })
+  handleFromShell(IPC.PATHA_DOWNLOAD_SIZE, async () => installer.downloadSize())
   handleFromShell(IPC.PATHA_OPEN_STORAGE, async () => {
     if (process.platform !== 'darwin') return false
     await shell.openExternal(STORAGE_SETTINGS_URL)

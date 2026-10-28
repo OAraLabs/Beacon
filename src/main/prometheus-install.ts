@@ -28,6 +28,7 @@ import { constants as fsc, createWriteStream, type WriteStream } from 'node:fs'
 import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, open } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { helloFrom } from '@shared/discovery'
+import { DOWNLOAD_SIZE_TIMEOUT_MS } from '@shared/mac-check'
 import type { CredentialKind } from '@shared/model-setup'
 import { gatewayFromEndpoint, type GatewayConfig } from './connection/config'
 import type { RequestFn } from './pairing/http'
@@ -259,52 +260,18 @@ export class PrometheusInstaller {
 
   // ── 2. the manifest and the zip ────────────────────────────────────────────────────────────────────────────────────────────
 
-  /** GET with redirects followed by hand, each hop held to redirectAllowed. */
-  private async get(url: string, signal: AbortSignal): Promise<{ res: Response; url: string; chain: string[] }> {
-    let at = url
-    const chain: string[] = []
-    for (let hop = 0; hop <= MAX_HOPS; hop++) {
-      let res: Response
-      try {
-        chain.push(at)
-        res = await this.deps.fetch(at, { redirect: 'manual', signal, headers: { accept: '*/*' } })
-      } catch (err) {
-        this.check(signal)
-        throw new Stop('download', `GET ${at}: ${(err as Error).message}`)
-      }
-      if (res.status >= 300 && res.status < 400) {
-        const loc = res.headers.get('location')
-        await res.body?.cancel().catch(() => undefined)
-        const next = loc ? new URL(loc, at).toString() : ''
-        if (!next || !redirectAllowed(next, this.deps.env.overridden ? this.deps.env.releaseBase : null)) throw new Stop('download', `GET ${at}: a redirect Beacon does not follow (${loc ?? 'no location'})`)
-        at = next
-        continue
-      }
-      if (res.status !== 200) {
-        await res.body?.cancel().catch(() => undefined)
-        throw new Stop('download', `GET ${at}: HTTP ${res.status}`)
-      }
-      return { res, url: at, chain }
-    }
-    throw new Stop('download', `GET ${url}: more than ${MAX_HOPS} redirects`)
+  private get(url: string, signal: AbortSignal): Promise<{ res: Response; url: string; chain: string[] }> {
+    return releaseGet(this.deps, url, signal)
   }
 
-  private async manifest(signal: AbortSignal): Promise<{ manifest: Manifest; folder: string }> {
-    const { res, url, chain } = await this.get(`${this.deps.env.releaseBase}/${MANIFEST_ASSET}`, signal)
-    const text = await readCapped(res, MAX_MANIFEST_BYTES)
-    if (text === null) throw new Stop('download', `the release manifest is larger than ${MAX_MANIFEST_BYTES} bytes`)
-    let json: unknown = null
-    try {
-      json = JSON.parse(text)
-    } catch {
-      /* not JSON */
-    }
-    const manifest = parseManifest(json)
-    if (!manifest) throw new Stop('download', `the release manifest is not one Beacon can read (${url})`)
-    // The zip is asked for in the release's own folder on github.com (the last hop there), and reached by its own redirect.
-    const folder = releaseFolder(chain, this.deps.env.overridden ? this.deps.env.releaseBase : null)
-    if (!folder) throw new Stop('download', `the release manifest did not come from the release's own folder (${chain.join(' -> ')})`)
-    return { manifest, folder }
+  private manifest(signal: AbortSignal): Promise<{ manifest: Manifest; folder: string }> {
+    return readReleaseManifest(this.deps, signal)
+  }
+
+  /** What the confirmation says the download is: the release manifest's size (releaseDownloadSize), with this installer's own
+   *  fetch and release. Reads the manifest only. */
+  downloadSize(): Promise<number | null> {
+    return releaseDownloadSize(this.deps)
   }
 
   private async download(work: string, signal: AbortSignal): Promise<string> {
@@ -592,6 +559,81 @@ export async function readPrivateFile(path: string): Promise<string | { why: str
     return (await readFile(fh, 'utf8')).trim()
   } finally {
     await fh.close()
+  }
+}
+
+type ReleaseDeps = Pick<InstallDeps, 'fetch' | 'env'>
+
+/** GET from the release with redirects followed by hand, each hop held to redirectAllowed. */
+async function releaseGet(d: ReleaseDeps, url: string, signal: AbortSignal): Promise<{ res: Response; url: string; chain: string[] }> {
+  let at = url
+  const chain: string[] = []
+  for (let hop = 0; hop <= MAX_HOPS; hop++) {
+    let res: Response
+    try {
+      chain.push(at)
+      res = await d.fetch(at, { redirect: 'manual', signal, headers: { accept: '*/*' } })
+    } catch (err) {
+      if (signal.aborted) throw new Canceled()
+      throw new Stop('download', `GET ${at}: ${(err as Error).message}`)
+    }
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location')
+      await res.body?.cancel().catch(() => undefined)
+      const next = loc ? new URL(loc, at).toString() : ''
+      if (!next || !redirectAllowed(next, d.env.overridden ? d.env.releaseBase : null)) throw new Stop('download', `GET ${at}: a redirect Beacon does not follow (${loc ?? 'no location'})`)
+      at = next
+      continue
+    }
+    if (res.status !== 200) {
+      await res.body?.cancel().catch(() => undefined)
+      throw new Stop('download', `GET ${at}: HTTP ${res.status}`)
+    }
+    return { res, url: at, chain }
+  }
+  throw new Stop('download', `GET ${url}: more than ${MAX_HOPS} redirects`)
+}
+
+/** The release manifest, read the one way both the install and the confirmation read it: redirects held to the release's
+ *  hosts, MAX_MANIFEST_BYTES at most, parsed by parseManifest, and from the release's own folder. */
+async function readReleaseManifest(d: ReleaseDeps, signal: AbortSignal): Promise<{ manifest: Manifest; folder: string }> {
+  const { res, url, chain } = await releaseGet(d, `${d.env.releaseBase}/${MANIFEST_ASSET}`, signal)
+  const text = await readCapped(res, MAX_MANIFEST_BYTES)
+  if (text === null) throw new Stop('download', `the release manifest is larger than ${MAX_MANIFEST_BYTES} bytes`)
+  let json: unknown = null
+  try {
+    json = JSON.parse(text)
+  } catch {
+    /* not JSON */
+  }
+  const manifest = parseManifest(json)
+  if (!manifest) throw new Stop('download', `the release manifest is not one Beacon can read (${url})`)
+  // The zip is asked for in the release's own folder on github.com (the last hop there), and reached by its own redirect.
+  const folder = releaseFolder(chain, d.env.overridden ? d.env.releaseBase : null)
+  if (!folder) throw new Stop('download', `the release manifest did not come from the release's own folder (${chain.join(' -> ')})`)
+  return { manifest, folder }
+}
+
+/** The zip's size as the release manifest gives it, for the confirmation (A-confirm): the manifest alone, never the zip, or
+ *  null when it cannot be read within `timeoutMs`, which the screen answers with DOWNLOAD_ESTIMATE_MB. The race ends it even
+ *  when an abort does not reach a stalled body. */
+export async function releaseDownloadSize(d: ReleaseDeps, timeoutMs = DOWNLOAD_SIZE_TIMEOUT_MS): Promise<number | null> {
+  const abort = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      abort.abort()
+      resolve(null)
+    }, timeoutMs)
+  })
+  const read = readReleaseManifest(d, abort.signal).then(
+    ({ manifest }) => manifest.size,
+    () => null
+  )
+  try {
+    return await Promise.race([read, late])
+  } finally {
+    clearTimeout(timer)
   }
 }
 
