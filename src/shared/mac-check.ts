@@ -16,10 +16,10 @@ import type { DiscoveredComputer } from './discovery'
 /** What setting Prometheus up needs free on the volume it goes on. macOS shows storage in decimal GB, so so do we. */
 export const REQUIRED_FREE_BYTES = 2_000_000_000
 export const MIN_MACOS_MAJOR = 13
-/** The release the confirmation's estimate comes from, and its zip's size in bytes (the `size` in that release's
- *  prometheus-mac.json; 0.9.16's, read 2026-10-22). To move the estimate to a new release, change this line and the
- *  measured size in smoke:onboarding-mac-check. */
-export const DOWNLOAD_ESTIMATE_FROM = { version: '0.9.16', zipBytes: 78_965_277 } as const
+/** The release the confirmation's estimate comes from, and its zip's size in bytes (the size of that release's
+ *  Prometheus-mac-arm64.zip asset; 0.9.17's, read 2026-10-27). To move the estimate to a new release, change this line
+ *  and the measured size in smoke:onboarding-mac-check. */
+export const DOWNLOAD_ESTIMATE_FROM = { version: '0.9.17', zipBytes: 71_538_835 } as const
 /** What the confirmation says the download is (decimal MB, as macOS shows sizes); the progress row shows the manifest's
  *  own size once the download starts. */
 export const DOWNLOAD_ESTIMATE_MB = Math.round(DOWNLOAD_ESTIMATE_FROM.zipBytes / 1e6)
