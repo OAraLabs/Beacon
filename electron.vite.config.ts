@@ -174,6 +174,7 @@ export default defineConfig({
           'discovery-smoke': resolve('src/main/discovery-smoke.ts'),
           'hello-smoke': resolve('src/main/hello-smoke.ts'),
           'mac-check-smoke': resolve('src/main/mac-check-smoke.ts'),
+          'download-estimate-smoke': resolve('src/main/download-estimate-smoke.ts'),
           'request-join-smoke': resolve('src/main/request-join-smoke.ts'),
           'approve-join-smoke': resolve('src/main/approve-join-smoke.ts'),
           'prometheus-install-smoke': resolve('src/main/prometheus-install-smoke.ts'),

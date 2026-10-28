@@ -6,6 +6,7 @@ later update themselves.
 
 ## Unreleased
 
+- **Setup's download size comes from the release itself.** Before getting Prometheus, the confirmation now says the size the current release gives, read when the screen opens (only the release's small description file, never Prometheus itself). If it can't be read within a few seconds, the screen keeps the size built into Beacon, and it never waits to show it.
 - **Setup says the right download size.** Before getting Prometheus, the confirmation said about 71 MB, the size of an older Prometheus. It now says about 72 MB, the size of Prometheus 0.9.17, which is what it downloads.
 - **A part-way setup with a pairing Prometheus no longer accepts goes back to pairing.** If Prometheus on this Mac was set up again after Beacon paired with it, Beacon used to resume setup at "How should your assistant think?" with a pairing that couldn't work. It now checks the saved pairing first and, if it's refused, opens Connect saying to pair again.
 - **Try again connects once.** Pressing Try again while Beacon was still retrying an unanswered Prometheus could connect twice, dropping the first connection.

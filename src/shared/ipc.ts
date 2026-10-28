@@ -51,6 +51,7 @@ export const IPC = {
   PAIRING_APPROVE: 'pairing:approve', // renderer -> main: approve one, with the four digits the owner typed from the new device
   PAIRING_DENY: 'pairing:deny', // renderer -> main: say no
   JOIN_CANCEL: 'join:cancel', // renderer -> main: withdraw the request
+  PATHA_DOWNLOAD_SIZE: 'patha:download-size', // renderer -> main: the zip's size from the release manifest, for the confirmation (reads the manifest only; null when it cannot in time)
   PATHA_OPEN_STORAGE: 'patha:open-storage', // renderer -> main: open System Settings at Storage (macOS only; main owns the URL)
   PATHA_INSTALL_START: 'patha:install-start', // renderer -> main: set Prometheus up on this Mac (A-inst), or the run already under way; updates on PATHA_INSTALL_UPDATE
   PATHA_INSTALL_CANCEL: 'patha:install-cancel', // renderer -> main: stop (before the app is in Applications: and delete what was downloaded)
@@ -1059,6 +1060,9 @@ export interface BeaconBridge {
   pathA: {
     /** Read the facts of this Mac and decide whether Prometheus can be set up here. Downloads nothing. */
     check(): Promise<MacCheckResult>
+    /** The zip's size in bytes as the release manifest gives it, for the confirmation; null when main could not read it within
+     *  a few seconds (the screen then says DOWNLOAD_ESTIMATE_MB). Reads the manifest only, never the zip. */
+    downloadSize(): Promise<number | null>
     /** Open System Settings at Storage, for someone short of room. Resolves whether it was opened. */
     openStorageSettings(): Promise<boolean>
     /** Set Prometheus up on this Mac: get it, check it, put it in Applications, start it, connect. Returns where it stands; a run

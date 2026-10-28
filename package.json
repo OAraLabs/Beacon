@@ -105,6 +105,7 @@
     "smoke:discovery": "ELECTRON_RUN_AS_NODE=1 electron out/main/discovery-smoke.js",
     "smoke:onboarding-hello": "ELECTRON_RUN_AS_NODE=1 electron out/main/hello-smoke.js",
     "smoke:onboarding-mac-check": "ELECTRON_RUN_AS_NODE=1 electron out/main/mac-check-smoke.js",
+    "smoke:download-estimate": "ELECTRON_RUN_AS_NODE=1 electron out/main/download-estimate-smoke.js",
     "smoke:request-join": "ELECTRON_RUN_AS_NODE=1 electron out/main/request-join-smoke.js",
     "smoke:prometheus-install": "ELECTRON_RUN_AS_NODE=1 electron out/main/prometheus-install-smoke.js",
     "smoke:tls-pin": "ELECTRON_RUN_AS_NODE=1 electron out/main/tls-pin-smoke.js",
