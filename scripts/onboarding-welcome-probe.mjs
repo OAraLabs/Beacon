@@ -7,8 +7,9 @@
 // them with "daemon", "gateway", "API token" and a port number. These screens must (a) say none of the
 // banned words IN THE RENDERED TEXT, not just in a strings file, (b) offer three plain choices with one
 // preselected and recommended, (c) let "just looking" end somewhere that is not a dead end, and
-// remember it across a relaunch, and (d) stay out of the way of a release build: the new flow is
-// reachable only when BEACON_ONBOARDING=v4 is set on a non-release build.
+// remember it across a relaunch, and (d) be THE first run: since the go-live (ONBOARDING_V4_LIVE,
+// src/shared/onboarding-gate.ts) an empty profile opens it with no flag at all. The flag no longer opens or closes anything; S2-S7
+// still set it, which changes nothing, and S1 proves the default.
 //
 // RUN (macOS; not part of verify — it launches the built app):
 //   npm run build && npm run probe:onboarding-welcome
@@ -63,11 +64,11 @@ const noJargon = async (app, label) => {
 
 let app
 try {
-  // ── S1: the gate is closed by default ────────────────────────────────────────────────────────
-  console.log('\n[probe] === S1: without BEACON_ONBOARDING the old setup opens ===')
+  // ── S1: the new first run is the default ─────────────────────────────────────────────────────
+  console.log('\n[probe] === S1: without BEACON_ONBOARDING the new first run opens ===')
   app = await launch(freshProfile(), false)
-  check((await screenId(app)) === 'legacy', 'S1 an empty profile opens the existing setup wizard', await screenId(app))
-  check((await pageText(app)).includes('Welcome aboard'), 'S1 …which still says "Welcome aboard"')
+  check((await onScreen(app, 'W1')) === 'W1', 'S1 an empty profile, with no flag, opens the new first run at Welcome', await screenId(app))
+  check((await h1(app)) === 'Welcome to Beacon' && !(await app.page.evaluate(`!!document.querySelector('.wiz-card')`)), 'S1 …"Welcome to Beacon", not the old wizard', await h1(app))
   await app.quit()
 
   // ── S2: Welcome ──────────────────────────────────────────────────────────────────────────────
