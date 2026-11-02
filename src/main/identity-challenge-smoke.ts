@@ -74,6 +74,7 @@ interface Behaviour {
   replayNonce?: string // sign this nonce instead of the one asked (a recorded answer, replayed)
   corrupt?: boolean // flip the signature
   failFirst?: number // answer 503 this many times first (Prometheus restarting)
+  noNodeKey?: boolean // answer 503 no_node_key, as a Prometheus with no node key yet does (PD-2)
 }
 
 interface Seen {
@@ -92,6 +93,10 @@ async function standIn(b: Behaviour): Promise<{ base: string; seen: Seen[]; srv:
         if ((b.failFirst ?? 0) > 0) {
           b.failFirst = (b.failFirst ?? 0) - 1
           res.writeHead(503, { 'content-type': 'application/json' }).end('{}')
+          return
+        }
+        if (b.noNodeKey) {
+          res.writeHead(503, { 'content-type': 'application/json' }).end('{"error":"no_node_key","detail":"this Prometheus has no node key yet"}')
           return
         }
         if (!b.key) {
@@ -168,6 +173,8 @@ async function main(): Promise<void> {
     { label: 'an answer signed an hour ago', b: { key: K1, instanceId: I, signedAtShift: -3600 }, pinned: pin, keyGoes: false },
     { label: 'a signature that does not verify', b: { key: K1, instanceId: I, corrupt: true }, pinned: pin, keyGoes: false },
     { label: 'nothing pinned, the route not there (paired before it existed): the key goes, as before', b: { key: null, instanceId: null }, pinned: null, keyGoes: true },
+    { label: 'a Prometheus pinned with a node key now says it has none (503 no_node_key): no key, no downgrade', b: { key: K1, instanceId: I, noNodeKey: true }, pinned: pin, keyGoes: false },
+    { label: 'nothing pinned, 503 no_node_key (no node key made yet): the key goes, as an older Prometheus', b: { key: null, instanceId: null, noNodeKey: true }, pinned: null, keyGoes: true },
     { label: 'nothing pinned, a good answer (pinned now, trust on first use)', b: { key: K1, instanceId: I }, pinned: null, keyGoes: true }
   ]
   for (const c of cases) {
@@ -265,6 +272,9 @@ async function main(): Promise<void> {
       ['404 with a pin', run({ status: 404, json: null }, pin), 'refused:downgrade'],
       ["401 (an older Prometheus's bearer middleware) with no pin", run({ status: 401, json: null }, null), 'unproved'],
       ['503', run({ status: 503, json: null }, pin), 'unreachable'],
+      ['503 no_node_key with a pin', run({ status: 503, json: { error: 'no_node_key' } }, pin), 'refused:no-node-key'],
+      ['503 no_node_key with nothing pinned', run({ status: 503, json: { error: 'no_node_key' } }, null), 'unproved'],
+      ['503 with another error, nothing pinned', run({ status: 503, json: { error: 'starting' } }, null), 'unreachable'],
       ['no answer', run('unreachable', pin), 'unreachable'],
       ['an hour old', run(answer(K1, I, now - 3600), pin), 'refused:stale'],
       ['signed over another nonce', run(answer(K1, I, now, null, 'b3RoZXI'), pin), 'refused:bad-signature'],
@@ -287,10 +297,12 @@ async function main(): Promise<void> {
     assert(!!moved?.trust && /changed/.test(moved.title) && /sent it nothing/.test(moved.body), 'a move offers to trust the new key, and says nothing was sent')
     const other = identityCard('home.example', { kind: 'other' })
     assert(!!other && !other.trust && /Something else/.test(other.title), 'something else answering offers no trust')
-    for (const why of ['bad-signature', 'stale', 'channel', 'downgrade', 'malformed'] as const) {
+    for (const why of ['bad-signature', 'stale', 'channel', 'downgrade', 'malformed', 'no-node-key'] as const) {
       const c = identityCard('home.example', { kind: 'refused', why })
       assert(!!c && !c.trust && c.body.length > 20, `a refusal (${why}) has its own words and no trust button`)
     }
+    const lost = identityCard('home.example', { kind: 'refused', why: 'no-node-key' })
+    assert(!!lost && /no longer proves who it is/.test(lost.body) && /sent it nothing/.test(lost.body), 'a pinned Prometheus with no node key: "no longer proves who it is", and nothing was sent')
     assert(identityCard('home.example', { kind: 'unproved' }) === null, "an older Prometheus (nothing pinned) shows no card: it isn't blocked")
   }
 
