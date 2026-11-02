@@ -116,6 +116,9 @@ export interface DiscoveryDeps {
   processEnv: NodeJS.ProcessEnv
   platform: NodeJS.Platform
   home?: string
+  /** When the Bonjour search window closes: `fire` after `ms` on a real timer by default. A test closes it itself
+   *  (smoke:discovery-confirm), at the moment it is checking, so the check can't race a slow runner (issue 25). */
+  windowTimer?: (fire: () => void, ms: number) => void
 }
 
 interface Run {
@@ -323,19 +326,19 @@ export class DiscoveryEngine {
       // An exit before the window closes, with nothing said about permission, is a tool that did not work.
       if (!failed && this.live(run) && code !== 0 && code !== null && run.lan === 'searching') fail('unavailable')
     })
-    run.timers.push(
-      setTimeout(() => {
-        if (failed || !this.live(run)) return
-        if (run.lan === 'searching') run.lan = 'ok'
-        child.kill('SIGTERM')
-        // A record seen just before the window closed is still being asked: wait for those answers (each is bounded by the
-        // hello timeout), so the last word of the search includes them.
-        void Promise.race([Promise.allSettled([...asking]), new Promise((r) => run.timers.push(setTimeout(r, HELLO_TIMEOUT_MS * 3)))]).then(() => {
-          if (closed || !this.live(run)) return
-          closed = true
-          this.finished(run, 'bonjour')
-        })
-      }, env.windowMs)
-    )
+    const closeWindow = (): void => {
+      if (failed || !this.live(run)) return
+      if (run.lan === 'searching') run.lan = 'ok'
+      child.kill('SIGTERM')
+      // A record seen just before the window closed is still being asked: wait for those answers (each is bounded by the
+      // hello timeout), so the last word of the search includes them.
+      void Promise.race([Promise.allSettled([...asking]), new Promise((r) => run.timers.push(setTimeout(r, HELLO_TIMEOUT_MS * 3)))]).then(() => {
+        if (closed || !this.live(run)) return
+        closed = true
+        this.finished(run, 'bonjour')
+      })
+    }
+    if (this.deps.windowTimer) this.deps.windowTimer(closeWindow, env.windowMs)
+    else run.timers.push(setTimeout(closeWindow, env.windowMs))
   }
 }
