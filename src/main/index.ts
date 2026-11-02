@@ -109,7 +109,7 @@ import { CredentialStore, decideStartup, electronSafeStorageCipher, type Cipher 
 import { sameOrigin } from '@shared/key-origin'
 import type { PinnedIdentity, Verdict } from '@shared/identity-challenge'
 import type { InstanceSummary } from '@shared/ipc'
-import { UNKNOWN, type InstanceHealth } from '@shared/instance-watch'
+import { UNKNOWN, WATCH_EVERY_MS, aiLabel, type InstanceHealth } from '@shared/instance-watch'
 import { InstanceWatch } from './instance-watch'
 import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
 import { whoIsAt } from './edit-address'
@@ -484,15 +484,31 @@ const instanceWatch = new InstanceWatch({
   onChange: () => broadcast(IPC.INSTANCES_CHANGED, null)
 })
 
-/** The row of the Prometheus Beacon is on, from its live connection (the AI it's on is the Main model section's to say). */
+/** Which AI the Prometheus Beacon is on says it's on, for its row: read from its own connection at most once a minute. */
+const activeAi: { folder: string | null; ai: string | null; at: number } = { folder: null, ai: null, at: 0 }
+async function readActiveAi(): Promise<void> {
+  const folder = folders?.currentId() ?? null
+  if (!connection || connection.getStatus().state !== 'connected') return
+  if (activeAi.folder === folder && Date.now() - activeAi.at < WATCH_EVERY_MS) return
+  activeAi.at = Date.now()
+  const body = (await connection.getDaemon('/api/status').catch(() => null)) as { provider?: unknown; model?: unknown } | null
+  if (folder !== (folders?.currentId() ?? null)) return // switched while asking: not this one's
+  const ai = body ? aiLabel(body.provider, body.model) : null
+  const changed = activeAi.folder !== folder || activeAi.ai !== ai
+  Object.assign(activeAi, { folder, ai })
+  if (changed) broadcast(IPC.INSTANCES_CHANGED, null)
+}
+
+/** The row of the Prometheus Beacon is on, from its live connection. */
 function activeHealth(): InstanceHealth {
   const s = connection?.getStatus()
   if (!s) return UNKNOWN
+  if (s.identity?.kind === 'refused') return { state: 'no-proof', ai: null, since: null }
   if (s.identity && s.identity.kind !== 'unproved') return { state: 'different', ai: null, since: null }
   if (s.wrongKey) return { state: 'different', ai: null, since: null }
   if (s.refused) return { state: 'refused', ai: null, since: null }
   if (s.restAuth === 'unauthorized' || s.wsAuth === 'unauthorized') return { state: 'key-refused', ai: null, since: null }
-  if (s.state === 'connected') return { state: 'connected', ai: null, since: s.since ?? null }
+  if (s.state === 'connected') return { state: 'connected', ai: activeAi.folder === folders?.currentId() ? activeAi.ai : null, since: s.since ?? null }
   if (s.state === 'reconnecting' || s.state === 'failed') return { state: 'unreachable', ai: null, since: s.since ?? null }
   return UNKNOWN
 }
@@ -1942,17 +1958,23 @@ app.whenReady().then(() => {
   })
   // Every Prometheus Beacon keeps (docs/MULTI-PROMETHEUS.md §5), with no key in it, and switching to one (§4): its own folder, key
   // and pins, brought up; the app remounts (CACHE_FOLDER_CHANGED). The list in the sidebar is PR 4's; these are what it will call.
-  handleFromShell(IPC.INSTANCES_LIST, async (): Promise<InstanceSummary[]> =>
-    (folders?.listInstances() ?? []).map((i) => {
+  handleFromShell(IPC.INSTANCES_LIST, async (): Promise<InstanceSummary[]> => {
+    const list = folders?.listInstances() ?? []
+    if (list.length > 1) void readActiveAi() // the one Beacon is on says which AI only for its row, so only once there is a list
+    return list.map((i) => {
       const h = i.active ? activeHealth() : instanceWatch.health(i.id)
-      return { id: i.id, label: i.label, host: hostPortOf(i.apiBase), pinned: i.pin !== null, active: i.active, lastActive: i.lastActive, ...h }
+      return { id: i.id, label: i.label, host: hostPortOf(i.apiBase), pinned: i.pin !== null, proved: i.nodePub !== null, active: i.active, lastActive: i.lastActive, ...h }
     })
-  )
+  })
   handleFromShell(IPC.INSTANCE_SWITCH, async (_e, id: unknown): Promise<boolean> => {
     if (typeof id !== 'string') return false
     const rec = folders?.listInstances().find((i) => i.id === id)
     if (!rec) return false
     if (rec.active && connection) return true
+    // Pop-out conversations belong to the Prometheus they came from (docs/MULTI-PROMETHEUS.md §4): closed first, so each saves its
+    // draft into its own folder before the other one opens.
+    for (const sid of sessionWindows.list()) sessionWindows.requestClose(sid)
+    for (let t = 0; sessionWindows.list().length > 0 && t < 60; t++) await new Promise((r) => setTimeout(r, 50))
     folders!.setActive(rec.id)
     bringUpConnection({ name: rec.label, apiBase: rec.apiBase, wsUrl: rec.wsUrl, pin: rec.pin }, null, rec.id)
     return true

@@ -172,7 +172,7 @@ const REGISTRATIONS: Record<string, { helper: number; raw: number }> = {
   'src/main/integrations-ipc.ts': { helper: 6, raw: 0 },
   'src/main/loop-ipc.ts': { helper: 5, raw: 0 },
   'src/main/discovery-ipc.ts': { helper: 4, raw: 0 },
-  'src/main/path-a-ipc.ts': { helper: 5, raw: 0 },
+  'src/main/path-a-ipc.ts': { helper: 6, raw: 0 },
   'src/main/join-ipc.ts': { helper: 6, raw: 0 },
   'src/main/network-setting-ipc.ts': { helper: 3, raw: 0 },
   'src/main/main-model-ipc.ts': { helper: 5, raw: 0 },

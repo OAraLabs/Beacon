@@ -23,6 +23,7 @@
     "src/shared/**/*",
     "src/renderer/src/components/ActivityLine.tsx",
     "src/renderer/src/components/CompactionLine.tsx",
+    "src/renderer/src/components/onboarding/ConfirmSetupView.tsx",
     "electron.vite.config.ts"
   ]
 }

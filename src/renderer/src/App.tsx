@@ -10,6 +10,8 @@ import { AppChrome } from './components/AppChrome'
 import { ConnectionSettings } from './components/ConnectionSettings'
 import { UnreachableBanner } from './components/UnreachableBanner'
 import { loadAndApplyTheme } from './theme/apply-theme'
+import { useInstances } from './instances-store'
+import { windowTitle } from '@shared/instance-rows'
 
 type Mode = 'loading' | 'setup' | 'app'
 
@@ -29,6 +31,12 @@ export default function App() {
   // The section Settings opens at ("Make this Beacon an owner", from an owner-only note), or the top.
   const [settingsAt, setSettingsAt] = useState<string | null>(null)
   const [connGen, setConnGen] = useState(0)
+  const instances = useInstances()
+
+  // With two or more Prometheus, the window says which one Beacon is on (docs/MULTI-PROMETHEUS.md §5).
+  useEffect(() => {
+    document.title = windowTitle(instances)
+  }, [instances])
 
   const checkSetup = useCallback(async (keepAddress?: string) => {
     const b = window.beacon

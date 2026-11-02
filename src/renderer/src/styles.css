@@ -5808,3 +5808,137 @@ body.is-resizing-panel {
     display: none;
   }
 }
+
+/* "Your Prometheus": the list of Prometheus at the top of the sidebar, with two or more (docs/MULTI-PROMETHEUS.md §5). */
+.instance-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--border);
+}
+.instance-list-head {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+.instance-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 12px;
+  background: transparent;
+  border: none;
+  color: var(--ink5);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.instance-row:hover:not(:disabled) {
+  background: var(--bg-input);
+}
+.instance-row.is-current {
+  background: var(--sang-soft);
+  color: var(--ink);
+  cursor: default;
+}
+.instance-row:disabled {
+  cursor: progress;
+}
+.instance-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.instance-dot.is-green {
+  background: var(--c-ok);
+}
+.instance-dot.is-amber {
+  background: var(--c-amber);
+}
+.instance-dot.is-red {
+  background: var(--c-err);
+}
+.instance-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.instance-name,
+.instance-words,
+.instance-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instance-words {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.instance-note {
+  font-size: 11px;
+  color: var(--c-warn-text);
+}
+.instance-add {
+  padding-left: 28px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* The name in the title bar, with two or more Prometheus: a button (out of the drag region) that opens the switcher below it. The
+   brand box itself stays click-through, so the rest of the bar still drags the window. */
+.app-chrome-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.app-chrome-switch:hover,
+.app-chrome-switch[aria-expanded='true'] {
+  background: var(--line3);
+  border-color: var(--line2);
+}
+.app-chrome-switch:focus-visible {
+  outline: 2px solid var(--c-arc);
+  outline-offset: 1px;
+}
+.app-chrome-switcher {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  text-align: left;
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  letter-spacing: normal;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--elev-2);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.instance-row:focus-visible {
+  outline: 2px solid var(--c-arc);
+  outline-offset: -2px;
+}
