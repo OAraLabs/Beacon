@@ -2,8 +2,8 @@
 // of Beacon's with its Ed25519 node key, and Beacon checks the signature against the node key it pinned for that Prometheus. What the
 // answer is, what each outcome means and what the screen says about it are decided here; src/main/identity.ts only asks.
 //
-// The route is Prometheus ask PD-2 (not built yet): POST /api/identity/challenge, no credential. Until it is, an older Prometheus
-// answers 404, or 401 from its bearer middleware, and one Beacon never pinned a node key for is let through as before.
+// The route is Prometheus ask PD-2 (Prometheus 0.9.18): POST /api/identity/challenge, no credential. An older Prometheus answers 404,
+// or 401 from its bearer middleware, and one Beacon never pinned a node key for is let through as before.
 //
 // No Node/Electron imports (same rule as the rest of src/shared).
 
@@ -29,7 +29,7 @@ export interface PinnedIdentity {
   nodePub: string
 }
 
-export type RefusedWhy = 'bad-signature' | 'stale' | 'channel' | 'downgrade' | 'malformed'
+export type RefusedWhy = 'bad-signature' | 'stale' | 'channel' | 'downgrade' | 'malformed' | 'no-node-key'
 
 export type Verdict =
   /** The pinned key signed Beacon's nonce. */
@@ -91,7 +91,12 @@ export interface JudgeInput {
 /** What one answer means. */
 export function judge(input: JudgeInput): Verdict {
   const { reply, nonce, nowS, pinned, tlsSpki, verify } = input
-  if (reply === 'unreachable' || reply.status === 429 || reply.status >= 500) return { kind: 'unreachable' }
+  if (reply === 'unreachable') return { kind: 'unreachable' }
+  // PD-2's answer before first run: no node key to sign with. Nothing pinned, it can't prove who it is, as an older Prometheus; pinned,
+  // the key it proved with before is gone, which is never a downgrade.
+  if (reply.status === 503 && (reply.json as { error?: unknown } | null)?.error === 'no_node_key')
+    return pinned ? { kind: 'refused', why: 'no-node-key' } : { kind: 'unproved' }
+  if (reply.status === 429 || reply.status >= 500) return { kind: 'unreachable' }
   // An older Prometheus: no such route (404, 405), or its bearer middleware turning away a request with no key (401, 403).
   const unanswered = [401, 403, 404, 405].includes(reply.status)
   if (unanswered) return pinned ? { kind: 'refused', why: 'downgrade' } : { kind: 'unproved' }
@@ -152,5 +157,6 @@ const REFUSED_BODY: Record<RefusedWhy, string> = {
   stale: 'Its answer was signed at a time too far from this computer’s clock. Check the date and time on both computers, then try again.',
   channel: 'Its answer was meant for a different connection than this one. Beacon sent it nothing.',
   downgrade: 'It used to prove who it is with its key, and now it doesn’t answer the question. Beacon sent it nothing.',
-  malformed: "Its answer couldn't be read. Beacon sent it nothing."
+  malformed: "Its answer couldn't be read. Beacon sent it nothing.",
+  'no-node-key': 'It no longer proves who it is: it says it has no computer key, and it had one before. Beacon sent it nothing.'
 }
