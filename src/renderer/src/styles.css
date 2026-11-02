@@ -5808,3 +5808,85 @@ body.is-resizing-panel {
     display: none;
   }
 }
+
+/* "Your Prometheus": the list of Prometheus at the top of the sidebar, with two or more (docs/MULTI-PROMETHEUS.md §5). */
+.instance-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--border);
+}
+.instance-list-head {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+.instance-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 12px;
+  background: transparent;
+  border: none;
+  color: var(--ink5);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.instance-row:hover:not(:disabled) {
+  background: var(--bg-input);
+}
+.instance-row.is-current {
+  background: var(--sang-soft);
+  color: var(--ink);
+  cursor: default;
+}
+.instance-row:disabled {
+  cursor: progress;
+}
+.instance-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.instance-dot.is-green {
+  background: var(--c-ok);
+}
+.instance-dot.is-amber {
+  background: var(--c-amber);
+}
+.instance-dot.is-red {
+  background: var(--c-err);
+}
+.instance-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.instance-name,
+.instance-words,
+.instance-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instance-words {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.instance-note {
+  font-size: 11px;
+  color: var(--c-warn-text);
+}
+.instance-add {
+  padding-left: 28px;
+  font-size: 12px;
+  color: var(--text-dim);
+}

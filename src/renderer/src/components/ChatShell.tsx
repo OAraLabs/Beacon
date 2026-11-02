@@ -76,6 +76,8 @@ import { deliversToSession, isAssistantActivity, nextTurnInFlight, watchdogActio
 import { emptyWatchdogLog, onArm, onFire, onStandDown, type StandDownReason } from '@shared/watchdog-log'
 import { ArtifactChips } from './ArtifactChips'
 import { useDeviceRole } from './OwnerOnlyNote'
+import { useInstances } from '../instances-store'
+import { composerPlaceholder } from '@shared/instance-rows'
 
 /** Windowed tail (Slice 3): render only the most recent rows by default — long sessions stop
  * mounting thousands of markdown trees. "Show earlier" reveals the rest on demand. */
@@ -572,6 +574,7 @@ export function ChatShell({
   // An approved device (not the owner) can't read the model catalog, the session's model or its profile (Prometheus refuses them), so
   // it is shown neither chip: a read-only "Local · offline" and a "profile" chip said things that were not true (the 0.4.5 sweep).
   const deviceRole = useDeviceRole()
+  const instances = useInstances()
   const limited = deviceRole === 'limited'
   // Main has not said yet whether this is the owner (the page's first moments): those reads wait.
   const roleHeard = deviceRole !== undefined
@@ -2619,7 +2622,7 @@ export function ChatShell({
             onSelect={(e) => setAtCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            placeholder="Message Prometheus…"
+            placeholder={composerPlaceholder(instances)}
             rows={1}
           />
           <div className="composer-actions">

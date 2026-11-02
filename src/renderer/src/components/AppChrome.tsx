@@ -1,4 +1,6 @@
 import { Icon } from './Icon'
+import { useInstances } from '../instances-store'
+import { windowTitle } from '@shared/instance-rows'
 
 // The window's own bar (design handoff, screen 1 chrome): 38px, ink-dark, the traffic lights
 // sitting INSIDE it, `Beacon` centred in the display face in brass, and ⌘K on the right.
@@ -7,10 +9,12 @@ import { Icon } from './Icon'
 // dark app — the one piece of the window that did not belong to the product. `titleBarStyle:
 // 'hiddenInset'` (main/index.ts) keeps the traffic lights and hands us the strip; the 68px of
 // left padding is the room they need, and the whole bar is a drag region except the controls.
-// `palette={false}` drops the ⌘K button for screens that have no palette to open (first run).
+// `palette={false}` drops the ⌘K button for screens that have no palette to open (first run). With two or more Prometheus it says
+// which one Beacon is on, as the window title does ("Home mini — Beacon", docs/MULTI-PROMETHEUS.md §5).
 export function AppChrome({ palette = true }: { palette?: boolean } = {}): React.JSX.Element {
   // The palette lives in MainView, behind the same ⌘K the keyboard uses. Re-dispatching the
   // chord keeps one owner for that state instead of threading a callback through the tree.
+  const instances = useInstances()
   const openPalette = (): void => {
     window.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })
@@ -18,7 +22,7 @@ export function AppChrome({ palette = true }: { palette?: boolean } = {}): React
   }
   return (
     <div className="app-chrome">
-      <div className="app-chrome-brand">Beacon</div>
+      <div className="app-chrome-brand" data-testid="app-chrome-brand">{windowTitle(instances)}</div>
       {palette ? (
         <button
           className="app-chrome-cmdk"
