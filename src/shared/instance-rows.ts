@@ -92,3 +92,11 @@ export function unreachableLine(list: InstanceSummary[], host: string): string {
   const n = activeName(list)
   return n ? `Can't reach ${n}.` : `Can't reach Prometheus at ${host}.`
 }
+
+// Red first: the switcher in the title bar is not built yet.
+export function titleSwitches(_list: InstanceSummary[]): boolean {
+  return false
+}
+export function switcherKey(_key: string, _at: number, _count: number): { focus: number } | 'close' | null {
+  return null
+}
