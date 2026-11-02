@@ -240,6 +240,8 @@ export interface InstanceSummary {
   label: string
   host: string
   pinned: boolean
+  /** Its node key is pinned: it has proved who it is (docs/MULTI-PROMETHEUS.md §8). False for an older Prometheus that can't. */
+  proved: boolean
   active: boolean
   lastActive: number
   /** How it is doing: from the live connection for the active one, from the 60-second check for the others (@shared/instance-watch). */
