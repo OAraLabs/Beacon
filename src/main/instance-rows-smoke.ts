@@ -2,7 +2,7 @@
 // words, which AI, the "can't prove who it is" note, and the name in the window title, the composer and the unreachable banner.
 //
 //   npm run build && npm run smoke:instance-rows
-import { ADD_PROMETHEUS, UNPROVED_NOTE, activeName, composerPlaceholder, instanceRows, unreachableLine, windowTitle } from '@shared/instance-rows'
+import { ADD_PROMETHEUS, UNPROVED_NOTE, activeName, composerPlaceholder, instanceRows, switcherKey, titleSwitches, unreachableLine, windowTitle } from '@shared/instance-rows'
 import type { InstanceSummary } from '@shared/ipc'
 
 let failures = 0
@@ -101,6 +101,22 @@ console.log('\n[smoke] === names ===')
   const blank = instanceRows([row({ id: 'a', label: '  ', host: 'one.example:8005' }), row({ id: 'b' })], clock)
   assert(blank?.find((r) => r.id === 'a')?.name === 'one.example:8005', 'no name: its address', blank)
   assert(ADD_PROMETHEUS === 'Add a Prometheus…', 'the footer row')
+}
+
+console.log('\n[smoke] === the switcher in the title bar ===')
+{
+  const one = [row({ id: 'home', active: true })]
+  const two = [row({ id: 'home', active: true }), row({ id: 'office' })]
+  assert(!titleSwitches(one) && !titleSwitches([]), 'with one, the title bar is only the name "Beacon": nothing to open')
+  assert(titleSwitches(two), 'with two or more, the name in the title bar opens the switcher')
+  // Five items in the menu: rows 0..3 and "Add a Prometheus…" at 4.
+  const k = (key: string, at: number): string => JSON.stringify(switcherKey(key, at, 5))
+  assert(k('ArrowDown', 0) === '{"focus":1}' && k('ArrowDown', 4) === '{"focus":0}', 'ArrowDown moves to the next, and wraps', [k('ArrowDown', 0), k('ArrowDown', 4)])
+  assert(k('ArrowUp', 1) === '{"focus":0}' && k('ArrowUp', 0) === '{"focus":4}', 'ArrowUp moves to the one before, and wraps', [k('ArrowUp', 1), k('ArrowUp', 0)])
+  assert(k('ArrowDown', -1) === '{"focus":0}' && k('ArrowUp', -1) === '{"focus":4}', 'with nothing focused, down is the first and up the last')
+  assert(k('Home', 3) === '{"focus":0}' && k('End', 1) === '{"focus":4}', 'Home and End')
+  assert(k('Escape', 2) === '"close"' && k('Tab', 2) === '"close"', 'Escape closes it, and so does Tabbing out')
+  assert(k('a', 2) === 'null' && k('Enter', 2) === 'null', 'other keys are the focused button\'s (Enter and Space press it)')
 }
 
 if (failures) {

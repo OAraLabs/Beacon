@@ -10,7 +10,7 @@
 // card says what's wrong. Keys are written through the app's own safeStorage under --use-mock-keychain (app-driver), never the real
 // Keychain, and the user's own profile is never touched.
 //
-//   npm run build && npm run probe:instance-list [-- --shot <file.png>]   (--shot: a picture of the window with the five rows)
+//   npm run build && npm run probe:instance-list [-- --shot <file.png>]   (--shot: pictures of the five rows, and of the switcher)
 import { execFileSync } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -30,7 +30,7 @@ for (const k of Object.keys(process.env)) if (k.startsWith('BEACON_') || k.start
 
 let failures = 0
 let checks = 0
-const MIN_CHECKS = 16
+const MIN_CHECKS = 30
 const check = (ok, label, extra = '') => {
   checks++
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${!ok && extra ? ` — ${String(extra).slice(0, 400)}` : ''}`)
@@ -119,6 +119,10 @@ try {
   await app.page.evaluate(`document.querySelector('button[title="Chats"]')?.click(); true`)
   await until(() => app.page.evaluate(`!!document.querySelector('aside.sidebar')`), 5000)
   check(!(await app.page.evaluate(`!!document.querySelector('[data-testid="instance-list"]')`)), 'with one, the sidebar has no list')
+  check(
+    (await app.page.evaluate(`document.querySelector('[data-testid="app-chrome-brand"]')?.tagName`)) !== 'BUTTON',
+    'with one, the name in the title bar is only a name, not a button'
+  )
   check((await app.page.evaluate('document.title')) === 'Beacon', 'and the title is "Beacon"', await app.page.evaluate('document.title'))
   const aFolder = one[0].id
 
@@ -184,7 +188,49 @@ try {
   check(ph.length > 0 && ph.every((p) => p === 'Message Alpha…'), 'the composer says "Message Alpha…"', JSON.stringify(ph))
   check(await app.page.evaluate(`[...document.querySelectorAll('[data-testid="instance-add"]')].some((b) => b.innerText.trim() === 'Add a Prometheus…')`), 'the footer row says "Add a Prometheus…"')
 
-  // 3. Click B: the switch; B's key only to B.
+  // 2b. From Mission Control, by keyboard: the name in the title bar opens the switcher; arrows move, Escape closes, Enter switches.
+  const KEYS = { Enter: [13, '\r'], Escape: [27], ArrowDown: [40], ArrowUp: [38], Tab: [9] }
+  const press = async (key) => {
+    const [code, text] = KEYS[key]
+    await app.page.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: code, ...(text ? { text } : {}) })
+    await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: code })
+    await sleep(150)
+  }
+  const focused = () => app.page.evaluate(`(() => { const a = document.activeElement; return a ? (a.dataset.instance ?? a.dataset.testid ?? a.tagName) : null })()`)
+  const open = () => app.page.evaluate(`!!document.querySelector('[data-testid="title-switcher"]')`)
+  await app.page.evaluate(`document.querySelector('button[title="Mission"]')?.click(); true`)
+  await until(async () => !(await app.page.evaluate(`!!document.querySelector('aside.sidebar')`)), 5000)
+  const brand = await app.page.evaluate(`(() => { const b = document.querySelector('[data-testid="app-chrome-brand"]'); return b ? { tag: b.tagName, popup: b.getAttribute('aria-haspopup'), expanded: b.getAttribute('aria-expanded'), text: b.innerText } : null })()`)
+  check(brand?.tag === 'BUTTON' && brand.popup === 'menu' && brand.expanded === 'false' && brand.text.includes('Alpha'), 'on Mission Control, the name in the title bar is a button that opens a menu', JSON.stringify(brand))
+  await app.page.evaluate(`document.querySelector('[data-testid="app-chrome-brand"]').focus(); true`)
+  await press('Enter')
+  const opened = await until(open, 3000)
+  check(!!opened && (await app.page.evaluate(`document.querySelectorAll('[data-testid="title-switcher"] [data-testid="instance-row"]').length`)) === 5, 'Enter on it opens the switcher, a row for each', await app.page.evaluate(`document.querySelector('[data-testid="title-switcher"]')?.innerText ?? null`))
+  if (shot > 0 && process.argv[shot + 1]) {
+    const png = await app.page.send('Page.captureScreenshot', { format: 'png' })
+    writeFileSync(process.argv[shot + 1].replace(/\.png$/, '-switcher.png'), Buffer.from(png.result.data, 'base64'))
+  }
+  const first = await focused()
+  check(first === aFolder, 'focus goes into the switcher, on the one Beacon is on', first)
+  await press('ArrowDown')
+  check((await focused()) === 'probe-b', 'ArrowDown moves to the next row', await focused())
+  await press('Escape')
+  check(!(await open()) && (await focused()) === 'app-chrome-brand', 'Escape closes it and gives focus back to the title bar', await focused())
+  await press('Enter')
+  await until(open, 3000)
+  for (let i = 0; i < 6 && (await focused()) !== 'probe-c'; i++) await press('ArrowDown')
+  check((await focused()) === 'probe-c', 'the arrows reach Cellar', await focused())
+  await press('Enter')
+  const onC = await until(async () => ((await app.page.evaluate('window.beacon.instances.list()')).find((i) => i.active)?.id === 'probe-c' && keyed(C, 'KEY-C') > 0 ? true : null), 15000)
+  check(!!onC, 'Enter on Cellar switches to it (an older one: its own key goes, as before)', `${keyed(C, 'KEY-C')} keyed request(s)`)
+  check(!(await open()), 'and the switcher closes')
+  const stillMission = await until(async () => ((await app.page.evaluate(`!!document.querySelector('button[title="Mission"]')`)) && !(await app.page.evaluate(`!!document.querySelector('aside.sidebar')`)) ? true : null), 5000)
+  check(!!stillMission, 'Beacon stays on Mission Control')
+  check(keyed(C, 'KEY-A') === 0 && keyed(C, 'KEY-B') === 0, "Cellar got no one else's key")
+
+  // 3. From the Chats sidebar, click B: the switch; B's key only to B.
+  await chats()
+  await until(() => app.page.evaluate(`!!document.querySelector('[data-instance="probe-b"]')`), 5000)
   const aKeyedBefore = keyed(A, 'KEY-A')
   await app.page.evaluate(`document.querySelector('[data-instance="probe-b"]').click()`)
   const onB = await until(async () => {
