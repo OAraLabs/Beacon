@@ -122,8 +122,10 @@ async function main(): Promise<void> {
   writeFileSync(join(dir, 'part2'), part2)
   writeFileSync(join(dir, 'part3'), part3)
   // The real tool streams: the first records, then more a moment later, then it keeps running until it is stopped.
+  // A SLOW RUNNER, simulated: the Late record arrives 2.9 s in, after the 2.5 s window, as it can when spawning the tool and its sleeps
+  // is slow (issue 25). The check below races that real time, so it fails here every time.
   const tool = join(dir, 'dns-sd')
-  writeFileSync(tool, `#!/bin/sh\ncat '${join(dir, 'part1')}'\nsleep 0.3\ncat '${join(dir, 'part1')}' >/dev/null\ncat '${join(dir, 'part2')}'\nsleep 1.9\ncat '${join(dir, 'part3')}'\nsleep 20\n`)
+  writeFileSync(tool, `#!/bin/sh\ncat '${join(dir, 'part1')}'\nsleep 0.3\ncat '${join(dir, 'part1')}' >/dev/null\ncat '${join(dir, 'part2')}'\nsleep 2.6\ncat '${join(dir, 'part3')}'\nsleep 20\n`)
   chmodSync(tool, 0o755)
   const env = () => discoveryEnv({ BEACON_DISCOVERY_PORT: String(gone), BEACON_DISCOVERY_SOURCES: 'bonjour', BEACON_DISCOVERY_WINDOW_MS: '2500', BEACON_DISCOVERY_DNSSD: tool }, true)
 
