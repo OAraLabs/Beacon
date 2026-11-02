@@ -10,8 +10,9 @@ import { companyName, MAIN_MODEL_COPY } from './main-model'
 export const WATCH_EVERY_MS = 60_000
 export const UNREACHABLE_EVERY_MS = 300_000
 
-/** One row's state (§5). 'unknown': not checked yet. */
-export type InstanceState = 'unknown' | 'connected' | 'unreachable' | 'key-refused' | 'different' | 'refused'
+/** One row's state (§5). 'unknown': not checked yet. 'different': another Prometheus signed; 'no-proof': the one pinned there no longer
+ *  proves who it is (no answer to the challenge, no node key, a bad signature). */
+export type InstanceState = 'unknown' | 'connected' | 'unreachable' | 'key-refused' | 'different' | 'no-proof' | 'refused'
 
 export interface InstanceHealth {
   state: InstanceState

@@ -8,6 +8,8 @@ import { ModelSwitcher } from './ModelSwitcher'
 import { Icon } from './Icon'
 import { stageFiles, type PendingFile } from '../attachments-io'
 import { useDeviceRole } from './OwnerOnlyNote'
+import { useInstances } from '../instances-store'
+import { composerPlaceholder } from '@shared/instance-rows'
 
 // Chat home / landing: the new-conversation entry shown when no conversation is open.
 //
@@ -64,6 +66,7 @@ export function ChatHome({
   voiceNotice?: string
 }) {
   const [draft, setDraft] = useState('')
+  const instances = useInstances()
   const [mode, setMode] = useState<ChatMode>('agent')
   const [files, setFiles] = useState<PendingFile[]>([])
   const [attachNote, setAttachNote] = useState('')
@@ -222,7 +225,7 @@ export function ChatHome({
                   void addFiles(f)
                 }
               }}
-              placeholder="Message Prometheus…"
+              placeholder={composerPlaceholder(instances)}
               rows={1}
               autoFocus
               aria-label="Start a new conversation"

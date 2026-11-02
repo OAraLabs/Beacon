@@ -131,6 +131,10 @@ function inEditable(e: KeyboardEvent): boolean {
 
 /** The connected app: session sidebar + chat — or the Home/landing when no conversation is open.
  *  Mounted only once setup is complete. */
+/** The view on screen, kept across a remount (a switch to another Prometheus, a saved connection): switching from the list in the
+ *  Chats sidebar leaves you in Chats. A launch, or a reload, opens on DEFAULT_VIEW as before. */
+let keptView: ViewId | null = null
+
 export function MainView() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   // Owner of this Prometheus, or an approved device that may only chat (@shared/device-role).
@@ -552,7 +556,10 @@ export function MainView() {
    * nothing renders from it directly.
    */
   const daemonLastSeen = useRef(0)
-  const [view, setView] = useState<ViewId>(DEFAULT_VIEW)
+  const [view, setView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
+  useEffect(() => {
+    keptView = view
+  }, [view])
   // A view that reads only the owner's routes: the note on an approved device, nothing while main has not said which yet.
   const ownerGate: 'note' | 'wait' | null = isOwnerOnlyView(view) ? (role === 'limited' ? 'note' : role === undefined ? 'wait' : null) : null
   const viewRef = useRef(view)

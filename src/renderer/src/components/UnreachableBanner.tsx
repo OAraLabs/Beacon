@@ -3,6 +3,8 @@ import { rejectedKeyLine } from '@shared/this-computer'
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { ConnectionStatus } from '@shared/ipc'
 import { mismatchCard } from '@shared/pin-mismatch'
+import { useInstances } from '../instances-store'
+import { unreachableLine } from '@shared/instance-rows'
 
 // "Can't reach Prometheus" — the way out when the saved Prometheus doesn't answer (0.3.1 Part A, R3).
 // Before this, an unreachable or wrongly saved address opened the app on empty panels, and the only
@@ -54,6 +56,7 @@ export function UnreachableBanner({ onChangeConnection, onConnectAgain }: { onCh
   const [status, setStatus] = useState<ConnectionStatus>({ state: 'idle', gateway: null })
   const [downSince, setDownSince] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  const instances = useInstances()
   const [, tick] = useState(0)
 
   useEffect(() => {
@@ -143,7 +146,7 @@ export function UnreachableBanner({ onChangeConnection, onConnectAgain }: { onCh
   const rejected = status.state === 'failed'
   return (
     <div className="unreachable-banner" role="alert" style={card}>
-      <div style={{ fontWeight: 600 }}>{`Can't reach Prometheus at ${host}.`}</div>
+      <div style={{ fontWeight: 600 }}>{unreachableLine(instances, host)}</div>
       <div style={{ color: 'var(--text-dim)', lineHeight: 1.4 }}>
         {rejected
           ? rejectedKeyLine(PLATFORM)

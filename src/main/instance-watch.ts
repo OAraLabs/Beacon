@@ -117,7 +117,10 @@ export class InstanceWatch {
     })
     // Asked once: no answer is "can't reach it", checked again later, never waited out here.
     const refused = await prove({ waiting: () => undefined, stopped: () => true })
-    if (refused !== null) return seen.verdict === null ? unreachable(before, this.deps.now()) : { state: 'different', ai: null, since: null }
+    if (refused !== null) {
+      if (seen.verdict === null) return unreachable(before, this.deps.now())
+      return { state: seen.verdict.kind === 'refused' ? 'no-proof' : 'different', ai: null, since: null }
+    }
     const key = this.deps.keyOf(t.id)
     const r = await request({ method: 'GET', url: `${t.apiBase}/api/status`, headers: key ? { authorization: `Bearer ${key}` } : {}, timeoutMs: 5_000 })
     if (r === 'wrong-key') return { state: 'different', ai: null, since: null } // a pinned TLS Prometheus presenting another key

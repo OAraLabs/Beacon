@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent as RDragEvent, type ReactNode } from 'react'
 import type { SessionSummary } from '@shared/ipc'
+import { InstanceList } from './InstanceList'
 import { Icon } from './Icon'
 import {
   groupSessions,
@@ -570,6 +571,7 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
       {onWidth && width !== undefined ? (
         <ListDivider width={width} live={liveWidth} setLive={setLiveWidth} onWidth={onWidth} fit={fitWidth ?? ((w) => w)} />
       ) : null}
+      <InstanceList />
       {/* R2, the Chats surface's second level. The thread has no pill row of its own — screen 1
           gives that space to the session title — so the Chats group's other destination lives in
           THIS column's header, which is the Chats surface's own navigation. It is the HEADING

@@ -80,12 +80,14 @@ async function main(): Promise<void> {
   const refused = await standIn(null, J, 'THE-REAL-ONE') // too old to be asked, and no longer takes this Beacon's key
   const first = await standIn(K3, L, 'KEY-FIRST') // nothing pinned yet, a good answer
   const plain = await standIn(K1, I, 'KEY-PLAIN') // an address Beacon may not use at all
+  const stopped = await standIn(null, I, 'KEY-STOPPED') // pinned with K1, and now doesn't answer the question
+  const older = await standIn(null, J, 'KEY-OLDER') // too old to be asked, nothing pinned, takes its key
   const gone = 'http://127.0.0.1:9' // nothing listens
 
   const t = (id: string, apiBase: string): WatchTarget => ({ id, apiBase, wsUrl: apiBase.replace('http', 'ws'), pin: null })
-  const targets = [t('good', good.base), t('other', other.base), t('refused', refused.base), t('first', first.base), t('plain', plain.base), t('gone', gone)]
-  const keys: Record<string, string> = { good: 'KEY-GOOD', other: 'KEY-FOR-THE-PINNED-ONE', refused: 'KEY-REFUSED', first: 'KEY-FIRST', plain: 'KEY-PLAIN', gone: 'KEY-GONE' }
-  const pins: Record<string, PinnedIdentity | null> = { good: { instanceId: I, nodePub: K1.pub }, other: { instanceId: I, nodePub: K1.pub }, refused: null, first: null, plain: null, gone: { instanceId: I, nodePub: K1.pub } }
+  const targets = [t('good', good.base), t('other', other.base), t('refused', refused.base), t('first', first.base), t('plain', plain.base), t('gone', gone), t('stopped', stopped.base), t('older', older.base)]
+  const keys: Record<string, string> = { good: 'KEY-GOOD', other: 'KEY-FOR-THE-PINNED-ONE', refused: 'KEY-REFUSED', first: 'KEY-FIRST', plain: 'KEY-PLAIN', gone: 'KEY-GONE', stopped: 'KEY-STOPPED', older: 'KEY-OLDER' }
+  const pins: Record<string, PinnedIdentity | null> = { good: { instanceId: I, nodePub: K1.pub }, other: { instanceId: I, nodePub: K1.pub }, refused: null, first: null, plain: null, gone: { instanceId: I, nodePub: K1.pub }, stopped: { instanceId: I, nodePub: K1.pub }, older: null }
   let changes = 0
   const watch = new InstanceWatch({
     targets: () => targets,
@@ -111,6 +113,13 @@ async function main(): Promise<void> {
     assert(h('other').state === 'different', `"A different Prometheus answered" (${h('other').state})`)
     assert(!other.seen.some((r) => r.auth !== undefined), `and it was sent no key at all (${other.seen.filter((r) => r.auth).length} request(s) with one)`)
 
+    console.log('\n[smoke] === the one pinned there no longer proves who it is ===')
+    assert(h('stopped').state === 'no-proof', `"No longer proves who it is", not "a different Prometheus" (${h('stopped').state})`)
+    assert(!stopped.seen.some((r) => r.auth !== undefined), 'and it was sent no key at all')
+
+    console.log('\n[smoke] === an older Prometheus, nothing pinned ===')
+    assert(h('older').state === 'connected' && pins.older === null, `connected, nothing pinned: it can't prove who it is (${h('older').state})`)
+
     console.log('\n[smoke] === an older Prometheus that no longer takes this Beacon ===')
     assert(h('refused').state === 'key-refused', `"No longer accepts this Beacon" (${h('refused').state})`)
 
@@ -126,7 +135,7 @@ async function main(): Promise<void> {
     assert(changes > 0, `the list was told it changed (${changes})`)
   } finally {
     watch.stop()
-    for (const s of [good, other, refused, first, plain]) s.srv.close()
+    for (const s of [good, other, refused, first, plain, stopped, older]) s.srv.close()
   }
   console.log(`\n[smoke] ${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`)
   process.exit(failures === 0 ? 0 : 1)
