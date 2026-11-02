@@ -34,7 +34,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[discovery-confirm-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 13
+const EXPECTED = 14
 process.on('exit', () => {
   if (checks !== EXPECTED) {
     console.error(`[discovery-confirm-smoke] FAIL — ran ${checks} checks, expected exactly ${EXPECTED}`)
@@ -62,20 +62,25 @@ const FP_PLAIN = '0123456789abcdef'
 interface Stub {
   port: number
   hellos: () => number
+  /** Hellos it has finished answering (a slow one counts once it has). */
+  answered: () => number
   close: () => Promise<void>
 }
 const hello = (name: string, fp: string, tls: boolean) => JSON.stringify({ v: '0.9.7', name, agent: 'Prometheus', fp, pair: 'approve', tls })
 async function stub(make: (h: (q: IncomingMessage, s: ServerResponse) => void) => ReturnType<typeof createHttpServer>, body: string, delayMs = 0): Promise<Stub> {
   let n = 0
+  let done = 0
   const server = make((q, s) => {
-    if (q.url === '/api/hello') n++
+    const isHello = q.url === '/api/hello'
+    if (isHello) n++
     setTimeout(() => {
       s.writeHead(200, { 'content-type': 'application/json', connection: 'close' })
       s.end(body)
+      if (isHello) done++
     }, delayMs)
   })
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
-  return { port: (server.address() as AddressInfo).port, hellos: () => n, close: () => new Promise<void>((r) => (server.closeAllConnections(), server.close(() => r()))) }
+  return { port: (server.address() as AddressInfo).port, hellos: () => n, answered: () => done, close: () => new Promise<void>((r) => (server.closeAllConnections(), server.close(() => r()))) }
 }
 const plainStub = (body: string, delayMs = 0) => stub((h) => createHttpServer(h), body, delayMs)
 const tlsStub = (c: { key: string; cert: string }, body: string) => stub((h) => createHttpsServer({ key: c.key, cert: c.cert }, h) as unknown as ReturnType<typeof createHttpServer>, body)
@@ -97,6 +102,16 @@ function record(name: string, port: number, txt: Record<string, string>): string
   return [`_prometheus._tcp                                PTR     ${inst}`, `${inst}         SRV     0 0 ${port} localhost. ; Replace with unicast FQDN of target host`, `${inst}         TXT     ${t}`].join('\n') + '\n'
 }
 const HEADER = `Using LocalOnly\nUsing interface -1\nBrowsing for _prometheus._tcp.local\n\n; To direct clients to browse a different domain, substitute that domain in place of '@'\nlb._dns-sd._udp                                 PTR     @\n\n`
+
+/** Poll `cond` until it holds (true) or `ms` pass (false). */
+async function waitUntil(cond: () => boolean, ms: number): Promise<boolean> {
+  const end = Date.now() + ms
+  while (!cond()) {
+    if (Date.now() > end) return false
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  return true
+}
 
 const collect = (engine: DiscoveryEngine): Promise<DiscoveryUpdate[]> =>
   new Promise((resolve) => {
@@ -122,14 +137,24 @@ async function main(): Promise<void> {
   writeFileSync(join(dir, 'part2'), part2)
   writeFileSync(join(dir, 'part3'), part3)
   // The real tool streams: the first records, then more a moment later, then it keeps running until it is stopped.
-  // A SLOW RUNNER, simulated: the Late record arrives 2.9 s in, after the 2.5 s window, as it can when spawning the tool and its sleeps
-  // is slow (issue 25). The check below races that real time, so it fails here every time.
+  // A SLOW RUNNER, kept on purpose: the Late record arrives 2.9 s in, after the 2.5 s window's real time, as it can when spawning the
+  // tool and its sleeps is slow (issue 25). The window is closed by this test (windowTimer, below), so real time decides nothing.
   const tool = join(dir, 'dns-sd')
   writeFileSync(tool, `#!/bin/sh\ncat '${join(dir, 'part1')}'\nsleep 0.3\ncat '${join(dir, 'part1')}' >/dev/null\ncat '${join(dir, 'part2')}'\nsleep 2.6\ncat '${join(dir, 'part3')}'\nsleep 20\n`)
   chmodSync(tool, 0o755)
   const env = () => discoveryEnv({ BEACON_DISCOVERY_PORT: String(gone), BEACON_DISCOVERY_SOURCES: 'bonjour', BEACON_DISCOVERY_WINDOW_MS: '2500', BEACON_DISCOVERY_DNSSD: tool }, true)
 
-  const updates = await collect(new DiscoveryEngine({ env, processEnv: {}, platform: 'darwin' }))
+  // The window closes when this test says: once the engine has seen the Late record and asked its hello, and that hello, 700 ms slow,
+  // has not answered yet. That is exactly "seen just before the window closes, whose hello answers slowly", on any runner.
+  const win: { close: (() => void) | null } = { close: null }
+  const engine0 = new DiscoveryEngine({ env, processEnv: {}, platform: 'darwin', windowTimer: (fire) => (win.close = fire) })
+  const collecting = collect(engine0)
+  const lateAsked = await waitUntil(() => late.hellos() >= 1, 7000)
+  const stillSlow = late.answered() === 0
+  const heldWindow = win.close !== null
+  win.close?.()
+  const updates = await collecting
+  assert(lateAsked && stillSlow && heldWindow, 'bonjour: the window was closed by the test, after the Late record was asked and before its hello answered', JSON.stringify({ lateAsked, stillSlow, heldWindow }))
   const last = updates[updates.length - 1]
   const names = (last?.computers ?? []).map((c) => c.name).sort()
   const everShown = [...new Set(updates.flatMap((u) => u.computers.map((c) => c.name)))].sort()
