@@ -10,7 +10,7 @@
 // card says what's wrong. Keys are written through the app's own safeStorage under --use-mock-keychain (app-driver), never the real
 // Keychain, and the user's own profile is never touched.
 //
-//   npm run build && npm run probe:instance-list [-- --shot <file.png>]   (--shot: a picture of the window with the five rows)
+//   npm run build && npm run probe:instance-list [-- --shot <file.png>]   (--shot: pictures of the five rows, and of the switcher)
 import { execFileSync } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -206,6 +206,10 @@ try {
   await press('Enter')
   const opened = await until(open, 3000)
   check(!!opened && (await app.page.evaluate(`document.querySelectorAll('[data-testid="title-switcher"] [data-testid="instance-row"]').length`)) === 5, 'Enter on it opens the switcher, a row for each', await app.page.evaluate(`document.querySelector('[data-testid="title-switcher"]')?.innerText ?? null`))
+  if (shot > 0 && process.argv[shot + 1]) {
+    const png = await app.page.send('Page.captureScreenshot', { format: 'png' })
+    writeFileSync(process.argv[shot + 1].replace(/\.png$/, '-switcher.png'), Buffer.from(png.result.data, 'base64'))
+  }
   const first = await focused()
   check(first === aFolder, 'focus goes into the switcher, on the one Beacon is on', first)
   await press('ArrowDown')

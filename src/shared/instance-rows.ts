@@ -93,10 +93,28 @@ export function unreachableLine(list: InstanceSummary[], host: string): string {
   return n ? `Can't reach ${n}.` : `Can't reach Prometheus at ${host}.`
 }
 
-// Red first: the switcher in the title bar is not built yet.
-export function titleSwitches(_list: InstanceSummary[]): boolean {
-  return false
+/** With two or more, the name in the title bar opens the switcher (from any view); with one it is only "Beacon". */
+export function titleSwitches(list: InstanceSummary[]): boolean {
+  return list.length >= 2
 }
-export function switcherKey(_key: string, _at: number, _count: number): { focus: number } | 'close' | null {
-  return null
+
+/** A key in the switcher, with `at` the focused item (-1: none) of `count`: where focus goes, 'close' (Escape, or Tab out), or null
+ *  for a key that is the focused button's own (Enter and Space press it). */
+export function switcherKey(key: string, at: number, count: number): { focus: number } | 'close' | null {
+  if (count <= 0) return key === 'Escape' || key === 'Tab' ? 'close' : null
+  switch (key) {
+    case 'ArrowDown':
+      return { focus: at < 0 ? 0 : (at + 1) % count }
+    case 'ArrowUp':
+      return { focus: at < 0 ? count - 1 : (at + count - 1) % count }
+    case 'Home':
+      return { focus: 0 }
+    case 'End':
+      return { focus: count - 1 }
+    case 'Escape':
+    case 'Tab':
+      return 'close'
+    default:
+      return null
+  }
 }

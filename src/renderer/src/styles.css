@@ -5890,3 +5890,55 @@ body.is-resizing-panel {
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* The name in the title bar, with two or more Prometheus: a button (out of the drag region) that opens the switcher below it. The
+   brand box itself stays click-through, so the rest of the bar still drags the window. */
+.app-chrome-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.app-chrome-switch:hover,
+.app-chrome-switch[aria-expanded='true'] {
+  background: var(--line3);
+  border-color: var(--line2);
+}
+.app-chrome-switch:focus-visible {
+  outline: 2px solid var(--c-arc);
+  outline-offset: 1px;
+}
+.app-chrome-switcher {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  text-align: left;
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  letter-spacing: normal;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--elev-2);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.instance-row:focus-visible {
+  outline: 2px solid var(--c-arc);
+  outline-offset: -2px;
+}
