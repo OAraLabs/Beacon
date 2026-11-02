@@ -6,6 +6,7 @@ later update themselves.
 
 ## Unreleased
 
+- **A Prometheus with no computer key yet connects, and one that had a key and lost it doesn't.** A Prometheus 0.9.18 that hasn't made its computer key yet answers Beacon's "who are you?" with "no key yet". Beacon used to take that for no answer and retry forever, so it never connected. Now one Beacon never knew a key for connects as an older Prometheus does, and one that proved who it is before is refused, with nothing sent, saying it no longer proves who it is.
 - **Setup's download size comes from the release itself.** Before getting Prometheus, the confirmation now says the size the current release gives, read when the screen opens (only the release's small description file, never Prometheus itself). If it can't be read within a few seconds, the screen keeps the size built into Beacon, and it never waits to show it.
 - **Setup says the right download size.** Before getting Prometheus, the confirmation said about 71 MB, the size of an older Prometheus. It now says about 72 MB, the size of Prometheus 0.9.17, which is what it downloads.
 - **A part-way setup with a pairing Prometheus no longer accepts goes back to pairing.** If Prometheus on this Mac was set up again after Beacon paired with it, Beacon used to resume setup at "How should your assistant think?" with a pairing that couldn't work. It now checks the saved pairing first and, if it's refused, opens Connect saying to pair again.
