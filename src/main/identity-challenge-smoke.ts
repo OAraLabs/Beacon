@@ -175,6 +175,7 @@ async function main(): Promise<void> {
     { label: 'nothing pinned, the route not there (paired before it existed): the key goes, as before', b: { key: null, instanceId: null }, pinned: null, keyGoes: true },
     { label: 'a Prometheus pinned with a node key now says it has none (503 no_node_key): no key, no downgrade', b: { key: K1, instanceId: I, noNodeKey: true }, pinned: pin, keyGoes: false },
     { label: 'nothing pinned, 503 no_node_key (no node key made yet): the key goes, as an older Prometheus', b: { key: null, instanceId: null, noNodeKey: true }, pinned: null, keyGoes: true },
+    { label: 'the pinned key, no instance_id this boot (no vault adopted): the key goes', b: { key: K1, instanceId: null }, pinned: pin, keyGoes: true },
     { label: 'nothing pinned, a good answer (pinned now, trust on first use)', b: { key: K1, instanceId: I }, pinned: null, keyGoes: true }
   ]
   for (const c of cases) {
@@ -269,6 +270,11 @@ async function main(): Promise<void> {
       ['the same instance, a new key', run(answer(K2, I), pin), 'moved'],
       ['another instance, another key', run(answer(K2, J), pin), 'other'],
       ['the same key, another vault adopted on that machine', run(answer(K1, J), pin), 'other'],
+      ['the pinned key, no instance_id this boot (no vault adopted)', run(answer(K1, null), pin), 'proved'],
+      ['the pinned key, none pinned and none said', run(answer(K1, null), { instanceId: null, nodePub: K1.pub }), 'proved'],
+      ['the pinned key, an instance_id where none was pinned', run(answer(K1, I), { instanceId: null, nodePub: K1.pub }), 'proved'],
+      ['another key, no instance_id (not a move: nothing to say it is the same one)', run(answer(K2, null), pin), 'other'],
+      ['nothing pinned, no instance_id', run(answer(K1, null), null), 'first'],
       ['404 with a pin', run({ status: 404, json: null }, pin), 'refused:downgrade'],
       ["401 (an older Prometheus's bearer middleware) with no pin", run({ status: 401, json: null }, null), 'unproved'],
       ['503', run({ status: 503, json: null }, pin), 'unreachable'],
@@ -287,6 +293,12 @@ async function main(): Promise<void> {
       const got = v.kind === 'refused' ? `refused:${v.why}` : v.kind
       assert(got === want, `${what}: ${want} (got ${got})`)
     }
+    const learned = run(answer(K1, I), { instanceId: null, nodePub: K1.pub })
+    assert(learned.kind === 'proved' && learned.learned === I, `an instance_id said for the first time by the pinned key is learned (${JSON.stringify(learned)})`)
+    const quiet = run(answer(K1, null), pin)
+    assert(quiet.kind === 'proved' && quiet.learned === undefined, `no instance_id this boot learns nothing, and forgets nothing (${JSON.stringify(quiet)})`)
+    const same = run(answer(K1, I), pin)
+    assert(same.kind === 'proved' && same.learned === undefined, `the pinned instance_id again: nothing to learn (${JSON.stringify(same)})`)
     const a = { instanceId: I, nodePub: K1.pub, tlsSpki: null, signedAt: 7 }
     assert(challengeMessage('n', a) === message('n', I, K1.pub, null, 7), "Beacon's message is the spec's, byte for byte")
   }
@@ -323,6 +335,11 @@ async function main(): Promise<void> {
       assert(got?.instanceId === I && got.nodePub === K1.pub, 'a pin is kept')
       assert(folders.folderWithIdentity({ instanceId: I, nodePub: K1.pub }) === 'f1', 'and finds its folder again')
       assert(folders.folderWithIdentity({ instanceId: I, nodePub: K2.pub }) === undefined, 'but not for another key')
+      assert(folders.folderWithIdentity({ instanceId: null, nodePub: K1.pub }) === 'f1', 'the same key with no instance_id this boot finds it too')
+      assert(folders.folderWithIdentity({ instanceId: J, nodePub: K1.pub }) === undefined, 'the same key with another instance_id (another vault) does not')
+      folders.pinIdentity('f1', { instanceId: null, nodePub: K1.pub })
+      assert(folders.folderWithIdentity({ instanceId: I, nodePub: K1.pub }) === 'f1', 'a folder pinned with no instance_id is found by its key and any instance_id')
+      folders.pinIdentity('f1', { instanceId: I, nodePub: K1.pub })
       assert(folders.open({ apiBase: 'http://127.0.0.1:18699', fp: null, id: 'f1' }).id === 'f1', 'a folder known by its pin opens at a new address')
       folders.close()
     } finally {
