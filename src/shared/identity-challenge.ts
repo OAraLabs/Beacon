@@ -32,8 +32,8 @@ export interface PinnedIdentity {
 export type RefusedWhy = 'bad-signature' | 'stale' | 'channel' | 'downgrade' | 'malformed' | 'no-node-key'
 
 export type Verdict =
-  /** The pinned key signed Beacon's nonce. */
-  | { kind: 'proved' }
+  /** The pinned key signed Beacon's nonce. `learned`: the instance_id it said, where none was pinned yet: pin it. */
+  | { kind: 'proved'; learned?: string }
   /** Nothing pinned yet, and a good answer: pin this (trust on first use, until pairing hands the key over: PD-3). */
   | { kind: 'first'; instanceId: string | null; nodePub: string }
   /** The same instance_id, signed by another node key: moved to new hardware, or not. The person decides. */
@@ -107,9 +107,11 @@ export function judge(input: JudgeInput): Verdict {
   if (a.tlsSpki !== tlsSpki) return { kind: 'refused', why: 'channel' }
   if (!pinned) return { kind: 'first', instanceId: a.instanceId, nodePub: a.nodePub }
   if (a.nodePub === pinned.nodePub) {
-    // The same machine. A different vault adopted there is a different Prometheus; a first instance_id is learned.
-    if (pinned.instanceId !== null && a.instanceId !== pinned.instanceId) return { kind: 'other', instanceId: a.instanceId, nodePub: a.nodePub }
-    return { kind: 'proved' }
+    // The same machine. No instance_id this boot (no vault adopted yet) says nothing against the pin; a first instance_id is learned;
+    // another vault adopted there is a different Prometheus.
+    if (a.instanceId === null || a.instanceId === pinned.instanceId) return { kind: 'proved' }
+    if (pinned.instanceId === null) return { kind: 'proved', learned: a.instanceId }
+    return { kind: 'other', instanceId: a.instanceId, nodePub: a.nodePub }
   }
   if (a.instanceId !== null && a.instanceId === pinned.instanceId) return { kind: 'moved', instanceId: a.instanceId, nodePub: a.nodePub, was: pinned.nodePub }
   return { kind: 'other', instanceId: a.instanceId, nodePub: a.nodePub }

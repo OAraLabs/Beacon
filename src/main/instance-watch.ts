@@ -112,6 +112,10 @@ export class InstanceWatch {
       onVerdict: (v) => {
         seen.verdict = v
         if (v.kind === 'first') this.deps.pin(t.id, { instanceId: v.instanceId, nodePub: v.nodePub })
+        if (v.kind === 'proved' && v.learned) {
+          const pinned = this.deps.pinsOf(t.id)
+          if (pinned) this.deps.pin(t.id, { instanceId: v.learned, nodePub: pinned.nodePub }) // the first instance_id it says
+        }
         return undefined
       }
     })

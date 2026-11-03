@@ -45,7 +45,7 @@ interface StandIn {
   srv: Server
 }
 /** A Prometheus: answers the challenge with `key` (or 404 without one), and /api/status to `token` only. */
-async function standIn(key: NodeKey | null, instanceId: string, token: string): Promise<StandIn> {
+async function standIn(key: NodeKey | null, instanceId: string | null, token: string): Promise<StandIn> {
   const seen: StandIn['seen'] = []
   const srv = createServer((req, res) => {
     let body = ''
@@ -82,12 +82,16 @@ async function main(): Promise<void> {
   const plain = await standIn(K1, I, 'KEY-PLAIN') // an address Beacon may not use at all
   const stopped = await standIn(null, I, 'KEY-STOPPED') // pinned with K1, and now doesn't answer the question
   const older = await standIn(null, J, 'KEY-OLDER') // too old to be asked, nothing pinned, takes its key
+  const K4 = nodeKey()
+  const L2 = randomUUID()
+  const novault = await standIn(K1, null, 'KEY-NOVAULT') // the pinned key, no vault adopted this boot (instance_id null)
+  const learn = await standIn(K4, L2, 'KEY-LEARN') // the pinned key, saying an instance_id for the first time
   const gone = 'http://127.0.0.1:9' // nothing listens
 
   const t = (id: string, apiBase: string): WatchTarget => ({ id, apiBase, wsUrl: apiBase.replace('http', 'ws'), pin: null })
-  const targets = [t('good', good.base), t('other', other.base), t('refused', refused.base), t('first', first.base), t('plain', plain.base), t('gone', gone), t('stopped', stopped.base), t('older', older.base)]
-  const keys: Record<string, string> = { good: 'KEY-GOOD', other: 'KEY-FOR-THE-PINNED-ONE', refused: 'KEY-REFUSED', first: 'KEY-FIRST', plain: 'KEY-PLAIN', gone: 'KEY-GONE', stopped: 'KEY-STOPPED', older: 'KEY-OLDER' }
-  const pins: Record<string, PinnedIdentity | null> = { good: { instanceId: I, nodePub: K1.pub }, other: { instanceId: I, nodePub: K1.pub }, refused: null, first: null, plain: null, gone: { instanceId: I, nodePub: K1.pub }, stopped: { instanceId: I, nodePub: K1.pub }, older: null }
+  const targets = [t('good', good.base), t('other', other.base), t('refused', refused.base), t('first', first.base), t('plain', plain.base), t('gone', gone), t('stopped', stopped.base), t('older', older.base), t('novault', novault.base), t('learn', learn.base)]
+  const keys: Record<string, string> = { good: 'KEY-GOOD', other: 'KEY-FOR-THE-PINNED-ONE', refused: 'KEY-REFUSED', first: 'KEY-FIRST', plain: 'KEY-PLAIN', gone: 'KEY-GONE', stopped: 'KEY-STOPPED', older: 'KEY-OLDER', novault: 'KEY-NOVAULT', learn: 'KEY-LEARN' }
+  const pins: Record<string, PinnedIdentity | null> = { good: { instanceId: I, nodePub: K1.pub }, other: { instanceId: I, nodePub: K1.pub }, refused: null, first: null, plain: null, gone: { instanceId: I, nodePub: K1.pub }, stopped: { instanceId: I, nodePub: K1.pub }, older: null, novault: { instanceId: I, nodePub: K1.pub }, learn: { instanceId: null, nodePub: K4.pub } }
   let changes = 0
   const watch = new InstanceWatch({
     targets: () => targets,
@@ -117,6 +121,12 @@ async function main(): Promise<void> {
     assert(h('stopped').state === 'no-proof', `"No longer proves who it is", not "a different Prometheus" (${h('stopped').state})`)
     assert(!stopped.seen.some((r) => r.auth !== undefined), 'and it was sent no key at all')
 
+    console.log('\n[smoke] === the pinned key, no instance_id this boot ===')
+    assert(h('novault').state === 'connected' && pins.novault?.instanceId === I, `connected, and the instance_id it had stays pinned (${h('novault').state})`)
+
+    console.log('\n[smoke] === the pinned key, an instance_id for the first time ===')
+    assert(h('learn').state === 'connected' && pins.learn?.instanceId === L2 && pins.learn.nodePub === K4.pub, `connected, and the instance_id is learned (${h('learn').state}, ${pins.learn?.instanceId})`)
+
     console.log('\n[smoke] === an older Prometheus, nothing pinned ===')
     assert(h('older').state === 'connected' && pins.older === null, `connected, nothing pinned: it can't prove who it is (${h('older').state})`)
 
@@ -135,7 +145,7 @@ async function main(): Promise<void> {
     assert(changes > 0, `the list was told it changed (${changes})`)
   } finally {
     watch.stop()
-    for (const s of [good, other, refused, first, plain, stopped, older]) s.srv.close()
+    for (const s of [good, other, refused, first, plain, stopped, older, novault, learn]) s.srv.close()
   }
   console.log(`\n[smoke] ${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`)
   process.exit(failures === 0 ? 0 : 1)
