@@ -537,6 +537,10 @@ function onIdentityVerdict(conn: ConnectionManager, gw: GatewayConfig, folderId:
   }
   if (v.kind === 'proved' || v.kind === 'first' || v.kind === 'unproved') {
     if (v.kind === 'first') folders!.pinIdentity(folderId, { instanceId: v.instanceId, nodePub: v.nodePub })
+    if (v.kind === 'proved' && v.learned) {
+      const pinned = folders!.identityOf(folderId)
+      if (pinned) folders!.pinIdentity(folderId, { instanceId: v.learned, nodePub: pinned.nodePub }) // the first instance_id it says
+    }
     conn.setIdentity(v.kind === 'unproved' ? { kind: 'unproved' } : null)
     return null
   }

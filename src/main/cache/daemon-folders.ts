@@ -186,12 +186,16 @@ export class DaemonFolders implements BeaconStore {
     this.appDb.prepare('UPDATE daemon_folders SET instance_id = ?, node_pub = ? WHERE id = ?').run(pin.instanceId, pin.nodePub, id)
   }
 
-  /** The folder already pinned to this node key and instance_id: the same Prometheus, reached by another address or fp. */
+  /** The folder already pinned to this node key and instance_id: the same Prometheus, reached by another address or fp. An instance_id
+   *  missing on either side (none pinned yet, or no vault adopted this boot) says nothing against the key; the same instance_id wins. */
   folderWithIdentity(pin: PinnedIdentity): string | undefined {
     if (this.single) return undefined
     const r = this.appDb
-      .prepare('SELECT id FROM daemon_folders WHERE node_pub = ? AND (instance_id IS ? OR instance_id = ?) LIMIT 1')
-      .get(pin.nodePub, pin.instanceId, pin.instanceId) as { id: string } | undefined
+      .prepare(
+        `SELECT id FROM daemon_folders WHERE node_pub = ? AND (? IS NULL OR instance_id IS NULL OR instance_id = ?)
+         ORDER BY CASE WHEN instance_id = ? THEN 0 ELSE 1 END, last_active DESC LIMIT 1`
+      )
+      .get(pin.nodePub, pin.instanceId, pin.instanceId, pin.instanceId) as { id: string } | undefined
     return r?.id
   }
 
