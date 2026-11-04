@@ -18,6 +18,7 @@ import {
   pairHostUnusable,
   pairPayloadProblem,
   pairUrl,
+  nodeHex,
   pairPinSource,
   pairPinVerdict,
   PAIR_TLS_PORTS,
@@ -26,6 +27,8 @@ import {
 } from '@shared/devices'
 import { NAV_VIEWS, NAV_TREE, flattenNavTree, resolveView, DEFAULT_VIEW } from '@shared/views'
 import { CONFIG_TABS } from '@shared/daemon-api'
+import { PairPin } from './pair-pin'
+import type { HttpResult } from './pairing/http'
 
 let failures = 0
 let checks = 0
@@ -243,11 +246,81 @@ console.log('[smoke] === 8. the pinned code (0.4.3, beacon-ios #32 / D22) ===')
   assert(v(PIN, '1'.repeat(64)).kind === 'refused', 'another key on 8011: refused')
 }
 
-const MIN_CHECKS = 81
-if (checks < MIN_CHECKS) {
-  console.log(`[smoke] FAIL  only ${checks} checks ran, expected at least ${MIN_CHECKS}`)
-  failures++
-}
 console.log('')
-console.log(`[smoke] outcome: ${failures === 0 ? 'PASS ✓' : `FAIL ✗ (${failures})`} (host, refusals, payload, platform, list, seconds, nav, pin; ${checks} checks)`)
-process.exit(failures === 0 ? 0 : 1)
+console.log('[smoke] === 9. the node key in the code (node=, no trust on first use) ===')
+{
+  // THE AGREED LITERAL (the phone plan's §5 cross-repo vector): RFC 8032 test 1's public key, public and no real host's. The phone
+  // pins the same string; change it in both repos or in neither.
+  const PIN = '93e4290f39594676e81c6213a1673294ba700af25b80ef2f9a004e47b1a418a1'
+  const NODE_B64 = '11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=' // the daemon's form of the same key (node_pub, standard base64)
+  const NODE = 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a'
+  const AGREED = `beacon://pair?host=my-computer.tail0000.ts.net&token=abc123&name=My%20iPhone&pin=${PIN}&node=${NODE}` // precommit:allow-example-host
+  assert(nodeHex(NODE_B64) === NODE, 'node_pub (standard base64) becomes the hex of its 32 raw bytes, lower-case')
+  assert(pairUrl('my-computer.tail0000.ts.net', 'abc123', 'My iPhone', PIN, NODE) === AGREED, 'the code with a node key is the agreed string, byte for byte: node last, after pin') // precommit:allow-example-host
+  assert(pairUrl(TS, 'abc123', 'Alex iPhone', null, NODE) === `beacon://pair?host=192.0.2.7&token=abc123&name=Alex%20iPhone&node=${NODE}`, 'a plain code carries it too (the challenge still proves the right Prometheus answered)')
+  assert(pairUrl(TS, 'abc123', 'Alex iPhone', null, null) === pairUrl(TS, 'abc123', 'Alex iPhone'), 'no node key: no node, the code as before')
+  const notKeys = [null, '', 'x', NODE_B64.slice(0, -4), Buffer.alloc(31).toString('base64'), Buffer.alloc(33).toString('base64'), NODE_B64.replace(/\+|\//g, '-'), ` ${NODE_B64}`, NODE]
+  assert(notKeys.every((k) => nodeHex(k) === null), 'anything but exactly 32 bytes of standard base64 is no node key (no node is emitted)')
+  const throws = (node: string): boolean => {
+    try {
+      pairUrl(TS, 'abc123', 'Alex iPhone', null, node)
+      return false
+    } catch {
+      return true
+    }
+  }
+  assert([NODE.toUpperCase(), NODE.slice(1), NODE + '0', ` ${NODE}`, '', NODE_B64].every(throws), 'a node that is not exactly 64 lower-case hex is never emitted (the phone refuses the whole code)')
+}
+
+async function fromThePin(): Promise<void> {
+  console.log('')
+  console.log("[smoke] === 10. the node key comes from the instance's pinned identity, never from what answers now ===")
+  const PINNED = '11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo='
+  const OTHER = Buffer.alloc(32, 7).toString('base64') // what a daemon at the address might say about itself right now
+  const asked: string[] = []
+  const pairPin = (nodePub: string | null): PairPin =>
+    new PairPin({
+      profilePin: () => null,
+      base: () => 'http://192.0.2.7:8005',
+      token: () => 'KEY',
+      nodePub: () => nodePub,
+      request: async (r): Promise<HttpResult> => {
+        asked.push(r.url)
+        if (r.url.endsWith('/api/network')) return { status: 200, json: { mode: 'home_network', tls: { enabled: false, spki_sha256: null } }, retryAfter: null }
+        return { status: 200, json: { state: 'idle', node_pub: OTHER }, retryAfter: null }
+      },
+      ports: { api: 8006, ws: 8011 }
+    })
+  const d = await pairPin(PINNED).decide(TS)
+  assert(d.kind === 'plain' && d.node === nodeHex(PINNED), `the pinned key, in the code's form (${JSON.stringify(d)})`)
+  assert(!asked.some((u) => !u.endsWith('/api/network')), `nothing else was asked for it: no /api/status, no challenge (${asked.join(', ')})`)
+  const none = await pairPin(null).decide(TS)
+  assert(none.kind === 'plain' && none.node === null, 'nothing pinned (an older Prometheus): no node key, even though the daemon names one')
+  const TLS_PIN = '93e4290f39594676e81c6213a1673294ba700af25b80ef2f9a004e47b1a418a1'
+  const tls = await new PairPin({
+    profilePin: () => TLS_PIN,
+    base: () => 'https://192.0.2.7:8006',
+    token: () => 'KEY',
+    nodePub: () => PINNED,
+    request: async () => 'unreachable',
+    ports: { api: 8006, ws: 8011 },
+    keyAt: async () => TLS_PIN
+  }).decide(TS)
+  assert(tls.kind === 'pinned' && tls.pin === TLS_PIN && tls.node === nodeHex(PINNED), `a TLS code carries both, the pin and the node key (${JSON.stringify(tls)})`)
+  const bad = await pairPin('not a key').decide(TS)
+  assert(bad.kind === 'plain' && bad.node === null, 'a pinned value that is not a 32-byte key: no node, never repaired')
+}
+
+void fromThePin().then(() => {
+  const MIN_CHECKS = 92
+  if (checks < MIN_CHECKS) {
+    console.log(`[smoke] FAIL  only ${checks} checks ran, expected at least ${MIN_CHECKS}`)
+    failures++
+  }
+  console.log('')
+  console.log(`[smoke] outcome: ${failures === 0 ? 'PASS ✓' : `FAIL ✗ (${failures})`} (host, refusals, payload, platform, list, seconds, nav, pin, node; ${checks} checks)`)
+  process.exit(failures === 0 ? 0 : 1)
+}, (e) => {
+  console.log(`[smoke] FAIL  crashed: ${e instanceof Error ? e.stack : String(e)}`)
+  process.exit(1)
+})

@@ -151,7 +151,12 @@ export function pairPayloadProblem(host: string, token: string, name: string): s
  * URL fails at the phone, away from anyone who could diagnose it. A pin that is not exactly 64 lower-case hex makes iOS refuse the
  * WHOLE code, so it is never emitted (and never repaired: no lower-casing, no trimming).
  */
-export function pairUrl(host: string, token: string, name: string, pin?: string | null): string {
+// Red first: the node key in the code is not built yet.
+export function nodeHex(_nodePub: string | null): string | null {
+  return null
+}
+
+export function pairUrl(host: string, token: string, name: string, pin?: string | null, _node?: string | null): string {
   const problem = pairPayloadProblem(host, token, name)
   if (problem) throw new Error(problem)
   if (pin !== undefined && pin !== null && !PIN_RE.test(pin)) throw new Error('The TLS pin is not 64 lower-case hex characters, so the phone would refuse the code.')

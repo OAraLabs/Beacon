@@ -6,10 +6,11 @@ import { pairPinSource, pairPinVerdict, type PairPinVerdict } from '@shared/devi
 import type { RequestFn } from './pairing/http'
 import { spkiSha256 } from './tls-pin'
 
-export type PairPinDecision = { kind: 'plain' } | PairPinVerdict
+export type PairPinDecision = ({ kind: 'plain' } | PairPinVerdict) & { node?: string | null }
 
 export interface PairPinDeps {
   profilePin: () => string | null
+  nodePub?: () => string | null
   base: () => string | null
   token: () => string | null
   request: RequestFn
