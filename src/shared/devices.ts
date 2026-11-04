@@ -140,6 +140,17 @@ export function pairPayloadProblem(host: string, token: string, name: string): s
 }
 
 /**
+ * The node key as the pairing code carries it: the hex of the 32 raw bytes of a Prometheus's Ed25519 node key, lower-case, from its
+ * standard-base64 `node_pub`. Null for anything that is not exactly 32 bytes of canonical standard base64: then no `node` is emitted.
+ */
+export function nodeHex(nodePub: string | null): string | null {
+  if (nodePub === null || !/^[A-Za-z0-9+/]{43}=$/.test(nodePub)) return null
+  const raw = atob(nodePub)
+  if (raw.length !== 32 || btoa(raw) !== nodePub) return null
+  return Array.from(raw, (c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+}
+
+/**
  * The QR payload, verbatim per the Piece 1 spec:
  *   beacon://pair?host=<host>&token=<token>&name=<url-encoded name>
  * and, for a daemon serving TLS (0.4.3; beacon-ios #32, decision D22), the pin after the name:
@@ -147,16 +158,21 @@ export function pairPayloadProblem(host: string, token: string, name: string): s
  * The pin is the SHA-256 of the daemon certificate's SPKI (the same 32 bytes as the desktop's own pinning, PR 244). With it the phone
  * goes https/wss on 8006/8011 and refuses any other key; without it, plain http/ws on 8005/8010 exactly as before.
  *
+ * and last, the Prometheus's node key (the phone plan's §5), from the identity Beacon pinned for it, for the phone to pin; a plain code
+ * carries it too:
+ *   …&node=<64 lower-case hex>
+ *
  * Throws on an invalid payload rather than returning something plausible — a malformed pairing
  * URL fails at the phone, away from anyone who could diagnose it. A pin that is not exactly 64 lower-case hex makes iOS refuse the
  * WHOLE code, so it is never emitted (and never repaired: no lower-casing, no trimming).
  */
-export function pairUrl(host: string, token: string, name: string, pin?: string | null): string {
+export function pairUrl(host: string, token: string, name: string, pin?: string | null, node?: string | null): string {
   const problem = pairPayloadProblem(host, token, name)
   if (problem) throw new Error(problem)
   if (pin !== undefined && pin !== null && !PIN_RE.test(pin)) throw new Error('The TLS pin is not 64 lower-case hex characters, so the phone would refuse the code.')
+  if (node !== undefined && node !== null && !PIN_RE.test(node)) throw new Error('The node key is not 64 lower-case hex characters, so the phone would refuse the code.')
   const plain = `beacon://pair?host=${host}&token=${token}&name=${encodeURIComponent(name.trim())}`
-  return pin ? `${plain}&pin=${pin}` : plain
+  return `${plain}${pin ? `&pin=${pin}` : ''}${node ? `&node=${node}` : ''}`
 }
 
 const PIN_RE = /^[0-9a-f]{64}$/

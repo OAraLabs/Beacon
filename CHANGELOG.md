@@ -6,6 +6,7 @@ later update themselves.
 
 ## Unreleased
 
+- **The pairing code includes the Prometheus node key for the phone to pin.** The code in Devices → Enrol now ends with `node=`, the computer key Beacon pinned for that Prometheus when it proved who it is. A Prometheus too old to have a computer key gets the code as before, without it.
 - **A Prometheus with no vault adopted yet is still the same Prometheus.** A Prometheus says no instance id on a boot where it hasn't adopted its vault yet. Beacon took that, from a Prometheus whose computer key it knows, for a different Prometheus answering, and sent it nothing. Now the computer key is what proves it: no instance id this boot says nothing against it, and the first instance id it says is remembered. Another instance id under the same key is still a different Prometheus.
 - **Tests: probe:onboarding-welcome follows the live first run.** Its first scenario still expected the old setup wizard on an empty profile; since the new first run went live it checks that Welcome opens with no flag. All 51 checks pass.
 - **Switch from any view.** With two or more Prometheus, the name in Beacon's title bar is a button: click it, or Tab to it and press Enter, and the same list as the Chats sidebar opens, from Mission Control or anywhere else. The arrow keys, Home and End move, Enter switches, and Escape closes it. With one Prometheus the title bar still just says Beacon.

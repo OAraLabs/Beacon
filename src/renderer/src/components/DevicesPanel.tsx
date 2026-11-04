@@ -73,6 +73,8 @@ export function DevicesPanel() {
   const [minted, setMinted] = useState<MintedDevice | null>(null)
   /** The TLS pin the shown code carries (0.4.3), decided before the token was minted; null = a plain code. */
   const [pin, setPin] = useState<string | null>(null)
+  // The node key Beacon pinned for this Prometheus, in the code's form, for the phone to pin.
+  const [node, setNode] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [host, setHost] = useState('')
   const [showRevoked, setShowRevoked] = useState(false)
@@ -128,6 +130,7 @@ export function DevicesPanel() {
       .then((d) => {
         if (d.kind === 'refused') throw new Error(d.message)
         setPin(d.kind === 'pinned' ? d.pin : null)
+        setNode(d.node)
         return window.beacon.daemon.write('/api/devices', { name: name.trim(), platform }, 'POST')
       })
       .then((raw) => {
@@ -154,9 +157,10 @@ export function DevicesPanel() {
   // Both questions, because they fail differently: a malformed payload the phone cannot parse,
   // and a well-formed one it can parse but can never connect to.
   const problem = minted ? pairPayloadProblem(host, minted.token, minted.name) || pairHostUnusable(host) : ''
-  const payload = minted && !problem ? pairUrl(host, minted.token, minted.name, pin) : ''
+  const payload = minted && !problem ? pairUrl(host, minted.token, minted.name, pin, node) : ''
   const svg = useMemo(() => (payload ? qrSvg(payload) : ''), [payload])
   const payloadPin = payload ? /[?&]pin=([^&]*)/.exec(payload)?.[1] ?? null : null
+  const payloadNode = payload ? /[?&]node=([^&]*)/.exec(payload)?.[1] ?? null : null
   const sorted = useMemo(() => sortDevices(rows ?? []), [rows])
   const live = activeDevices(sorted).length
 
@@ -274,6 +278,7 @@ export function DevicesPanel() {
               // Read back from the payload the QR encodes, not from state: what a probe reads is what the phone scans.
               data-pinned={payloadPin ? 'true' : 'false'}
               data-pin={payloadPin ?? undefined}
+              data-node={payloadNode ?? undefined}
             >
               {/* eslint-disable-next-line react/no-danger -- locally generated SVG from qrcode-generator,
                   never remote content; the payload is our own string. */}
