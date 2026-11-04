@@ -118,3 +118,8 @@ export function switcherKey(key: string, at: number, count: number): { focus: nu
       return null
   }
 }
+
+// Red first: not built yet.
+export function switcherRows(_list: InstanceSummary[], _clock?: (ms: number) => string): InstanceRowView[] | null {
+  return null
+}

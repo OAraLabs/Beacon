@@ -165,6 +165,11 @@ export class DaemonFolders implements BeaconStore {
     return this.single ? LEGACY_DB : this.resolve(who)
   }
 
+  // Red first: not built yet.
+  folderForAdd(_apiBase: string, _fp: string | null): string | null {
+    return null
+  }
+
   /** The fp bound to folder `id`, or null. */
   fpOf(id: string): string | null {
     if (this.single) return null
