@@ -108,6 +108,7 @@ const api: BeaconBridge = {
     profiles: () => ipcRenderer.invoke(IPC.GATEWAY_PROFILES)
   },
   trace: (e: import('@shared/ui-trace').UiTraceEvent) => ipcRenderer.send(IPC.UI_TRACE, e),
+  viewTrail: (line: string) => ipcRenderer.send(IPC.VIEW_TRAIL, line),
   watchdog: (e: import('@shared/watchdog-log').WatchdogEvent) => ipcRenderer.send(IPC.WATCHDOG_EVENT, e),
   /** Push the active skin's chrome colours so the OS window buttons match the bar they sit on.
    *  Send-only: main ignores it on macOS, where the traffic lights are the system's own. */

@@ -1,7 +1,8 @@
 import { EDIT_ADDRESS_COPY } from '@shared/edit-address'
 import { thisComputer } from '@shared/this-computer'
 import { NOT_ENCRYPTED_NOTICE } from '@shared/plain-lan'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useDialogFocus } from './useDialogFocus'
 import type { ConnectionTestResult, SaveConnectionSettingsResult, UpdaterStatus } from '@shared/ipc'
 import type { NotifyPrefs } from '@shared/notification-prefs'
 import type { CloseMode } from '@shared/tray-hint'
@@ -610,6 +611,8 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
   // The address and the key sit under Advanced, closed, unless Settings was opened to fix the connection (a rejected key, Change
   // connection…), which is the one time a person needs them.
   const [advanced, setAdvanced] = useState(at === 'connection')
+  const sheet = useRef<HTMLDivElement>(null)
+  useDialogFocus(sheet, onClose)
 
   useEffect(() => {
     const b = window.beacon
@@ -718,7 +721,7 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
 
   return (
     <div style={backdrop} onClick={onClose}>
-      <div style={modal} onClick={(e) => e.stopPropagation()}>
+      <div ref={sheet} style={modal} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={ownerOnly ? OWNER_SETTINGS_COPY.title : 'Connection Settings'}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text)', margin: 0 }}>{ownerOnly ? OWNER_SETTINGS_COPY.title : 'Connection Settings'}</h2>
           <button

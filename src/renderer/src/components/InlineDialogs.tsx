@@ -45,7 +45,7 @@ export function InlineConfirm({
 }) {
   return (
     <div style={scrim}>
-      <div style={card}>
+      <div style={card} role="alertdialog" aria-label={title}>
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)', marginBottom: detail ? 8 : 16 }}>{title}</div>
         {detail ? <div style={{ fontSize: 13, color: 'var(--c-text-dim)', marginBottom: 16, fontFamily: MONO }}>{detail}</div> : null}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>

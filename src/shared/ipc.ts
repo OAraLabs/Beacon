@@ -213,6 +213,7 @@ export const IPC = {
   // Dev-gated resolve-path breadcrumbs (findings 2/5). Fire-and-forget `send`, never
   // `invoke`: instrumentation must not add a round-trip to the path it measures.
   UI_TRACE: 'ui:trace',
+  VIEW_TRAIL: 'ui:view-trail', // renderer -> main (send): what changed the view, one line when Settings opens (@shared/view-trail); always on
   // What the reply watchdog decided. ALWAYS-ON (unlike UI_TRACE): the line this
   // records tells an operator to check the daemon, and it fires in packaged
   // builds. Fire-and-forget `send` — recording must not add a round-trip.
@@ -900,6 +901,8 @@ export interface BeaconBridge {
   }
   /** Dev-gated diagnostic breadcrumb. No-op in a packaged build (dropped in main). */
   trace(e: import('./ui-trace').UiTraceEvent): void
+  /** Settings opened: what changed the view lately, appended to <profile>/logs/view-trail.log (@shared/view-trail). */
+  viewTrail(line: string): void
   /** Durable watchdog decision record. Always-on — see watchdog-log.ts. */
   watchdog(e: import('./watchdog-log').WatchdogEvent): void
   /** Repaint the OS window buttons (Linux/Windows) with the active skin's chrome colours.

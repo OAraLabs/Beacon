@@ -10,6 +10,7 @@ import { AppChrome } from './components/AppChrome'
 import { ConnectionSettings } from './components/ConnectionSettings'
 import { UnreachableBanner } from './components/UnreachableBanner'
 import { loadAndApplyTheme } from './theme/apply-theme'
+import { writeTrail } from './view-trail-store'
 import { useInstances } from './instances-store'
 import { windowTitle } from '@shared/instance-rows'
 
@@ -84,6 +85,7 @@ export default function App() {
   useEffect(() => {
     const onOpen = (e: Event): void => {
       const section = (e as CustomEvent<{ section?: unknown } | null>).detail?.section
+      writeTrail(typeof section === 'string' ? `in-app, ${section}` : 'in-app')
       setSettingsAt(typeof section === 'string' ? section : null)
       setSettingsOpen(true)
     }
@@ -91,6 +93,7 @@ export default function App() {
     window.addEventListener('beacon:open-settings', onOpen)
     window.addEventListener('beacon:connection-changed', onChanged)
     const off = window.beacon?.connection.onOpenSettings(() => {
+      writeTrail('menu or tray')
       setSettingsAt(null)
       setSettingsOpen(true)
     })
@@ -127,6 +130,7 @@ export default function App() {
       <MainView key={connGen} />
       <UnreachableBanner
         onChangeConnection={() => {
+          writeTrail('banner')
           setSettingsAt('connection') // the address and key, open: that is what changing the connection means
           setSettingsOpen(true)
         }}
