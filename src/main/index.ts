@@ -110,6 +110,7 @@ import { sameOrigin } from '@shared/key-origin'
 import type { PinnedIdentity, Verdict } from '@shared/identity-challenge'
 import type { InstanceSummary } from '@shared/ipc'
 import { UNKNOWN, WATCH_EVERY_MS, aiLabel, type InstanceHealth } from '@shared/instance-watch'
+import { appendViewTrail } from './view-trail-log'
 import { InstanceWatch } from './instance-watch'
 import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
 import { whoIsAt } from './edit-address'
@@ -1996,6 +1997,8 @@ app.whenReady().then(() => {
     bringUpConnection(m.gw, null, m.folderId)
     return true
   })
+  // What changed the view when Settings opened (@shared/view-trail): one line in <profile>/logs/view-trail.log, in every build.
+  onFromShell(IPC.VIEW_TRAIL, (_e, line: unknown) => appendViewTrail(join(app.getPath('userData'), 'logs', 'view-trail.log'), line))
   onFromShell(IPC.SESSION_ACTIVE, (_e, sessionId: string) => {
     activeSessionId = typeof sessionId === 'string' && sessionId ? sessionId : null
   })

@@ -8,7 +8,7 @@
 // CDP clicks skip drag regions, so this checks geometry against the computed `-webkit-app-region` of every element, not by clicking.
 //
 //   npm run build && npm run probe:dialog-drag
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -24,7 +24,7 @@ for (const k of Object.keys(process.env)) if (k.startsWith('BEACON_') || k.start
 
 let failures = 0
 let checks = 0
-const MIN_CHECKS = 23
+const MIN_CHECKS = 25
 const check = (ok, label, extra = '') => {
   checks++
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${!ok && extra ? ` — ${String(extra).slice(0, 500)}` : ''}`)
@@ -117,6 +117,13 @@ try {
     if (!closed) await app.page.evaluate(`document.querySelector('[aria-label="Close"]')?.click(); true`)
     await sleep(300)
   }
+
+  // Each ⌘, left one line saying what changed the view (src/shared/view-trail.ts), in the profile's logs.
+  const logFile = join(profile, 'logs', 'view-trail.log')
+  const lines = existsSync(logFile) ? readFileSync(logFile, 'utf8').trim().split('\n') : []
+  const chatLine = lines.find((l) => / on chat;/.test(l)) ?? ''
+  check(lines.length === 6 && lines.every((l) => l.includes('settings opened (menu or tray)')), 'each ⌘, wrote one line to logs/view-trail.log', lines.join('\n').slice(0, 400))
+  check(/mission → chat after click Chats/.test(chatLine) && /renderer up \d/.test(chatLine), 'the line for Chats says how the view got there, and how long the page has been up', chatLine)
 
   // The connection popover and the command palette, from Mission Control (its header is a drag region).
   await app.page.evaluate(`document.querySelector('nav[aria-label="Views"] button[title="Mission"]')?.click(); true`)

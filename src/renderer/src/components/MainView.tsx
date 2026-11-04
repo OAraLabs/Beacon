@@ -93,6 +93,7 @@ import { ShortcutSheet } from './ShortcutSheet'
 import { MissionHome } from './MissionHome'
 import { ChatHome, type HomeStart } from './ChatHome'
 import type { PendingFile } from '../attachments-io'
+import { noteView } from '../view-trail-store'
 import { DEFAULT_VIEW, NAV_VIEWS, usesPillRow, viewLabel, type ViewId } from '@shared/views'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HOME, LAST_SESSION_KEY, beginFromHome, resolveLaunchTarget, type ChatTarget } from '@shared/chat-home'
@@ -557,8 +558,11 @@ export function MainView() {
    */
   const daemonLastSeen = useRef(0)
   const [view, setView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
+  const shownView = useRef<ViewId | null>(null)
   useEffect(() => {
     keptView = view
+    noteView(shownView.current, view) // what changed the view, for the line written when Settings opens (@shared/view-trail)
+    shownView.current = view
   }, [view])
   // A view that reads only the owner's routes: the note on an approved device, nothing while main has not said which yet.
   const ownerGate: 'note' | 'wait' | null = isOwnerOnlyView(view) ? (role === 'limited' ? 'note' : role === undefined ? 'wait' : null) : null
