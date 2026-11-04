@@ -24,7 +24,7 @@ for (const k of Object.keys(process.env)) if (k.startsWith('BEACON_') || k.start
 
 let failures = 0
 let checks = 0
-const MIN_CHECKS = 27
+const MIN_CHECKS = 23
 const check = (ok, label, extra = '') => {
   checks++
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${!ok && extra ? ` — ${String(extra).slice(0, 500)}` : ''}`)

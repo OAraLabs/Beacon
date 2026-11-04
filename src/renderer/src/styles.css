@@ -42,6 +42,14 @@ body {
   min-height: 0;
 }
 
+/* While a dialog, menu or popover is open, nothing under it drags the window. A window-drag region sits ABOVE the page for the OS,
+   so a control drawn over the title bar or a view's header couldn't be clicked: the click dragged the window (Connection Settings'
+   ✕ and "Advanced" over Mission Control's header, and over an open conversation's). Every overlay carries one of these roles. */
+:root:has([role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox'], [aria-modal='true']) .topbar,
+:root:has([role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox'], [aria-modal='true']) .app-chrome {
+  -webkit-app-region: no-drag;
+}
+
 .topbar {
   display: flex;
   flex-wrap: wrap; /* beside an open side panel the conversation can be ~380px: the controls reflow, never overflow */

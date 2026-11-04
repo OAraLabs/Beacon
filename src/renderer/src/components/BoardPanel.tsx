@@ -152,6 +152,8 @@ function Overlay({ children, onClose }: { children: ReactNode; onClose: () => vo
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
         style={{ width: 'min(460px, 94vw)', maxHeight: '88vh', overflowY: 'auto', background: 'var(--c-raise)', border: '1px solid var(--c-line)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}
       >
         {children}
