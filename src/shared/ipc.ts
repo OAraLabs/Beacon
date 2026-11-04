@@ -1164,7 +1164,7 @@ export interface BeaconBridge {
    *  kept in place of the API token. The answer never carries the token. */
   /** Devices → Enrol (0.4.3): whether the pairing code for `host` carries the daemon's TLS pin, asked BEFORE minting. */
   pairPin: {
-    decide(host: string): Promise<{ kind: 'plain' } | { kind: 'pinned'; pin: string } | { kind: 'refused'; message: string }>
+    decide(host: string): Promise<{ kind: 'plain'; node: string | null } | { kind: 'pinned'; pin: string; node: string | null } | { kind: 'refused'; message: string }>
   }
   ownerPromotion: {
     redeem(code: string): Promise<import('./owner-promotion').OwnerOutcome>

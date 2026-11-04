@@ -29,7 +29,7 @@ export function realDaemonConfigured() {
 }
 
 /** @returns {Promise<null | {port:number, wsPort:number, token:string, fp:string, module:string, owner:Function, stop:Function}>} */
-export async function startRealDaemon({ name = 'Probe Prometheus', requests = true, ttl = 300, perSource = 20, ws = true, tls = false, setupMode = false, auth = true, daemonLimits = false, wsPort: advertisedWsPort = null, home: reuseHome = null } = {}) {
+export async function startRealDaemon({ name = 'Probe Prometheus', requests = true, ttl = 300, perSource = 20, ws = true, tls = false, setupMode = false, auth = true, daemonLimits = false, nodeKey = false, wsPort: advertisedWsPort = null, home: reuseHome = null } = {}) {
   if (!realDaemonConfigured()) return null
   // reuseHome: a scratch home made by an earlier startRealDaemon, so several modes share one instance key (one fingerprint).
   const home = reuseHome ?? mkdtempSync(join(tmpdir(), 'beacon-real-daemon-'))
@@ -44,6 +44,7 @@ export async function startRealDaemon({ name = 'Probe Prometheus', requests = tr
   if (setupMode) argv.push('--setup-mode')
   if (!auth) argv.push('--no-auth')
   if (daemonLimits) argv.push('--daemon-limits')
+  if (nodeKey) argv.push('--node-key') // a node key, made as a first run makes it (the challenge then answers)
   if (tls) argv.push('--tls') // the home-network TLS listeners too, on 127.0.0.1 (serve_real_daemon.py says how)
   const child = spawn(process.env.BEACON_REAL_DAEMON_PY, argv, { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: process.env.PATH ?? '', LANG: 'en_US.UTF-8' } })
   let err = ''

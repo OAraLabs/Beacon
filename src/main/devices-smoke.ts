@@ -247,7 +247,7 @@ console.log('[smoke] === 8. the pinned code (0.4.3, beacon-ios #32 / D22) ===')
 }
 
 console.log('')
-console.log('[smoke] === 9. the node key in the code (node=, no trust on first use) ===')
+console.log('[smoke] === 9. the node key in the code (node=, for the phone to pin) ===')
 {
   // THE AGREED LITERAL (the phone plan's §5 cross-repo vector): RFC 8032 test 1's public key, public and no real host's. The phone
   // pins the same string; change it in both repos or in neither.

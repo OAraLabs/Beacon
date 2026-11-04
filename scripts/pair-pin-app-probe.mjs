@@ -15,6 +15,8 @@
 // 1. TLS on, the ports answering: Enrol → a code, marked pinned with exactly the daemon's own pin; one device minted.
 // 2. TLS on, the ports pointed somewhere dead: Enrol → refused, naming 8006/8011 and iPhone; NO device minted.
 // 3. TLS off: Enrol → a code with no pin (today's code); one device minted.
+// Each code also carries the daemon's node key (node=), the one Beacon pinned for it when it proved who it is.
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -36,7 +38,7 @@ const check = (ok, label, extra = '') => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${!ok && extra ? ` — ${String(extra).slice(0, 600)}` : ''}`)
   if (!ok) failures++
 }
-const MIN_CHECKS = 14
+const MIN_CHECKS = 17
 process.on('exit', () => {
   if (failures || checks < MIN_CHECKS) {
     console.log(`\n[probe] FAIL — ${failures} failed, ${checks} ran (at least ${MIN_CHECKS} expected)`)
@@ -79,11 +81,16 @@ async function shot(name) {
   const r = await app.page.send('Page.captureScreenshot', { format: 'png' })
   if (r.result?.data) writeFileSync(join(SHOTS, `${name}.png`), Buffer.from(r.result.data, 'base64'))
 }
+/** The hex the code carries for a standard-base64 node_pub (independent of Beacon's own nodeHex). */
+const hex = (b64) => (typeof b64 === 'string' ? Buffer.from(b64, 'base64').toString('hex') : null)
+/** The node key a profile pinned for its active Prometheus. */
+const pinnedNode = (profile) =>
+  execFileSync('sqlite3', [join(profile, 'app.db'), "SELECT COALESCE(node_pub, '') FROM daemon_folders WHERE id = (SELECT value FROM settings WHERE key = 'daemons:active')"]).toString().trim() || null
 const panel = () =>
   app.page.evaluate(`(() => {
     const qr = document.querySelector('[data-testid="pair-code"]')
     const input = document.querySelector('input[placeholder="Device name…"]')
-    return { qr: !!qr, pinned: qr ? qr.getAttribute('data-pinned') : null, pin: qr ? qr.getAttribute('data-pin') : null, svg: !!(qr && qr.querySelector('svg')), text: (() => { let el = input; while (el && el.parentElement && !(el.innerText || '').includes('enrolled') ) el = el.parentElement; while (el && el.parentElement && !el.querySelector('[style*="overflow-y: auto"]')) el = el.parentElement; return (el?.innerText ?? document.body.innerText).slice(0, 4000) })() }
+    return { qr: !!qr, pinned: qr ? qr.getAttribute('data-pinned') : null, pin: qr ? qr.getAttribute('data-pin') : null, node: qr ? qr.getAttribute('data-node') : null, svg: !!(qr && qr.querySelector('svg')), text: (() => { let el = input; while (el && el.parentElement && !(el.innerText || '').includes('enrolled') ) el = el.parentElement; while (el && el.parentElement && !el.querySelector('[style*="overflow-y: auto"]')) el = el.parentElement; return (el?.innerText ?? document.body.innerText).slice(0, 4000) })() }
   })()`)
 
 /** Launch Beacon against `d`, connected by name with the global token; open Config → Devices; enrol `name`. */
@@ -113,7 +120,7 @@ const devicesNamed = async (d, name) => {
 const daemons = []
 try {
   // ── 1 and 2: a daemon serving TLS ────────────────────────────────────────────────────────────────────────────────────
-  const t = await startRealDaemon({ name: 'Probe TLS Prometheus', tls: true })
+  const t = await startRealDaemon({ name: 'Probe TLS Prometheus', tls: true, nodeKey: true })
   daemons.push(t)
   const net = await t.owner('GET', '/api/network')
   check(net.body?.tls?.enabled === true && net.body?.tls?.spki_sha256 === t.pin && /^[0-9a-f]{64}$/.test(t.pin ?? ''), 'the real daemon serves TLS and GET /api/network reports its pin', JSON.stringify(net.body?.tls))
@@ -123,6 +130,9 @@ try {
   check(!!p1 && p1.pinned === 'true' && p1.pin === t.pin, 'the code is marked pinned, with exactly the daemon\'s own pin', JSON.stringify({ pinned: p1?.pinned, pin: p1?.pin, want: t.pin }))
   check(!!p1 && /encrypted/i.test(p1.text), 'and says so beside it', p1?.text?.slice(0, 300))
   check((await devicesNamed(t, 'Probe iPhone')) === 1, 'one device was minted for it')
+  const tNode = (await t.owner('GET', '/api/status')).body?.node_pub ?? null
+  check(typeof tNode === 'string' && p1?.node === hex(tNode), "the code carries the daemon's node key (node=, 64 hex) as Beacon pinned it", JSON.stringify({ node: p1?.node, daemon: tNode }))
+  check(p1?.node === hex(pinnedNode(profiles.at(-1))), 'the same key Beacon pinned for this Prometheus when it proved who it is', JSON.stringify({ node: p1?.node, pinned: pinnedNode(profiles.at(-1)) }))
   await shot('1-pinned')
   await app.quit()
   app = null
@@ -139,7 +149,7 @@ try {
   app = null
 
   // ── 3: a daemon without TLS ──────────────────────────────────────────────────────────────────────────────────────────
-  const p = await startRealDaemon({ name: 'Probe Plain Prometheus', tls: false })
+  const p = await startRealDaemon({ name: 'Probe Plain Prometheus', tls: false, nodeKey: true })
   daemons.push(p)
   const net3 = await p.owner('GET', '/api/network')
   check(net3.body?.tls?.enabled === false, 'the second daemon has no TLS (home network off)', JSON.stringify(net3.body?.tls))
@@ -148,6 +158,8 @@ try {
   check(!!p3 && p3.pinned === 'false' && !p3.pin, 'a code with no pin: today\'s plain code', JSON.stringify({ pinned: p3?.pinned, pin: p3?.pin }))
   check(!!p3 && !/encrypted/i.test(p3.text), 'and no "encrypted" line')
   check((await devicesNamed(p, 'Probe Plain iPhone')) === 1, 'one device was minted for it')
+  const pNode = (await p.owner('GET', '/api/status')).body?.node_pub ?? null
+  check(typeof pNode === 'string' && p3?.node === hex(pNode) && p3.node !== p1?.node, 'a plain code carries its own daemon\'s node key too', JSON.stringify({ node: p3?.node, daemon: pNode }))
   await shot('3-plain')
   check(true, 'ran to the end')
 } catch (e) {

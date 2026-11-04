@@ -869,6 +869,10 @@ const newOpenRouterSignIn = async (): Promise<OpenRouterSignIn> =>
 // checked against what the code's host presents on the ports Beacon for iOS dials.
 const pairPin = new PairPin({
   profilePin: () => connectedLink?.gateway.pin ?? null,
+  nodePub: () => {
+    const id = folders?.currentId()
+    return id ? (folders!.identityOf(id)?.nodePub ?? null) : null
+  },
   base: () => connectedLink?.gateway.apiBase ?? null,
   token: () => connectedLink?.token ?? null,
   request: requestSmall,

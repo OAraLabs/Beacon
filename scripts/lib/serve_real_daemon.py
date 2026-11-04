@@ -50,6 +50,7 @@ ap.add_argument("--per-source", type=int, default=20, help="pairing.max_pending_
 ap.add_argument("--setup-mode", action="store_true", help="serve setup mode (create_setup_app), as `oara daemon` does with no config")
 ap.add_argument("--no-auth", action="store_true", help="the full app with no API token (web.api_token unset)")
 ap.add_argument("--daemon-limits", action="store_true", help="the daemon's own pairing limits, not the probes' generous ones")
+ap.add_argument("--node-key", action="store_true", help="make the node key first, as a first run does (Prometheus 0.9.18+: /api/status names node_pub, the challenge answers)")
 args = ap.parse_args()
 
 home = Path(args.home).resolve()
@@ -93,6 +94,10 @@ from prometheus.config import display_name as display_name_mod  # noqa: E402
 from prometheus.config import instance_key  # noqa: E402
 from prometheus.config.device_store import DeviceStore  # noqa: E402
 from prometheus.web.server import create_app  # noqa: E402
+if args.node_key:
+    from prometheus.config.node_identity import ensure_node_identity  # noqa: E402
+
+    ensure_node_identity()
 from prometheus.engine.session import SessionManager  # noqa: E402
 from prometheus.web.ws_server import WebSocketBridge  # noqa: E402
 
