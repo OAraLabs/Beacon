@@ -1,0 +1,69 @@
+{
+  "_assumed": "ASSUMED SHAPES, written from docs/ONBOARDING-LOCAL-FIRST.md §4.1 before Prometheus P1 exists. Not a recording. Replaced by src/main/fixtures/local_probe_<PR>.json from scripts/record-local-probe-<PR>.mjs (§7.3); until then nothing here is evidence of what Prometheus answers.",
+  "status_both": { "status": 200, "json": { "setup_mode": true, "configured": false, "pairing": "locked", "version": "0.9.16", "features": ["local_probe", "model_local"] } },
+  "status_probe_only": { "status": 200, "json": { "setup_mode": true, "configured": false, "pairing": "locked", "version": "0.9.16", "features": ["local_probe"] } },
+  "status_old": { "status": 200, "json": { "setup_mode": true, "configured": false, "pairing": "locked", "version": "0.9.15" } },
+  "detect_found": {
+    "status": 200,
+    "json": {
+      "backends": [
+        { "name": "Ollama", "provider": "ollama", "base_url": "http://localhost:11434", "models": ["nomic-embed-text:latest", "gemma3:4b", "qwen3:8b"], "latency_ms": 3.1 },
+        { "name": "LM Studio", "provider": "lm_studio", "base_url": "http://localhost:1234", "models": ["gemma-3-12b"], "latency_ms": 4.0 }
+      ],
+      "cloud_providers": [],
+      "local": {
+        "target": null,
+        "found": [
+          {
+            "app": "ollama", "provider": "ollama", "base_url": "http://localhost:11434", "version": "0.23.0", "latency_ms": 3.1,
+            "models": [
+              { "id": "nomic-embed-text:latest", "loaded": false, "chat": false, "window": 8192, "window_source": "trained", "usable": false, "problem": "no_chat" },
+              { "id": "gemma3:4b", "loaded": false, "chat": true, "window": 131072, "window_source": "trained", "usable": true, "problem": null },
+              { "id": "qwen3:8b", "loaded": true, "chat": true, "window": 40960, "window_source": "trained", "usable": true, "problem": null }
+            ]
+          },
+          {
+            "app": "lm_studio", "provider": "lm_studio", "base_url": "http://localhost:1234", "version": "0.3.30", "latency_ms": 4.0,
+            "models": [
+              { "id": "gemma-3-12b", "loaded": true, "chat": true, "window": 4096, "window_source": "loaded", "usable": false, "problem": "short_context" }
+            ]
+          }
+        ],
+        "reason": null,
+        "detail": "Ollama on this machine: 2 of 3 usable; LM Studio on this machine: 0 of 1 usable (gemma-3-12b serves a 4,096 window; Prometheus needs 24,576)",
+        "min_window": 24576
+      }
+    }
+  },
+  "detect_nothing": {
+    "status": 200,
+    "json": { "backends": [], "cloud_providers": [], "local": { "target": null, "found": [], "reason": "refused", "detail": "nothing answered on 8080, 11434, 1234 or 8000", "min_window": 24576 } }
+  },
+  "detect_old": { "status": 200, "json": { "backends": [], "cloud_providers": [] } },
+  "probe_ok": {
+    "status": 200,
+    "json": {
+      "target": "my-computer.local",
+      "found": [
+        { "app": "lm_studio", "provider": "lm_studio", "base_url": "http://my-computer.local:1234", "version": "0.3.30", "latency_ms": 12.0,
+          "models": [{ "id": "qwen3-14b", "loaded": true, "chat": true, "window": 32768, "window_source": "loaded", "usable": true, "problem": null }] }
+      ],
+      "reason": null, "detail": "LM Studio on my-computer.local: 1 of 1 usable", "min_window": 24576
+    }
+  },
+  "probe_reasons": {
+    "name_not_found": { "status": 200, "json": { "target": "my-computer.local", "found": [], "reason": "name_not_found", "detail": "my-computer.local did not resolve within 3 s", "min_window": 24576 } },
+    "no_answer": { "status": 200, "json": { "target": "my-computer.local", "found": [], "reason": "no_answer", "detail": "every port timed out after 3 s", "min_window": 24576 } },
+    "refused": { "status": 200, "json": { "target": "my-computer.local", "found": [], "reason": "refused", "detail": "connection refused on 8080, 11434, 1234 and 8000", "min_window": 24576 } },
+    "not_ai": { "status": 200, "json": { "target": "my-computer.local", "found": [], "reason": "not_ai", "detail": "port 8080 answered HTML", "min_window": 24576 } },
+    "needs_key": { "status": 200, "json": { "target": "my-computer.local", "found": [], "reason": "needs_key", "detail": "port 8000 answered 401", "min_window": 24576 } },
+    "no_models": { "status": 200, "json": { "target": "my-computer.local", "found": [{ "app": "ollama", "provider": "ollama", "base_url": "http://my-computer.local:11434", "version": "0.23.0", "latency_ms": 9.0, "models": [] }], "reason": "no_models", "detail": "Ollama has no models", "min_window": 24576 } },
+    "no_chat": { "status": 200, "json": { "target": "my-computer.local", "found": [{ "app": "ollama", "provider": "ollama", "base_url": "http://my-computer.local:11434", "version": "0.23.0", "latency_ms": 9.0, "models": [{ "id": "nomic-embed-text:latest", "loaded": false, "chat": false, "window": 8192, "window_source": "trained", "usable": false, "problem": "no_chat" }] }], "reason": "no_chat", "detail": "Ollama has only embedding models", "min_window": 24576 } },
+    "none_loaded": { "status": 200, "json": { "target": "my-computer.local", "found": [{ "app": "lm_studio", "provider": "lm_studio", "base_url": "http://my-computer.local:1234", "version": "0.3.30", "latency_ms": 9.0, "models": [{ "id": "qwen3-14b", "loaded": false, "chat": true, "window": null, "window_source": null, "usable": false, "problem": "none_loaded" }] }], "reason": "none_loaded", "detail": "LM Studio has nothing loaded", "min_window": 24576 } },
+    "short_context": { "status": 200, "json": { "target": "my-computer.local", "found": [{ "app": "lm_studio", "provider": "lm_studio", "base_url": "http://my-computer.local:1234", "version": "0.3.30", "latency_ms": 9.0, "models": [{ "id": "gemma-3-12b", "loaded": true, "chat": true, "window": 4096, "window_source": "loaded", "usable": false, "problem": "short_context" }] }], "reason": "short_context", "detail": "gemma-3-12b serves a 4,096 window; Prometheus needs 24,576", "min_window": 24576 } }
+  },
+  "probe_unknown_reason": { "status": 200, "json": { "target": "my-computer.local", "found": [], "reason": "gremlins", "detail": "a reason Beacon does not know", "min_window": 24576 } },
+  "probe_contradiction": { "status": 200, "json": { "target": "my-computer.local", "found": [{ "app": "ollama", "provider": "ollama", "base_url": "http://my-computer.local:11434", "models": [{ "id": "qwen3:8b", "loaded": true, "chat": true, "window": 40960, "window_source": "trained", "usable": "yes", "problem": null }] }], "reason": null, "detail": "", "min_window": 24576 } },
+  "probe_bad_target": { "status": 400, "json": { "error": "bad_target", "detail": "a target names a computer, with an optional port" } },
+  "configure_gone": { "status": 400, "json": { "error": "backend_unreachable", "reason": "none_loaded", "detail": "LM Studio on this machine has nothing loaded", "fields": ["base_url"] } }
+}
