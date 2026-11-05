@@ -6,7 +6,7 @@
  * dialog keeps the keyboard, or that nothing in it is a device control. This drives Electron over CDP,
  * reads the live DOM and measures it.
  *
- * A FAKE GATEWAY serves made-up fixtures (src/shared/home-fixtures.ts, the file the smoke uses) on the
+ * A FAKE GATEWAY serves made-up fixtures (src/shared/home-fixtures.json, the file the smoke uses) on the
  * REST port, so every payload travels the real path: fetch → daemon bridge → HomePanel. It plays the
  * daemon's new /api/home/* routes and the existing approval-grants routes, and records every write so
  * the probe can say exactly what the screen sent. Nothing here talks to Home Assistant; nothing is real.
@@ -16,8 +16,8 @@
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { DEVICES_LIST, GRANTS_LIST, STATUS_CONNECTED, STATUS_UNREACHABLE } from '../src/shared/home-fixtures.ts'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+const { DEVICES_LIST, GRANTS_LIST, STATUS_CONNECTED, STATUS_UNREACHABLE } = JSON.parse(readFileSync(new URL('../src/shared/home-fixtures.json', import.meta.url), 'utf8'))
 
 const PORT = 8778
 const WIDTH = 1512

@@ -3,11 +3,12 @@
  * (docs/HA-UI-DATA-CONTRACT.md §3.2): the connection line, devices grouped by room with search and a
  * tier filter, what each row offers (Critical is read only, an unclassified device is shown Sensitive,
  * Sensitive can be relaxed to "Ask once"), the "Always allowed" list and its Revoke, and the words
- * each failure is shown in. Made-up home only (@shared/home-fixtures).
+ * each failure is shown in. Made-up home only (src/shared/home-fixtures.json).
  *
  * The screen renders the daemon's words verbatim and decides nothing, except that an unknown tier is
  * Sensitive, and that Beacon never offers a control the contract does not give it.
  */
+import { readFileSync } from 'node:fs'
 import {
   GRANTS_PATH,
   HOME_DEVICES_PATH,
@@ -30,15 +31,17 @@ import {
   unavailableLine,
   writeFailureLine
 } from '@shared/home-devices'
-import {
+// The fixtures are DATA read from disk, never imported (see home-approval-smoke): a module two smokes share becomes a
+// shipped chunk.
+const FIXTURES = JSON.parse(readFileSync(new URL('../../src/shared/home-fixtures.json', import.meta.url), 'utf8'))
+const {
   DEVICES_LIST,
   GRANTS_LIST,
   MADE_UP_NAMES,
   STATUS_AUTH_FAILED,
   STATUS_CONNECTED,
   STATUS_UNREACHABLE
-} from '@shared/home-fixtures'
-import { readFileSync } from 'node:fs'
+} = FIXTURES as Record<string, any>
 
 const MIN_CHECKS = 135
 

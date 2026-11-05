@@ -3,10 +3,11 @@
  * approval card (docs/HA-UI-DATA-CONTRACT.md §3.1): what the wire's `home` object becomes, which
  * buttons are on offer, how a bulk call collapses, and how the server's re-read is worded.
  *
- * Everything here is a made-up home (@shared/home-fixtures). The card renders the daemon's words
+ * Everything here is a made-up home (src/shared/home-fixtures.json). The card renders the daemon's words
  * verbatim and decides nothing itself, with one exception that is a safety floor: an unknown tier is
  * Sensitive, and a call is as strict as its strictest device.
  */
+import { readFileSync } from 'node:fs'
 import { BODY_BUDGET, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
 import { HOME_CAPABILITY, STATUS_PATH, hasHomeCapability, showHomeCard } from '@shared/home-capability'
 import { homeLinkOrNull, isPrivateHost } from '@shared/home-link'
@@ -25,7 +26,10 @@ import {
   resultTone,
   tierPresentation
 } from '@shared/home-approval'
-import {
+// The fixtures are DATA read from disk, never imported: two smokes importing one module make rollup emit a shared
+// chunk, and out/main/chunks/ ships (only out/main/*-smoke.js is left out), so test data would ride in the app.
+const FIXTURES = JSON.parse(readFileSync(new URL('../../src/shared/home-fixtures.json', import.meta.url), 'utf8'))
+const {
   BULK_EIGHT,
   CRITICAL_LOCK,
   HOME_APPROVAL_WIRE,
@@ -38,8 +42,7 @@ import {
   SENSITIVE_RELAXED,
   SENSITIVE_SCENE,
   UNKNOWN_CURRENT
-} from '@shared/home-fixtures'
-import { readFileSync } from 'node:fs'
+} = FIXTURES as Record<string, any>
 
 /** The count guard (see approval-smoke): a section that stops running must not read as a pass. */
 const MIN_CHECKS = 219
@@ -355,7 +358,7 @@ console.log('[smoke] === 5e. answered elsewhere ===')
 console.log('[smoke] === 6. fixtures ===')
 {
   const names = new Set<string>()
-  for (const wire of Object.values(HOME_APPROVAL_WIRE)) for (const d of coerceHome(wire.home)?.devices ?? []) names.add(d.name)
+  for (const wire of Object.values(HOME_APPROVAL_WIRE as Record<string, Record<string, unknown>>)) for (const d of coerceHome(wire.home)?.devices ?? []) names.add(d.name)
   assert(names.size >= 8, `the fixtures cover a spread of devices (${names.size})`)
   assert([...names].every((n) => MADE_UP_NAMES.includes(n)), 'every device name is on the made-up list')
   const all = JSON.stringify([HOME_APPROVAL_WIRE, RESULT_CONFIRMED, RESULT_UNCONFIRMED, RESULT_FAILED])
