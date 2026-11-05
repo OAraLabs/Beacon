@@ -165,6 +165,21 @@ export class DaemonFolders implements BeaconStore {
     return this.single ? LEGACY_DB : this.resolve(who)
   }
 
+  /**
+   * A folder for a Prometheus being added (src/main/add-instance.ts): its own folder from before, when Beacon forgot it (the same fp,
+   * no saved connection), else a new one. Never a folder Beacon still keeps, and never an unbound or unclaimed one that `folderFor`
+   * would hand over: adding never touches another Prometheus's folder. Null when there is no such folder to give.
+   */
+  folderForAdd(apiBase: string, fp: string | null): string | null {
+    if (this.single) return null
+    if (validFp(fp)) {
+      const bound = this.appDb.prepare('SELECT id, ws_url FROM daemon_folders WHERE fp = ?').get(fp) as { id: string; ws_url: string | null } | undefined
+      if (bound) return bound.ws_url === null ? bound.id : null
+      return this.create(fp, fp, apiBase)
+    }
+    return this.create(`new-${randomBytes(4).toString('hex')}`, null, apiBase)
+  }
+
   /** The fp bound to folder `id`, or null. */
   fpOf(id: string): string | null {
     if (this.single) return null

@@ -1,6 +1,7 @@
 // Settings → Connection, a new address where ANOTHER Prometheus answers (docs/MULTI-PROMETHEUS.md §6, Edit address), in the real app:
 // a scratch profile connected to stand-in A; B, at another loopback port, answers hello with another fp. Saving B's address must save
-// nothing and ask B only who it is, with no key; the form shows the card, and Add it keeps B as a new Prometheus beside A.
+// nothing and ask B only who it is, with no key; the form shows the card, which hands B's address to the Add form (Settings edits the
+// one Beacon is on; adding another is Add a Prometheus…, scripts/add-instance-app-probe.mjs) and keeps nothing.
 // No key is ever saved (no Keychain prompt), and the user's own profile is never touched.
 //
 //   npm run build && npm run probe:edit-address
@@ -81,12 +82,11 @@ try {
   await app.page.evaluate(set('ws://host:8010', `ws://127.0.0.1:${BWS}`))
   await app.page.evaluate(`[...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Save & test' && !b.disabled)?.click()`)
   const card = await until(() => app.page.evaluate(`document.querySelector('[data-testid="edit-address-other"]')?.innerText ?? null`), 8000)
-  check(!!card && card.includes("That's a different Prometheus. Add it as a new one?") && card.includes('Add it'), 'the form shows the card, with Add it', card)
-  await app.page.evaluate(`[...document.querySelectorAll('[data-testid="edit-address-other"] button')].find((b) => b.innerText.trim() === 'Add it').click()`)
-  const two = await until(async () => (keptCount(profile) === 2 ? 2 : null), 8000)
-  check(two === 2 && savedConnection(profile).startsWith(`http://127.0.0.1:${BAPI}|`), 'Add it: B is kept as a new one and is the active one; A stays kept', `${savedConnection(profile)} / ${keptCount(profile)}`)
-  const list = await app.page.evaluate('window.beacon.instances.list()')
-  check(list.length === 2 && list.some((i) => i.active && i.host.endsWith(`:${BAPI}`)) && list.some((i) => !i.active && i.host.endsWith(`:${AAPI}`)), 'the list has both, B active', JSON.stringify(list))
+  check(!!card && card.includes("That's a different Prometheus. Nothing was saved.") && card.includes('Add a Prometheus…') && !card.includes('Add it'), 'the form shows the card, offering Add a Prometheus… (not adding it here)', card)
+  await app.page.evaluate(`[...document.querySelectorAll('[data-testid="edit-address-other"] button')].find((b) => b.innerText.trim() === 'Add a Prometheus…').click()`)
+  const pre = await until(() => app.page.evaluate(`document.querySelector('[role="dialog"][aria-label="Add a Prometheus"] input[aria-label="Address"]')?.value ?? null`), 5000)
+  check(pre === `http://127.0.0.1:${BAPI}`, "it opens the Add form with B's address", pre)
+  check(savedConnection(profile) === before && keptCount(profile) === 1 && B.seen.every((r) => !r.auth), 'and nothing was kept, moved or sent a key', `${savedConnection(profile)} / ${keptCount(profile)}`)
 } catch (e) {
   check(false, 'the probe ran to the end', e?.stack ?? String(e))
 } finally {

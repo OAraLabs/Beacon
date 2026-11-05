@@ -36,9 +36,9 @@ export function judgeNewAddress(f: NewAddressFacts): NewAddress {
 }
 
 export const EDIT_ADDRESS_COPY = {
-  different: "That's a different Prometheus. Add it as a new one?",
-  differentBody: 'Beacon saved nothing and sent it nothing. The Prometheus you are on stays as it is.',
-  addIt: 'Add it',
+  different: "That's a different Prometheus. Nothing was saved.",
+  differentBody: 'Beacon sent it nothing, and the Prometheus you are on stays as it is. To keep this one beside it, add it.',
+  addOther: 'Add a Prometheus…',
   cancel: 'Cancel',
   kept: 'You already have this Prometheus, as {label}.',
   switchTo: 'Switch to {label}'

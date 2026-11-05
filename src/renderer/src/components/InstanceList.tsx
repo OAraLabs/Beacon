@@ -3,7 +3,7 @@ import { ADD_PROMETHEUS, instanceRows, type InstanceRowView } from '@shared/inst
 import { useInstances } from '../instances-store'
 
 // "Your Prometheus" at the top of the sidebar (docs/MULTI-PROMETHEUS.md §5): nothing while Beacon keeps one; with two or more, a row
-// each, clicked to switch (§4). Every state is in words beside its dot. "Add a Prometheus…" opens Settings → Connection until P5.
+// each, clicked to switch (§4). Every state is in words beside its dot. "Add a Prometheus…" opens the Add form (AddInstance).
 // The same rows open from the name in the title bar, from any view (AppChrome's switcher).
 
 export function InstanceList() {
@@ -61,7 +61,7 @@ export function InstanceRowButtons({ rows, onDone, menu = false }: { rows: Insta
         className="instance-row instance-add"
         onClick={() => {
           onDone?.()
-          window.dispatchEvent(new CustomEvent('beacon:open-settings', { detail: { section: 'connection' } }))
+          window.dispatchEvent(new CustomEvent('beacon:add-instance'))
         }}
         data-testid="instance-add"
       >

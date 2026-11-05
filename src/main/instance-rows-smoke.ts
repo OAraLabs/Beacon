@@ -2,7 +2,7 @@
 // words, which AI, the "can't prove who it is" note, and the name in the window title, the composer and the unreachable banner.
 //
 //   npm run build && npm run smoke:instance-rows
-import { ADD_PROMETHEUS, UNPROVED_NOTE, activeName, composerPlaceholder, instanceRows, switcherKey, titleSwitches, unreachableLine, windowTitle } from '@shared/instance-rows'
+import { ADD_PROMETHEUS, UNPROVED_NOTE, activeName, composerPlaceholder, instanceRows, switcherKey, switcherRows, titleSwitches, unreachableLine, windowTitle } from '@shared/instance-rows'
 import type { InstanceSummary } from '@shared/ipc'
 
 let failures = 0
@@ -107,8 +107,11 @@ console.log('\n[smoke] === the switcher in the title bar ===')
 {
   const one = [row({ id: 'home', active: true })]
   const two = [row({ id: 'home', active: true }), row({ id: 'office' })]
-  assert(!titleSwitches(one) && !titleSwitches([]), 'with one, the title bar is only the name "Beacon": nothing to open')
+  assert(titleSwitches(one) && !titleSwitches([]), 'with one, the title bar opens the switcher too: "Add a Prometheus…" is there (with none, nothing)')
   assert(titleSwitches(two), 'with two or more, the name in the title bar opens the switcher')
+  assert(switcherRows(one, clock)?.length === 1 && switcherRows(one, clock)?.[0].current === true, "the switcher with one: its row, marked, above Add (the sidebar's list stays hidden)", switcherRows(one, clock))
+  assert(instanceRows(one, clock) === null, 'the sidebar list is still hidden with one')
+  assert(switcherRows([], clock) === null && switcherRows(two, clock)?.length === 2, 'none: nothing; two: both')
   // Five items in the menu: rows 0..3 and "Add a Prometheus…" at 4.
   const k = (key: string, at: number): string => JSON.stringify(switcherKey(key, at, 5))
   assert(k('ArrowDown', 0) === '{"focus":1}' && k('ArrowDown', 4) === '{"focus":0}', 'ArrowDown moves to the next, and wraps', [k('ArrowDown', 0), k('ArrowDown', 4)])

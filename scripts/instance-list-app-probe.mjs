@@ -120,8 +120,8 @@ try {
   await until(() => app.page.evaluate(`!!document.querySelector('aside.sidebar')`), 5000)
   check(!(await app.page.evaluate(`!!document.querySelector('[data-testid="instance-list"]')`)), 'with one, the sidebar has no list')
   check(
-    (await app.page.evaluate(`document.querySelector('[data-testid="app-chrome-brand"]')?.tagName`)) !== 'BUTTON',
-    'with one, the name in the title bar is only a name, not a button'
+    (await app.page.evaluate(`(() => { const b = document.querySelector('[data-testid="app-chrome-brand"]'); return b?.tagName === 'BUTTON' && b.innerText.trim().startsWith('Beacon') })()`)) === true,
+    'with one, the title bar still says "Beacon", and opens the switcher (Add a Prometheus…)'
   )
   check((await app.page.evaluate('document.title')) === 'Beacon', 'and the title is "Beacon"', await app.page.evaluate('document.title'))
   const aFolder = one[0].id
