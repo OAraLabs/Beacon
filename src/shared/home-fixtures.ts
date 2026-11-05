@@ -18,7 +18,13 @@ export const MADE_UP_NAMES: readonly string[] = [
   'Bedroom lamp',
   'Bathroom light',
   'Garden light',
-  'Patio light'
+  'Patio light',
+  'Movie scene',
+  'Thermostat',
+  'Kitchen blind',
+  'Garage door',
+  'Garage light',
+  'Spare switch'
 ]
 
 const EXTENT_ONCE_RESTART = 'ha_control_ordinary on exactly Hall light — until the daemon restarts'
@@ -162,3 +168,111 @@ export const RESULT_FAILED: Wire = {
 }
 
 export const RESULT_PENDING: Wire = { request_id: 'home-ordinary', state: 'pending', results: [] }
+
+// ── "What it can touch" (docs/HA-UI-DATA-CONTRACT.md §3.2) ────────────────────────────────────────
+
+const LINK = 'https://home.example.test'
+
+// GET /api/home/status
+export const STATUS_CONNECTED: Wire = {
+  state: 'connected',
+  device_count: 13,
+  detail: 'Connected to Home Assistant',
+  checked_at: 1_790_000_000,
+  open_url: LINK
+}
+export const STATUS_UNREACHABLE: Wire = {
+  state: 'unreachable',
+  device_count: null,
+  detail: 'Home Assistant did not answer (timed out after 8 seconds)',
+  checked_at: 1_790_000_000,
+  open_url: LINK
+}
+export const STATUS_AUTH_FAILED: Wire = {
+  state: 'auth_failed',
+  device_count: null,
+  detail: 'Home Assistant refused the saved access. It needs to be set up again on the Prometheus computer.',
+  checked_at: 1_790_000_000,
+  open_url: null
+}
+
+function listed(id: string, name: string, room: string | null, kind: string, state: string | null, tier: string, source: string, relaxed = false, link = true): Wire {
+  return { id, name, room, kind, state, tier, tier_source: source, relaxed, open_url: link ? `${LINK}/device/${id}` : null }
+}
+
+// GET /api/home/devices
+export const DEVICES_LIST: Wire = {
+  updated_at: 1_790_000_000,
+  devices: [
+    listed('dev-hall-light', 'Hall light', 'Hall', 'Light', 'on', 'ordinary', 'rule'),
+    listed('dev-landing-light', 'Landing light', 'Hall', 'Light', 'off', 'ordinary', 'rule'),
+    listed('dev-front-door-lock', 'Front door lock', 'Hall', 'Lock', 'locked', 'critical', 'rule'),
+    listed('dev-living-lamp', 'Living room lamp', 'Living room', 'Light', 'off', 'ordinary', 'rule'),
+    listed('dev-evening-scene', 'Evening scene', 'Living room', 'Scene', 'idle', 'sensitive', 'rule'),
+    listed('dev-movie-scene', 'Movie scene', 'Living room', 'Scene', 'idle', 'sensitive', 'override', true),
+    listed('dev-thermostat', 'Thermostat', 'Living room', 'Thermostat', '19 °C', 'ordinary', 'rule'),
+    listed('dev-kitchen-plug', 'Kitchen plug', 'Kitchen', 'Plug', 'on', 'ordinary', 'rule'),
+    listed('dev-kitchen-blind', 'Kitchen blind', 'Kitchen', 'Blind', 'open', 'critical', 'rule'),
+    listed('dev-garage-door', 'Garage door', 'Garage', 'Garage door', 'closed', 'critical', 'rule'),
+    listed('dev-garage-light', 'Garage light', 'Garage', 'Light', 'off', 'ordinary', 'rule'),
+    listed('dev-bedroom-lamp', 'Bedroom lamp', 'Bedroom', 'Light', 'on', 'ordinary', 'rule'),
+    listed('dev-spare-switch', 'Spare switch', null, 'Switch', null, 'sensitive', 'unclassified', false, false)
+  ]
+}
+
+// GET /api/approvals/grants (as the daemon serves it today, plus the optional `home` on Home rows)
+export const GRANTS_LIST: Wire[] = [
+  {
+    kind: 'tool',
+    value: '',
+    tool: 'mcp__home__ha_control_ordinary',
+    scope: 'persistent',
+    id: 'grant-hall',
+    created_at: 1_789_900_000,
+    request_id: 'home-ordinary',
+    describes: 'ha_control_ordinary on exactly Hall light — permanently, until revoked',
+    home: { tier: 'ordinary', devices: [{ id: 'dev-hall-light', name: 'Hall light', room: 'Hall' }] }
+  },
+  {
+    kind: 'tool',
+    value: '',
+    tool: 'mcp__home__ha_control_ordinary',
+    scope: 'until_restart',
+    id: 'grant-ordinary-all',
+    created_at: 1_789_950_000,
+    request_id: 'home-ordinary-2',
+    describes: 'ha_control_ordinary on any Ordinary device — until the daemon restarts',
+    home: { tier: 'ordinary', devices: 'all_in_tier' }
+  },
+  {
+    kind: 'tool',
+    value: '',
+    tool: 'mcp__home__ha_control_sensitive',
+    scope: 'persistent',
+    id: 'grant-movie',
+    created_at: 1_789_960_000,
+    request_id: 'home-sensitive-2',
+    describes: 'ha_control_sensitive on exactly Movie scene — permanently, until revoked',
+    home: { tier: 'sensitive', devices: [{ id: 'dev-movie-scene', name: 'Movie scene', room: 'Living room' }] }
+  },
+  {
+    kind: 'tool',
+    value: '',
+    tool: 'mcp__home__ha_control_ordinary',
+    scope: 'persistent',
+    id: 'grant-old',
+    created_at: 1_789_000_000,
+    request_id: 'home-old',
+    describes: 'ha_control_ordinary on exactly Garage light — permanently, until revoked'
+  },
+  {
+    kind: 'path_prefix',
+    value: '/home/demo/notes.txt',
+    tool: 'write_file',
+    scope: 'persistent',
+    id: 'grant-file',
+    created_at: 1_789_000_000,
+    request_id: 'file-1',
+    describes: 'write_file on exactly /home/demo/notes.txt — permanently, until revoked'
+  }
+]
