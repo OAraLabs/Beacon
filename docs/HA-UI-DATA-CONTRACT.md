@@ -252,6 +252,12 @@ with AND):
 Source: the server's control log, joined by Prometheus with who asked and the approval outcome (neither is in the
 server log).
 
+`tier` is the tier the call ran under (for a bulk call, every entry carries the call's tier). A call that never ran because
+the approval was denied or expired is `result: "refused"` with `approval: "denied"` or `"expired"`, and the daemon's own
+`refusal_reason` ("You denied this request."), so it is on the record too.
+
+The Activity tab sits beside "What it can touch" inside Integrations → Home.
+
 Rules: newest first; time, device, tier chip, "asked by" (your chat / a schedule / a background task / unknown),
 requested, actual, approval outcome. A refused call is shown with the word "Refused" and `refusal_reason` verbatim.
 `unconfirmed` is shown in the same warning style as the approval card. Filters: device, room, tier (device and room
@@ -271,8 +277,9 @@ and reused. Contrast is checked by `npm run lint:contrast`.
 
 ## 5. Fixtures
 
-Every screen is built against fixtures in one shared module (`src/shared/home-fixtures.ts`, imported by smokes and
-probes, not by production renderer code). A fixture is exactly the JSON in §3. Made-up homes only: rooms like Living
+Every screen is built against fixtures in one data file (`src/shared/home-fixtures.json`), which the smokes and probes
+read from disk. It is never imported as a module: two smokes importing one module make the bundler emit a shared chunk, and
+the chunks ship in the app. A fixture is exactly the JSON in §3. Made-up homes only: rooms like Living
 room, Hall, Kitchen, Garage, Bedroom; devices like "Hall light", "Living room lamp", "Kitchen plug", "Movie scene",
 "Garage door", "Front door lock". No real device names, addresses, hostnames, tokens or personal names, and the smoke
 `lint:names` plus a read of `docs/` runs before any push.
