@@ -24,9 +24,11 @@ import {
   grantRowView,
   revokeDialog,
   revokePath,
+  showHomeFor,
   statusLine,
   statusTone,
-  unavailableLine
+  unavailableLine,
+  writeFailureLine
 } from '@shared/home-devices'
 import {
   DEVICES_LIST,
@@ -38,7 +40,7 @@ import {
 } from '@shared/home-fixtures'
 import { readFileSync } from 'node:fs'
 
-const MIN_CHECKS = 110
+const MIN_CHECKS = 135
 
 let failures = 0
 let checks = 0
@@ -108,6 +110,17 @@ console.log('[smoke] === 3. failure words ===')
   assert(unavailableLine(undefined).text.length > 10, 'even nothing at all gets a sentence')
 }
 
+console.log('[smoke] === 3b. a write that did not go through ===')
+{
+  assert(writeFailureLine(new Error('HTTP 409: PUT /api/home/devices/x/ask-once — {"error":"critical_device"}')) === 'That device is read only, so it cannot be changed here.', '409 critical_device: read only')
+  assert(writeFailureLine(new Error('HTTP 403: PUT x')) === 'Only an owner device can change this.', '403: owner only')
+  assert(writeFailureLine(new Error('HTTP 404: DELETE /api/approvals/grants/x')) === 'That is already gone. The list will refresh.', '404 on a revoke: already gone')
+  const o = writeFailureLine(new Error('HTTP 500: boom'))
+  assert(o.startsWith("That didn't go through") && o.includes('HTTP 500'), 'anything else is said, with its reason')
+  assert(!/Couldn't read/.test(o), 'and is not worded as a failed read')
+  assert(writeFailureLine(undefined).length > 10, 'even nothing gets a sentence')
+}
+
 // ── 4. devices ───────────────────────────────────────────────────────────────
 console.log('[smoke] === 4. coerceDevices ===')
 assert(list.devices.length === 13, 'every device maps')
@@ -140,7 +153,7 @@ console.log('[smoke] === 5. search, tier filter, rooms ===')
   assert(filterDevices(list.devices, { query: '  LIVING ', tier: 'all' }).length === 4, 'search is case-insensitive and trimmed (room match)')
   assert(filterDevices(list.devices, { query: 'zzz', tier: 'all' }).length === 0, 'no match')
   assert(filterDevices(list.devices, { query: '', tier: 'critical' }).map((d) => d.name).sort().join() === 'Front door lock,Garage door,Kitchen blind', 'Critical filter')
-  assert(filterDevices(list.devices, { query: '', tier: 'ordinary' }).length === 8, 'Ordinary filter')
+  assert(filterDevices(list.devices, { query: '', tier: 'ordinary' }).length === 7, 'Ordinary filter')
   const sens = filterDevices(list.devices, { query: '', tier: 'sensitive' }).map((d) => d.name).sort().join()
   assert(sens === 'Evening scene,Movie scene,Spare switch', `Sensitive filter includes the unclassified device (got ${sens})`)
   assert(filterDevices(list.devices, { query: 'scene', tier: 'sensitive' }).length === 2, 'search and tier combine')
@@ -261,7 +274,11 @@ assert(/<input[^>]*type="search"|aria-label="Search devices"/.test(panel), 'the 
 assert(/aria-pressed|role="radio"|role="tab"/.test(panel), 'the tier filter says which one is on')
 assert(!/<input[^>]*type="checkbox"|role="switch"/.test(panel), 'no on/off switch for a device anywhere')
 assert(/HomePanel/.test(integ) && /useDeviceRole/.test(integ), 'Integrations mounts Home, and asks the role')
-assert(/'limited'|"limited"/.test(integ), 'and does not show it to a limited device')
+assert(/showHomeFor\(role\)/.test(integ), 'and shows the row only as showHomeFor says')
+assert(showHomeFor('owner') === true, 'an owner sees Home')
+assert(showHomeFor(null) === true, 'a Beacon that cannot tell the role sees it, as everywhere else')
+assert(showHomeFor('limited') === false, 'an approved (limited) device does not')
+assert(showHomeFor(undefined) === false, 'and nothing shows before the role is known')
 
 console.log(`[smoke] ${checks} checks, ${failures} failures`)
 if (checks < MIN_CHECKS) {

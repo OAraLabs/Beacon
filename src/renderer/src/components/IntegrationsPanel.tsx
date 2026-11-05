@@ -8,6 +8,9 @@ import type {
   VitalsPayload
 } from '@shared/integrations'
 import { asBrowser, asControls, asEvents, asVitals, isAuthFailure, isSupportedViewType } from '@shared/integrations'
+import { HomePanel } from './HomePanel'
+import { showHomeFor } from '@shared/home-devices'
+import { useDeviceRole } from './OwnerOnlyNote'
 
 // Integrations — the GENERIC control-surface tab (contract v0.1). Every view
 // here renders purely from manifest + wire schemas; there is deliberately no
@@ -23,6 +26,9 @@ import { asBrowser, asControls, asEvents, asVitals, isAuthFailure, isSupportedVi
 // `(xN)` repeat count pulled out as a badge, and the whole detail lives in the row's tooltip.
 
 const b = window.beacon
+
+/** The built-in Home row's selection key. Not a valid registry id (those cannot start with an underscore), so it cannot collide with an integration. */
+const HOME_ID = '__home__'
 
 const panel: CSSProperties = { flex: 1, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }
 const head: CSSProperties = { padding: '10px 16px', borderBottom: '1px solid var(--c-line)', background: 'var(--c-raise)', display: 'flex', alignItems: 'center', gap: 10 }
@@ -345,6 +351,10 @@ function EventsView({ id, view }: { id: string; view: ManifestView }) {
 
 export function IntegrationsPanel() {
   const [statuses, setStatuses] = useState<IntegrationStatus[] | null>(null)
+  // Home is the owner's: an approved (limited) device sees no Home row, and nothing of Home is asked of the daemon. Until
+  // the role is known the row waits rather than flashing; a Beacon that cannot tell shows it, as everywhere else.
+  const role = useDeviceRole()
+  const showHome = showHomeFor(role)
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState(0)
   // Inline token editor — Electron has no window.prompt(), so the "Set token…"
@@ -421,6 +431,16 @@ export function IntegrationsPanel() {
           ) : null}
           {/* R14: the connector picker is a list within the page — one 32px row each, name ·
               state · actions — not a column of cards beside the content. */}
+          {showHome ? (
+            <div data-testid="integration-row" data-health="home">
+              <div onClick={() => { setSelected(HOME_ID); setTab(0) }} style={listRow(selected === HOME_ID)} role="button" tabIndex={0} aria-pressed={selected === HOME_ID}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(HOME_ID); setTab(0) } }}>
+                <span style={badge('var(--c-text-faint)')} />
+                <span style={{ fontSize: 13, width: 160, flexShrink: 0, ...ellipsis }}>Home</span>
+                <span style={{ ...dim, fontSize: 11, flex: 1, ...ellipsis }}>What Prometheus can touch in the house</span>
+              </div>
+            </div>
+          ) : null}
           {listed.map((s) => (
             <div key={s.entry.id} data-testid="integration-row" data-health={s.health.state}>
               <div
@@ -474,7 +494,8 @@ export function IntegrationsPanel() {
           {onlyProblems && listed.length === 0 && (statuses?.length ?? 0) > 0 ? <div style={{ ...dim, fontFamily: 'var(--font-body)' }}>Every integration is healthy.</div> : null}
         </div>
         <div style={content}>
-          {!sel ? <div style={dim}>select an integration</div> : null}
+          {selected === HOME_ID && showHome ? <HomePanel /> : null}
+          {!sel && !(selected === HOME_ID && showHome) ? <div style={dim}>select an integration</div> : null}
           {sel && sel.health.state === 'version-mismatch' ? (
             <div style={{ ...card, color: 'var(--c-err)' }}>
               This integration speaks contract v{(sel.health as { got: number }).got}; Beacon supports v
