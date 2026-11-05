@@ -122,6 +122,28 @@ console.log('\n[smoke] === the switcher in the title bar ===')
   assert(k('a', 2) === 'null' && k('Enter', 2) === 'null', 'other keys are the focused button\'s (Enter and Space press it)')
 }
 
+console.log('\n[smoke] === one line per Prometheus in the sidebar: the short detail and the full words ===')
+{
+  const rows = instanceRows(
+    [
+      row({ id: 'mbp', label: 'MacBook Pro', state: 'connected', ai: 'Z.ai (GLM) · glm-5.3', active: true }),
+      row({ id: 'mini', label: 'mini', state: 'connected', ai: 'your own hardware · /home/someone/.prometheus/models/saluki/Underdog-Saluki-27B-1.0-IQ2-mix.gguf', proved: false }),
+      row({ id: 'cloud', label: 'Cloud', state: 'connected', ai: 'Anthropic (Claude)' }),
+      row({ id: 'quiet', label: 'Quiet', state: 'connected', ai: null }),
+      row({ id: 'gone', label: 'Gone', state: 'unreachable', since: 42, ai: 'Z.ai (GLM) · glm-5.3' }),
+      row({ id: 'odd', label: 'Odd', state: 'different' })
+    ],
+    clock
+  )
+  const by = (id: string) => rows?.find((r) => r.id === id)
+  assert(by('mbp')?.detail === 'glm-5.3', 'connected: the model, as the daemon names it', by('mbp'))
+  assert(by('mini')?.detail === 'Underdog-Saluki-27B-1.0-IQ2-mix', 'a model given as a file path: its file name, without the extension', by('mini'))
+  assert(by('cloud')?.detail === 'Anthropic (Claude)' && by('quiet')?.detail === 'Connected', 'no model: the AI, or else the state', [by('cloud'), by('quiet')])
+  assert(by('gone')?.detail === "Can't reach it since T42" && by('odd')?.detail === 'A different Prometheus answered', 'any other state: its words, never only a colour', [by('gone'), by('odd')])
+  assert(by('mbp')?.full === 'Connected · Z.ai (GLM) · glm-5.3' && by('gone')?.full === "Can't reach it since T42 · Z.ai (GLM) · glm-5.3", 'the full words, for the tooltip', [by('mbp')?.full, by('gone')?.full])
+  assert(by('mini')?.note === UNPROVED_NOTE, 'the note is still there, for the warning icon')
+}
+
 if (failures) {
   console.log(`\n[smoke] FAIL — ${failures} check(s) failed`)
   process.exit(1)

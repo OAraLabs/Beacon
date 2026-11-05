@@ -16,6 +16,9 @@ export interface InstanceRowView {
   ai: string | null
   /** "Can't prove who it is": an older Prometheus that answered without proving it. */
   note: string | null
+  // Red first: not built yet.
+  detail?: string
+  full?: string
   /** The one Beacon is on. */
   current: boolean
 }

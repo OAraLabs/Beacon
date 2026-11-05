@@ -105,8 +105,9 @@ const until = async (fn, ms) => {
 }
 const keyed = (p, key) => p.seen.filter((r) => r.auth === `Bearer ${key}`).length + p.frames.filter((f) => f.includes(key)).length
 const anyKey = (p) => p.seen.filter((r) => r.auth).length + p.frames.filter((f) => /KEY-/.test(f)).length
+// The sidebar's rows: one line each, the full words in the tooltip, the older-Prometheus note as a warning icon's tooltip.
 const rowsOf = (page) =>
-  page.evaluate(`[...document.querySelectorAll('[data-testid="instance-row"]')].map((b) => ({ id: b.dataset.instance, current: b.getAttribute('aria-current') === 'true', text: b.innerText }))`)
+  page.evaluate(`[...document.querySelectorAll('[data-testid="instance-list"] [data-testid="instance-row"]')].map((b) => ({ id: b.dataset.instance, current: b.getAttribute('aria-current') === 'true', text: b.innerText.replace(/\\s+/g, ' ') + ' | ' + (b.title || ''), line: b.innerText.trim().split('\\n').length, height: Math.round(b.getBoundingClientRect().height), note: b.querySelector('[data-testid="instance-note"]')?.getAttribute('title') ?? null, noteText: b.innerText.includes("Can't prove") }))`)
 
 let app = null
 try {
@@ -177,7 +178,16 @@ try {
   check(rows.filter((r) => r.current).length === 1 && rows.find((r) => r.current)?.id === aFolder, 'A is marked as the one Beacon is on, and only A', JSON.stringify(rows))
   check(/Alpha[\s\S]*Connected · /.test(t(aFolder)), "A's row: Connected, and which AI it's on (read from its own connection)", t(aFolder))
   check(/Beta[\s\S]*Connected · your own hardware/i.test(t('probe-b')), "B's row: Connected, on its own hardware", t('probe-b'))
-  check(/Cellar[\s\S]*Connected[\s\S]*Can't prove who it is/.test(t('probe-c')), "C's row: Connected, with the note that it can't prove who it is", t('probe-c'))
+  const cRow = rows.find((x) => x.id === 'probe-c')
+  check(/Cellar[\s\S]*Connected/.test(t('probe-c')) && /Can't prove who it is/.test(cRow?.note ?? '') && !cRow?.noteText, "C's row: Connected, and the note that it can't prove who it is as a warning icon's tooltip", JSON.stringify(cRow))
+  check(rows.every((x) => x.line === 1 && x.height <= 32), 'every row is one line', JSON.stringify(rows.map((x) => [x.id, x.line, x.height])))
+  const head = await app.page.evaluate(`(() => { const l = document.querySelector('[data-testid="instance-list"]'); const plus = l?.querySelector('.instance-list-head button[aria-label="Add a Prometheus"]'); return { plus: !!plus, footer: [...(l?.querySelectorAll('button') ?? [])].some((b) => b.innerText.trim() === 'Add a Prometheus…') } })()`)
+  check(head.plus && !head.footer, 'Add is a + in the header, not a row', JSON.stringify(head))
+  await app.page.evaluate(`document.querySelector('[data-testid="instance-list"] .instance-list-head button[aria-label="Add a Prometheus"]').click(); true`)
+  const form = await until(() => app.page.evaluate(`!!document.querySelector('[role="dialog"][aria-label="Add a Prometheus"]')`), 3000)
+  check(!!form, 'the + opens the Add form')
+  await app.page.evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true`)
+  await until(async () => !(await app.page.evaluate(`!!document.querySelector('[role="dialog"][aria-label="Add a Prometheus"]')`)), 2000)
   check(/Den[\s\S]*A different Prometheus answered/.test(t('probe-d')), "D's row: A different Prometheus answered", t('probe-d'))
   check(/Eaves[\s\S]*Can't reach it since \d/.test(t('probe-e')), "E's row: Can't reach it since a time", t('probe-e'))
   check(anyKey(D) === 0, 'D was asked who it is and sent no key at all', JSON.stringify(D.seen))
@@ -186,7 +196,6 @@ try {
   check(bar === 'Alpha — Beacon', "and so does Beacon's own title bar", bar)
   const ph = await app.page.evaluate(`[...document.querySelectorAll('textarea')].map((x) => x.placeholder).filter((p) => p.startsWith('Message'))`)
   check(ph.length > 0 && ph.every((p) => p === 'Message Alpha…'), 'the composer says "Message Alpha…"', JSON.stringify(ph))
-  check(await app.page.evaluate(`[...document.querySelectorAll('[data-testid="instance-add"]')].some((b) => b.innerText.trim() === 'Add a Prometheus…')`), 'the footer row says "Add a Prometheus…"')
 
   // 2b. From Mission Control, by keyboard: the name in the title bar opens the switcher; arrows move, Escape closes, Enter switches.
   const KEYS = { Enter: [13, '\r'], Escape: [27], ArrowDown: [40], ArrowUp: [38], Tab: [9] }
