@@ -107,7 +107,7 @@ const keyed = (p, key) => p.seen.filter((r) => r.auth === `Bearer ${key}`).lengt
 const anyKey = (p) => p.seen.filter((r) => r.auth).length + p.frames.filter((f) => /KEY-/.test(f)).length
 // The sidebar's rows: one line each, the full words in the tooltip, the older-Prometheus note as a warning icon's tooltip.
 const rowsOf = (page) =>
-  page.evaluate(`[...document.querySelectorAll('[data-testid="instance-list"] [data-testid="instance-row"]')].map((b) => ({ id: b.dataset.instance, current: b.getAttribute('aria-current') === 'true', text: b.innerText.replace(/\\s+/g, ' ') + ' | ' + (b.title || ''), line: b.innerText.trim().split('\\n').length, height: Math.round(b.getBoundingClientRect().height), note: b.querySelector('[data-testid="instance-note"]')?.getAttribute('title') ?? null, noteText: b.innerText.includes("Can't prove") }))`)
+  page.evaluate(`[...document.querySelectorAll('[data-testid="instance-list"] [data-testid="instance-row"]')].map((b) => ({ id: b.dataset.instance, current: b.getAttribute('aria-current') === 'true', text: b.innerText.replace(/\\s+/g, ' ') + ' | ' + (b.title || ''), line: (() => { const n = b.querySelector('.instance-name')?.getBoundingClientRect(); const d = b.querySelector('.instance-detail')?.getBoundingClientRect(); return n && d && Math.abs(n.top + n.height / 2 - (d.top + d.height / 2)) < 4 && d.left >= n.right ? 1 : 2 })(), height: Math.round(b.getBoundingClientRect().height), note: b.querySelector('[data-testid="instance-note"]')?.getAttribute('title') ?? null, noteText: b.innerText.includes("Can't prove") }))`)
 
 let app = null
 try {

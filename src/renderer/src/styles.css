@@ -5825,6 +5825,9 @@ body.is-resizing-panel {
   border-bottom: 1px solid var(--border);
 }
 .instance-list-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 12px 4px;
   font-size: 11px;
   text-transform: uppercase;
@@ -5893,6 +5896,35 @@ body.is-resizing-panel {
   font-size: 11px;
   color: var(--c-warn-text);
 }
+/* The sidebar's rows: one line each, dot · name · the model (or the state's words), cut with an ellipsis; the whole in the tooltip. */
+.instance-row.is-compact {
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+}
+.instance-row.is-compact .instance-dot {
+  margin-top: 0;
+}
+.instance-row.is-compact .instance-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.instance-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.instance-warn {
+  flex: none;
+  display: inline-flex;
+  color: var(--c-warn-text);
+}
+
 .instance-add {
   padding-left: 28px;
   font-size: 12px;
