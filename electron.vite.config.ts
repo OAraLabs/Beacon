@@ -189,6 +189,7 @@ export default defineConfig({
           'network-setting-smoke': resolve('src/main/network-setting-smoke.ts'),
           'openrouter-signin-smoke': resolve('src/main/openrouter-signin-smoke.ts'),
           'model-setup-smoke': resolve('src/main/model-setup-smoke.ts'),
+          'local-ai-smoke': resolve('src/main/local-ai-smoke.ts'),
           'model-keys-smoke': resolve('src/main/model-keys-smoke.ts'),
           'xai-oauth-smoke': resolve('src/main/xai-oauth-smoke.ts'),
           'model-auth-smoke': resolve('src/main/model-auth-smoke.ts'),

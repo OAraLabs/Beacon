@@ -119,6 +119,7 @@
     "smoke:network-setting": "ELECTRON_RUN_AS_NODE=1 electron out/main/network-setting-smoke.js",
     "smoke:openrouter-signin": "ELECTRON_RUN_AS_NODE=1 electron out/main/openrouter-signin-smoke.js",
     "smoke:model-setup": "ELECTRON_RUN_AS_NODE=1 electron out/main/model-setup-smoke.js",
+    "smoke:local-ai": "ELECTRON_RUN_AS_NODE=1 electron out/main/local-ai-smoke.js",
     "smoke:approve-join": "ELECTRON_RUN_AS_NODE=1 electron out/main/approve-join-smoke.js",
     "smoke:model-keys": "ELECTRON_RUN_AS_NODE=1 electron out/main/model-keys-smoke.js",
     "smoke:xai-oauth": "ELECTRON_RUN_AS_NODE=1 electron out/main/xai-oauth-smoke.js",

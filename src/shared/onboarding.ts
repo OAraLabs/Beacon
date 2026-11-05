@@ -95,7 +95,9 @@ export function searchModeFor(s: Pick<OnboardingState, 'screen' | 'typed'>): 'qu
 export type OnboardingEvent =
   | { type: 'start' } // W1 → W2
   | { type: 'choose'; where: Where } // W2: select an answer (does not move)
-  | { type: 'continue' } // W2 → the screen for the selected answer; B3 → B4 or the card that says it cannot approve (or the S1 warning); B-ok → F1
+  // W2 → the screen for the selected answer; B3 → B4 or the card that says it cannot approve (or the S1 warning); B-ok → F1. On A2 it
+  // carries the choice (docs/ONBOARDING-LOCAL-FIRST.md §5.4): a cloud AI → A3c-1, an AI the person runs → A5.
+  | { type: 'continue'; choice?: 'cloud' | 'local' }
   | { type: 'back' }
   | { type: 'setItUp' } // C1 or the empty home → W2
   | { type: 'notNow' } // C1 → the empty home
@@ -123,6 +125,7 @@ export type OnboardingEvent =
   | { type: 'signedIn' } // A3c-or: signed in with OpenRouter and the key checked → finishing (A5)
   | { type: 'keyAccepted' } // A3c-2: the pasted key checked → finishing (A5)
   | { type: 'setUp' } // A5: configured, started, and this Mac is its owner → F1
+  | { type: 'chooseAgain' } // A5: the local choice was gone before configure wrote anything → back to A2 (LOCAL-FIRST §2.5)
 
 export type OnboardingEntry = 'legacy' | 'welcome' | 'unconnected' | 'resumeModel' | 'resumeTrade'
 
@@ -335,6 +338,9 @@ export function onboardingReduce(s: OnboardingState, e: OnboardingEvent): Onboar
     case 'setUp':
       // Configured, started, and the owner credential kept: the master token is gone, and there is nothing to go back to.
       return s.screen === 'A5' ? { ...s, screen: 'F1', history: [] } : s
+    case 'chooseAgain':
+      // RED: a stub (docs/ONBOARDING-LOCAL-FIRST.md §5.4).
+      return s
   }
 }
 
