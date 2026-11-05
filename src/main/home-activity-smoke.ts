@@ -26,7 +26,7 @@ import { coerceDevices } from '@shared/home-devices'
 const FIXTURES = JSON.parse(readFileSync(new URL('../../src/shared/home-fixtures.json', import.meta.url), 'utf8'))
 const { ACTIVITY_PAGE_1, ACTIVITY_PAGE_2, DEVICES_LIST, MADE_UP_NAMES } = FIXTURES as Record<string, any>
 
-const MIN_CHECKS = 100
+const MIN_CHECKS = 107
 
 let failures = 0
 let checks = 0

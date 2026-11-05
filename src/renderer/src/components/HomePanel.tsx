@@ -27,6 +27,7 @@ import {
 import { Icon } from './Icon'
 import { HomeTierBadge } from './HomeTierBadge'
 import { useDialogFocus } from './useDialogFocus'
+import { HomeActivity } from './HomeActivity'
 
 // Integrations → Home: what Prometheus can touch in the house (docs/HA-UI-DATA-CONTRACT.md §3.2).
 //
@@ -106,6 +107,7 @@ export function HomePanel() {
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [busy, setBusy] = useState(false)
   const [writeErr, setWriteErr] = useState<string | null>(null)
+  const [section, setSection] = useState<'devices' | 'activity'>('devices')
 
   const load = useCallback(async (): Promise<void> => {
     // The status decides whether there is a Home at all: a 404 or a 403 here is said in words and the rest is not asked.
@@ -190,6 +192,37 @@ export function HomePanel() {
         )}
       </div>
 
+      <div role="tablist" aria-label="Home" style={{ display: 'flex', gap: 6 }}>
+        {([['devices', 'What it can touch'], ['activity', 'Activity']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            id={`home-tab-${id}`}
+            aria-selected={section === id}
+            aria-controls={`home-panel-${id}`}
+            tabIndex={section === id ? 0 : -1}
+            style={{ ...btn(section === id), background: section === id ? 'var(--c-arc-soft)' : 'var(--c-inset)' }}
+            onClick={() => setSection(id)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                e.preventDefault()
+                const next = id === 'devices' ? 'activity' : 'devices'
+                setSection(next)
+                document.getElementById(`home-tab-${next}`)?.focus()
+              }
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {section === 'activity' ? (
+        <div role="tabpanel" id="home-panel-activity" aria-labelledby="home-tab-activity">
+          <HomeActivity devices={devices} />
+        </div>
+      ) : (
+        <div role="tabpanel" id="home-panel-devices" aria-labelledby="home-tab-devices" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* The main trust control, so it comes first and is never collapsed. */}
       <section style={card} aria-labelledby="home-always-title" data-testid="home-always">
         <div style={cardTitle}>
@@ -287,6 +320,9 @@ export function HomePanel() {
           </div>
         ))}
       </section>
+
+        </div>
+      )}
 
       {dialog && dlg ? <Confirm title={dlg.title} body={dlg.body} confirmLabel={dlg.confirmLabel} busy={busy} error={writeErr} onConfirm={() => void confirm()} onCancel={close} /> : null}
     </>

@@ -268,6 +268,7 @@
     "probe:approval-card": "node scripts/approval-card-probe.mjs",
     "probe:home-approval": "node scripts/home-approval-probe.mjs",
     "probe:home-touch": "node scripts/home-touch-probe.mjs",
+    "probe:home-activity": "node scripts/home-activity-probe.mjs",
     "probe:main-model": "node scripts/main-model-app-probe.mjs",
     "probe:make-owner": "node scripts/make-owner-app-probe.mjs",
     "probe:owner-only": "node scripts/owner-only-app-probe.mjs",
