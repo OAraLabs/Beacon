@@ -37,6 +37,7 @@
     "smoke:at-references": "ELECTRON_RUN_AS_NODE=1 electron out/main/at-references-smoke.js",
     "smoke:parts": "ELECTRON_RUN_AS_NODE=1 electron out/main/parts-smoke.js",
     "smoke:approval": "ELECTRON_RUN_AS_NODE=1 electron out/main/approval-smoke.js",
+    "smoke:home-approval": "ELECTRON_RUN_AS_NODE=1 electron out/main/home-approval-smoke.js",
     "smoke:main-model": "ELECTRON_RUN_AS_NODE=1 electron out/main/main-model-smoke.js",
     "smoke:approval-refusal": "ELECTRON_RUN_AS_NODE=1 electron out/main/approval-refusal-smoke.js",
     "smoke:owner-promotion": "ELECTRON_RUN_AS_NODE=1 electron out/main/owner-promotion-smoke.js",

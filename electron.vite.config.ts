@@ -108,6 +108,7 @@ export default defineConfig({
           'approval-disclosure-smoke': resolve('src/main/approval-disclosure-smoke.ts'),
           'install-guard-smoke': resolve('src/main/install-guard-smoke.ts'),
           'approval-smoke': resolve('src/main/approval-smoke.ts'),
+          'home-approval-smoke': resolve('src/main/home-approval-smoke.ts'),
           'main-model-smoke': resolve('src/main/main-model-smoke.ts'),
           'approval-refusal-smoke': resolve('src/main/approval-refusal-smoke.ts'),
           'owner-promotion-smoke': resolve('src/main/owner-promotion-smoke.ts'),
