@@ -16,6 +16,10 @@ export interface InstanceRowView {
   ai: string | null
   /** "Can't prove who it is": an older Prometheus that answered without proving it. */
   note: string | null
+  /** The sidebar's one line: the model when connected (a file path's file name), else the state's words. */
+  detail: string
+  /** The whole of it, for the tooltip: "Connected · Z.ai (GLM) · glm-5.3". */
+  full: string
   /** The one Beacon is on. */
   current: boolean
 }
@@ -65,17 +69,31 @@ export function switcherRows(list: InstanceSummary[], clock: (ms: number) => str
   return list.length < 1 ? null : rowsOf(list, clock)
 }
 
+/** The model in an AI label ("Z.ai (GLM) · glm-5.3" → "glm-5.3"; a file path → its file name without the extension), or the label. */
+function shortAi(ai: string): string {
+  const at = ai.indexOf(' · ')
+  if (at < 0) return ai
+  const model = ai.slice(at + 3).trim()
+  const file = model.split(/[\\/]/).filter(Boolean).pop() ?? model
+  return file.replace(/\.(gguf|bin|safetensors|ggml)$/i, '') || model
+}
+
 function rowsOf(list: InstanceSummary[], clock: (ms: number) => string): InstanceRowView[] {
   const named = names(list)
   return list
-    .map((i) => ({
-      id: i.id,
-      name: named.get(i.id) ?? i.host,
-      ...state(i, clock),
-      ai: i.ai,
-      note: i.state === 'connected' && !i.proved ? UNPROVED_NOTE : null,
-      current: i.active
-    }))
+    .map((i) => {
+      const s = state(i, clock)
+      return {
+        id: i.id,
+        name: named.get(i.id) ?? i.host,
+        ...s,
+        ai: i.ai,
+        note: i.state === 'connected' && !i.proved ? UNPROVED_NOTE : null,
+        detail: i.state === 'connected' ? (i.ai ? shortAi(i.ai) : s.words) : s.words,
+        full: i.ai ? `${s.words} · ${i.ai}` : s.words,
+        current: i.active
+      }
+    })
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
 }
 
