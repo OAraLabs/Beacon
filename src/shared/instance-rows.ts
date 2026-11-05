@@ -57,7 +57,15 @@ function state(i: InstanceSummary, clock: (ms: number) => string): { dot: RowDot
 
 /** The rows, in name order (a switch never moves one), or null while there are fewer than two: the list is hidden. */
 export function instanceRows(list: InstanceSummary[], clock: (ms: number) => string = shortTime): InstanceRowView[] | null {
-  if (list.length < 2) return null
+  return list.length < 2 ? null : rowsOf(list, clock)
+}
+
+/** The title bar's switcher: its rows from one Prometheus on, so "Add a Prometheus…" is there as soon as there is one to add to. */
+export function switcherRows(list: InstanceSummary[], clock: (ms: number) => string = shortTime): InstanceRowView[] | null {
+  return list.length < 1 ? null : rowsOf(list, clock)
+}
+
+function rowsOf(list: InstanceSummary[], clock: (ms: number) => string): InstanceRowView[] {
   const named = names(list)
   return list
     .map((i) => ({
@@ -93,9 +101,9 @@ export function unreachableLine(list: InstanceSummary[], host: string): string {
   return n ? `Can't reach ${n}.` : `Can't reach Prometheus at ${host}.`
 }
 
-/** With two or more, the name in the title bar opens the switcher (from any view); with one it is only "Beacon". */
+/** The title bar opens the switcher (from any view) from one Prometheus on: with one it reads "Beacon" and offers "Add a Prometheus…". */
 export function titleSwitches(list: InstanceSummary[]): boolean {
-  return list.length >= 2
+  return list.length >= 1
 }
 
 /** A key in the switcher, with `at` the focused item (-1: none) of `count`: where focus goes, 'close' (Escape, or Tab out), or null
@@ -119,7 +127,3 @@ export function switcherKey(key: string, at: number, count: number): { focus: nu
   }
 }
 
-// Red first: not built yet.
-export function switcherRows(_list: InstanceSummary[], _clock?: (ms: number) => string): InstanceRowView[] | null {
-  return null
-}

@@ -158,7 +158,7 @@ async function main(): Promise<void> {
       { kind: 'ok', name: 'Older', proved: false, ai: null, fp: null, pin: null },
       { kind: 'kept', id: 'x', label: 'mini' },
       { kind: 'invalid', message: 'Use an address like http://localhost:8005.' },
-      { kind: 'refused', message: 'plain' },
+      { kind: 'refused', message: "Beacon won't use a plain address to the internet." },
       { kind: 'unreachable' },
       { kind: 'not-proved' },
       { kind: 'key-refused' }

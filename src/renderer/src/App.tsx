@@ -10,6 +10,7 @@ import { AppChrome } from './components/AppChrome'
 import { ConnectionSettings } from './components/ConnectionSettings'
 import { UnreachableBanner } from './components/UnreachableBanner'
 import { loadAndApplyTheme } from './theme/apply-theme'
+import { AddInstance } from './components/AddInstance'
 import { writeTrail } from './view-trail-store'
 import { useInstances } from './instances-store'
 import { windowTitle } from '@shared/instance-rows'
@@ -32,6 +33,8 @@ export default function App() {
   // The section Settings opens at ("Make this Beacon an owner", from an owner-only note), or the top.
   const [settingsAt, setSettingsAt] = useState<string | null>(null)
   const [connGen, setConnGen] = useState(0)
+  // Add a Prometheus (AddInstance): open, with an address to start from when Advanced found another Prometheus there.
+  const [adding, setAdding] = useState<{ apiBase?: string; wsUrl?: string } | null>(null)
   const instances = useInstances()
 
   // With two or more Prometheus, the window says which one Beacon is on (docs/MULTI-PROMETHEUS.md §5).
@@ -90,7 +93,12 @@ export default function App() {
       setSettingsOpen(true)
     }
     const onChanged = (): void => setConnGen((g) => g + 1)
+    const onAdd = (e: Event): void => {
+      const d = (e as CustomEvent<{ apiBase?: unknown; wsUrl?: unknown } | null>).detail
+      setAdding({ apiBase: typeof d?.apiBase === 'string' ? d.apiBase : undefined, wsUrl: typeof d?.wsUrl === 'string' ? d.wsUrl : undefined })
+    }
     window.addEventListener('beacon:open-settings', onOpen)
+    window.addEventListener('beacon:add-instance', onAdd)
     window.addEventListener('beacon:connection-changed', onChanged)
     const off = window.beacon?.connection.onOpenSettings(() => {
       writeTrail('menu or tray')
@@ -101,6 +109,7 @@ export default function App() {
     const offFolder = window.beacon?.connection.onFolderChanged(onChanged)
     return () => {
       window.removeEventListener('beacon:open-settings', onOpen)
+      window.removeEventListener('beacon:add-instance', onAdd)
       window.removeEventListener('beacon:connection-changed', onChanged)
       off?.()
       offFolder?.()
@@ -137,6 +146,7 @@ export default function App() {
         onConnectAgain={() => void startOver()}
       />
       <ApprovePrompt />
+      {adding ? <AddInstance initial={adding} onClose={() => setAdding(null)} /> : null}
       {settingsOpen ? (
         <ConnectionSettings
           at={settingsAt}

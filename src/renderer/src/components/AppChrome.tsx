@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Icon } from './Icon'
 import { InstanceRowButtons } from './InstanceList'
 import { useInstances } from '../instances-store'
-import { instanceRows, switcherKey, titleSwitches, windowTitle } from '@shared/instance-rows'
+import { switcherKey, switcherRows, titleSwitches, windowTitle } from '@shared/instance-rows'
 
 // The window's own bar (design handoff, screen 1 chrome): 38px, ink-dark, the traffic lights
 // sitting INSIDE it, `Beacon` centred in the display face in brass, and ⌘K on the right.
@@ -47,11 +47,11 @@ export function AppChrome({ palette = true }: { palette?: boolean } = {}): React
   )
 }
 
-/** The name in the title bar, with two or more Prometheus: opens the same rows as the sidebar's list, from any view. Keyboard: Enter or
+/** The name in the title bar, from one Prometheus on ("Beacon" with one, "Home mini — Beacon" with two or more): opens the same rows as the sidebar's list, from any view. Keyboard: Enter or
  *  Space opens it with focus on the one Beacon is on; the arrows, Home and End move; Enter switches; Escape or Tab closes it and gives
  *  focus back to the name. A click outside closes it too. */
 function TitleSwitcher({ title }: { title: string }): React.JSX.Element {
-  const rows = instanceRows(useInstances())
+  const rows = switcherRows(useInstances())
   const [open, setOpen] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)

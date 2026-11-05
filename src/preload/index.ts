@@ -57,6 +57,8 @@ const api: BeaconBridge = {
   instances: {
     list: () => ipcRenderer.invoke(IPC.INSTANCES_LIST),
     switch: (id: string) => ipcRenderer.invoke(IPC.INSTANCE_SWITCH, id),
+    check: (req) => ipcRenderer.invoke(IPC.INSTANCE_ADD_CHECK, req),
+    add: (req) => ipcRenderer.invoke(IPC.INSTANCE_ADD, req),
     onChanged: (cb: () => void) => {
       const listener = (): void => cb()
       ipcRenderer.on(IPC.INSTANCES_CHANGED, listener)

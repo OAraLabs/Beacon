@@ -125,9 +125,7 @@ async function main(): Promise<void> {
     assert(asked > 0 && asked < save.indexOf('saveInstance(') && asked < save.indexOf('moveAddress(') && asked < save.indexOf('bringUpConnection('), 'before it saves the address, moves the folder or connects')
     assert(!save.includes('upsertGatewayProfile('), "and it doesn't save through the old profile call, which filed a new address under a new folder")
     assert(/moveAddress\(open!, apiBase\)[\s\S]{0,200}saveInstance\(\{ name, apiBase, wsUrl, pin: edit\.pin \}, id\)/.test(save), 'the same Prometheus: its folder moves, then its record is saved onto that folder')
-    const addIt = save.slice(save.indexOf('if (req.addAsNew && moving)'), save.indexOf('} else {', save.indexOf('if (req.addAsNew && moving)')))
-    assert(addIt.length > 0 && /token = req\.token\?\.trim\(\) \|\| null/.test(addIt), '"Add it" keeps the new one with only a key typed for it')
-    assert(addIt.length > 0 && !/keyFile\(open|nextToken\(|currentKey\(/.test(addIt), "and never with the key of the Prometheus Beacon was on")
+    assert(!save.includes('addAsNew') && !save.includes('folderForAdd'), 'Settings never adds another Prometheus (that is Add a Prometheus…, src/main/add-instance.ts): it edits the one Beacon is on')
   } finally {
     for (const s of all) s.srv.close()
   }

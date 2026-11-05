@@ -136,6 +136,8 @@ export const IPC = {
   CONNECTION_RECONNECT: 'connection:reconnect', // renderer -> main: drop + redial the WS now (manual retry)
   INSTANCES_LIST: 'instances:list', // renderer -> main: every Prometheus Beacon keeps (no key), the active one marked
   INSTANCE_SWITCH: 'instances:switch', // renderer -> main: make one the active Prometheus and bring it up (docs/MULTI-PROMETHEUS.md §4)
+  INSTANCE_ADD_CHECK: 'instances:add-check', // renderer -> main: who answers at an address (no key), and whether the typed key works there; writes nothing
+  INSTANCE_ADD: 'instances:add', // renderer -> main: ask again, then keep it in a folder of its own and switch to it (src/main/add-instance.ts)
   INSTANCES_CHANGED: 'instances:changed', // main -> renderer: a row changed (a check's answer, a save, a switch): read the list again
   IDENTITY_TRUST_NEW_KEY: 'identity:trust-new-key', // renderer -> main: the person confirms the connected Prometheus moved to new hardware (docs/MULTI-PROMETHEUS.md §8)
   CONNECTION_TEST: 'connection:test', // renderer -> main: GET /api/status with form values, WITHOUT saving
@@ -760,7 +762,6 @@ export interface SaveConnectionSettingsRequest {
   clearToken?: boolean
   /** "Add it": the new address is another Prometheus (SaveConnectionSettingsResult.other); keep it as a new one, with only the
    *  key typed in the form, and leave the one Beacon was on kept as it is (docs/MULTI-PROMETHEUS.md §6). */
-  addAsNew?: boolean
 }
 
 /** Outcome of a connection test. `ok`/`code`/`label` are the REST probe (GET /api/status). `ws`,
@@ -836,6 +837,10 @@ export interface BeaconBridge {
     list(): Promise<InstanceSummary[]>
     /** Make `id` the active Prometheus and connect to it. False for an id Beacon doesn't keep. */
     switch(id: string): Promise<boolean>
+    /** Add a Prometheus: ask (no key; then the typed key alone), writing nothing. */
+    check(req: import('./add-instance').AddRequest): Promise<import('./add-instance').AddCheck>
+    /** Ask again, then keep it beside the others and switch to it. The one Beacon was on is not touched. */
+    add(req: import('./add-instance').AddRequest): Promise<import('./add-instance').AddOutcome>
     /** A row changed: read the list again. */
     onChanged(cb: () => void): Unsubscribe
   }

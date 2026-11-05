@@ -680,7 +680,7 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
     }
   }
 
-  const save = async (addAsNew = false): Promise<void> => {
+  const save = async (): Promise<void> => {
     const b = window.beacon
     if (!b) return
     setBusy(true)
@@ -692,8 +692,7 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
         apiBase: apiBase.trim(),
         wsUrl: wsUrl.trim(),
         token: token.trim() || undefined,
-        clearToken: clearToken || undefined,
-        ...(addAsNew ? { addAsNew: true } : {})
+        clearToken: clearToken || undefined
       })
       if (!res.saved && res.other) {
         setOther(res.other)
@@ -853,8 +852,15 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
                       {EDIT_ADDRESS_COPY.switchTo.replace('{label}', other.label)}
                     </button>
                   ) : (
-                    <button style={btn(true, busy)} disabled={busy} onClick={() => void save(true)}>
-                      {EDIT_ADDRESS_COPY.addIt}
+                    <button
+                      style={btn(true, busy)}
+                      disabled={busy}
+                      onClick={() => {
+                        onClose()
+                        window.dispatchEvent(new CustomEvent('beacon:add-instance', { detail: { apiBase: apiBase.trim(), wsUrl: wsUrl.trim() } }))
+                      }}
+                    >
+                      {EDIT_ADDRESS_COPY.addOther}
                     </button>
                   )}
                   <button style={btn(false, busy)} disabled={busy} onClick={() => setOther(null)}>

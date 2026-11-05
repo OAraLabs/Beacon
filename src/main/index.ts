@@ -110,6 +110,8 @@ import { sameOrigin } from '@shared/key-origin'
 import type { PinnedIdentity, Verdict } from '@shared/identity-challenge'
 import type { InstanceSummary } from '@shared/ipc'
 import { UNKNOWN, WATCH_EVERY_MS, aiLabel, type InstanceHealth } from '@shared/instance-watch'
+import { addInstance, checkNewInstance, type AddDeps } from './add-instance'
+import { isAddRequest, type AddCheck, type AddOutcome } from '@shared/add-instance'
 import { appendViewTrail } from './view-trail-log'
 import { InstanceWatch } from './instance-watch'
 import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
@@ -512,6 +514,13 @@ function activeHealth(): InstanceHealth {
   if (s.state === 'connected') return { state: 'connected', ai: activeAi.folder === folders?.currentId() ? activeAi.ai : null, since: s.since ?? null }
   if (s.state === 'reconnecting' || s.state === 'failed') return { state: 'unreachable', ai: null, since: s.since ?? null }
   return UNKNOWN
+}
+
+/** Pop-out conversations belong to the Prometheus they came from (docs/MULTI-PROMETHEUS.md §4): closed before another one becomes
+ *  the one Beacon is on, so each saves its draft into its own folder first. */
+async function closePopoutsFirst(): Promise<void> {
+  for (const sid of sessionWindows.list()) sessionWindows.requestClose(sid)
+  for (let t = 0; sessionWindows.list().length > 0 && t < 60; t++) await new Promise((r) => setTimeout(r, 50))
 }
 
 /** A move the person has yet to confirm: the Prometheus at `gw` signed with a new node key under its pinned instance_id. */
@@ -1091,7 +1100,7 @@ async function saveConnectionSettings(req: SaveConnectionSettingsRequest): Promi
     const open = folders!.currentId()
     const moving = !!(open && current && apiBase !== current.apiBase)
     // A new address: who answers there, asked with no key, before anything is saved, moved or sent (docs/MULTI-PROMETHEUS.md §6).
-    if (moving && !req.addAsNew) {
+    if (moving) {
       const at = await whoIsAt(apiBase, {
         request: requestSmall,
         pinned: folders!.identityOf(open!),
@@ -1104,30 +1113,17 @@ async function saveConnectionSettings(req: SaveConnectionSettingsRequest): Promi
       if (at.kind === 'different') return { saved: false, other: at, error: EDIT_ADDRESS_COPY.different }
       if (at.kind === 'kept') return { saved: false, other: at, error: EDIT_ADDRESS_COPY.kept.replace('{label}', at.label) }
     }
-    let id: string
-    let token: string | null
-    if (req.addAsNew && moving) {
-      // "Add it": another Prometheus, kept as a new one in its own folder, with ONLY a key typed for it (never the one Beacon was on's).
-      // The one Beacon was on stays kept as it was; this one becomes the active one.
-      const fp = await helloFpAt(apiBase)
-      id = folders!.folderFor({ apiBase, fp })
-      folders!.saveInstance({ name: hostPortOf(apiBase), apiBase, wsUrl, pin: null }, id)
-      token = req.token?.trim() || null
-      keyFile(id).setToken(token ?? '')
-      folders!.setSettingFor(id, CREDENTIAL_KIND_KEY, '')
-      bringUpConnection({ name: hostPortOf(apiBase), apiBase, wsUrl }, fp, id)
-    } else {
-      // The same Prometheus at a new address (or the same address): its folder, key and record, moved together, then saved.
-      if (moving) folders!.moveAddress(open!, apiBase)
-      id = open ?? folders!.folderFor({ apiBase, fp: fpFromPin(edit.pin) })
-      const name = current?.name ?? 'mini'
-      folders!.saveInstance({ name, apiBase, wsUrl, pin: edit.pin }, id)
-      const key = keyFile(id)
-      token = nextToken(key.getToken(), { token: req.token, clearToken: req.clearToken })
-      if (token !== key.getToken()) folders!.setSettingFor(id, CREDENTIAL_KIND_KEY, '') // a credential typed in Settings: not the master token A-inst kept
-      key.setToken(token ?? '') // that Prometheus's own key file — never a second store
-      bringUpConnection({ name, apiBase, wsUrl, pin: edit.pin }, null, id)
-    }
+    // The same Prometheus at a new address (or the same address): its folder, key and record, moved together, then saved. Another
+    // Prometheus is never added here: that is "Add a Prometheus…" (src/main/add-instance.ts), which leaves this one alone.
+    if (moving) folders!.moveAddress(open!, apiBase)
+    const id = open ?? folders!.folderFor({ apiBase, fp: fpFromPin(edit.pin) })
+    const name = current?.name ?? 'mini'
+    folders!.saveInstance({ name, apiBase, wsUrl, pin: edit.pin }, id)
+    const key = keyFile(id)
+    const token = nextToken(key.getToken(), { token: req.token, clearToken: req.clearToken })
+    if (token !== key.getToken()) folders!.setSettingFor(id, CREDENTIAL_KIND_KEY, '') // a credential typed in Settings: not the master token A-inst kept
+    key.setToken(token ?? '') // that Prometheus's own key file — never a second store
+    bringUpConnection({ name, apiBase, wsUrl, pin: edit.pin }, null, id)
     const ws = await probeWsAuth(wsUrl, token)
     try {
       await connection!.getDaemon('/api/status')
@@ -1980,13 +1976,40 @@ app.whenReady().then(() => {
     const rec = folders?.listInstances().find((i) => i.id === id)
     if (!rec) return false
     if (rec.active && connection) return true
-    // Pop-out conversations belong to the Prometheus they came from (docs/MULTI-PROMETHEUS.md §4): closed first, so each saves its
-    // draft into its own folder before the other one opens.
-    for (const sid of sessionWindows.list()) sessionWindows.requestClose(sid)
-    for (let t = 0; sessionWindows.list().length > 0 && t < 60; t++) await new Promise((r) => setTimeout(r, 50))
+    await closePopoutsFirst()
     folders!.setActive(rec.id)
     bringUpConnection({ name: rec.label, apiBase: rec.apiBase, wsUrl: rec.wsUrl, pin: rec.pin }, null, rec.id)
     return true
+  })
+  // Add a Prometheus (the title bar's switcher; src/main/add-instance.ts): asked with no key, then the typed key alone; kept only after
+  // a good answer, in a folder of its own, and then the one Beacon is on. The Prometheus Beacon was on is never touched.
+  const addDeps = (): AddDeps => ({
+    request: requestSmall,
+    refusal: (apiBase, wsUrl) => plainPublicRefusal(apiBase, wsUrl),
+    verify: verifyEd25519,
+    nowS: () => Math.floor(Date.now() / 1000),
+    kept: () => folders?.listInstances() ?? [],
+    folderForAdd: (apiBase, fp) => folders!.folderForAdd(apiBase, fp),
+    pinIdentity: (id, pin) => folders!.pinIdentity(id, pin),
+    setKey: (id, token) => {
+      keyFile(id).setToken(token)
+      folders!.setSettingFor(id, CREDENTIAL_KIND_KEY, '') // a key typed for it: not a master token
+    },
+    saveInstance: (gw, id) => void folders!.saveInstance(gw, id)
+  })
+  handleFromShell(IPC.INSTANCE_ADD_CHECK, async (_e, req: unknown): Promise<AddCheck> =>
+    isAddRequest(req) && folders ? checkNewInstance(req, addDeps()) : { kind: 'invalid', message: 'Beacon could not read that address.' }
+  )
+  handleFromShell(IPC.INSTANCE_ADD, async (_e, req: unknown): Promise<AddOutcome> => {
+    if (!isAddRequest(req) || !folders) return { added: false, check: { kind: 'invalid', message: 'Beacon could not read that address.' } }
+    const first = await checkNewInstance(req, addDeps())
+    if (first.kind !== 'ok') return { added: false, check: first }
+    await closePopoutsFirst()
+    const r = await addInstance(req, addDeps())
+    if (!r.added) return r
+    const rec = folders.listInstances().find((i) => i.id === r.id)
+    if (rec) bringUpConnection({ name: rec.label, apiBase: rec.apiBase, wsUrl: rec.wsUrl, pin: null }, r.fp, r.id)
+    return { added: true, name: r.name }
   })
   // "It moved — trust the new key" (docs/MULTI-PROMETHEUS.md §8): only the move this connection found, for the folder it found it in.
   handleFromShell(IPC.IDENTITY_TRUST_NEW_KEY, async () => {
