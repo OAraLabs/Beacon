@@ -37,6 +37,8 @@ import { WikiPanel } from './WikiPanel'
 import { Sidebar } from './Sidebar'
 import { ChatShell } from './ChatShell'
 import { ExecApprovalCard } from './ExecApprovalCard'
+import { HomeApprovalCard } from './HomeApprovalCard'
+import { HomeResultCard } from './HomeResultCard'
 import { cannotApproveLine } from '@shared/approval-refusal'
 import { NavRail } from './NavRail'
 import { StubPanel } from './StubPanel'
@@ -204,6 +206,8 @@ export function MainView() {
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({})
   /** requestId → the line a worker's request shows once this Beacon has been told it may not approve it (401 not_a_person). */
   const [cannotApprove, setCannotApprove] = useState<Record<string, string>>({})
+  /** Home Assistant approvals that were approved and are waiting on, or showing, the server's re-read. */
+  const [homeResults, setHomeResults] = useState<ApprovalRequest[]>([])
   /** The approvals as last rendered, for resolveApproval (a stable callback) to read the request it is answering. */
   const approvalsRef = useRef<ApprovalRequest[]>([])
   approvalsRef.current = approvals
@@ -1467,6 +1471,10 @@ export function MainView() {
       })
       await b.approvals.resolve(requestId, decision)
       if (waits) remove()
+      if (decision.kind === 'approve' && approval?.home) {
+        const answered = approval
+        setHomeResults((p) => [...p.filter((r) => r.requestId !== requestId), answered])
+      }
     } catch (err) {
       // Not this Beacon's to approve: say so once, in place of Approve; the card stays, with Deny.
       const line = approval ? cannotApproveLine(approval, err) : null
@@ -1619,7 +1627,7 @@ export function MainView() {
   return (
     <GatewayStoreProvider>
       <PreviewProvider>
-      {approvals.length > 0 ? (
+      {approvals.length > 0 || homeResults.length > 0 ? (
         <div
           style={{
             position: 'fixed',
@@ -1633,18 +1641,34 @@ export function MainView() {
             gap: 8
           }}
         >
-          {approvals.map((a, i) => (
-            <ExecApprovalCard
-              key={a.requestId}
-              approval={a}
-              first={i === 0}
-              activeSessionId={view === 'chat' ? active : null}
-              error={approvalErrors[a.requestId] || null}
-              cannotApprove={cannotApprove[a.requestId] ?? null}
-              disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
-              onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
-              onResolve={(d) => void resolveApproval(a.requestId, d)}
-            />
+          {approvals.map((a, i) =>
+            a.home ? (
+              <HomeApprovalCard
+                key={a.requestId}
+                approval={a}
+                first={i === 0}
+                error={approvalErrors[a.requestId] || null}
+                cannotApprove={cannotApprove[a.requestId] ?? null}
+                disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
+                onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
+                onResolve={(d) => void resolveApproval(a.requestId, d)}
+              />
+            ) : (
+              <ExecApprovalCard
+                key={a.requestId}
+                approval={a}
+                first={i === 0}
+                activeSessionId={view === 'chat' ? active : null}
+                error={approvalErrors[a.requestId] || null}
+                cannotApprove={cannotApprove[a.requestId] ?? null}
+                disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
+                onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
+                onResolve={(d) => void resolveApproval(a.requestId, d)}
+              />
+            )
+          )}
+          {homeResults.map((r) => (
+            <HomeResultCard key={`result:${r.requestId}`} approval={r} onDismiss={() => setHomeResults((p) => p.filter((x) => x.requestId !== r.requestId))} />
           ))}
         </div>
       ) : null}

@@ -19,6 +19,7 @@
 
 import type { ApprovalRequest } from './ipc'
 import { coerceArguments, type ApprovalArguments } from './approval-arguments'
+import { coerceHome } from './home-approval'
 
 /**
  * The daemon's snake_case pending shape — the SAME dict `serialize_pending()` serves over BOTH
@@ -63,6 +64,8 @@ export interface RawApprovalPush {
    * now, because there is one mapper.
    */
   arguments?: unknown
+  /** Home Assistant calls only (docs/HA-UI-DATA-CONTRACT.md §3.1); coerceHome decides whether it is usable. */
+  home?: unknown
   /** A worker's request (Prometheus #720): the worker's task id, its conversation, once-only. */
   worker_task_id?: unknown
   session_id?: unknown
@@ -84,6 +87,7 @@ export interface RawApprovalPush {
  */
 export function rawToApproval(raw: RawApprovalPush): ApprovalRequest | null {
   if (typeof raw.request_id !== 'string' || raw.request_id.length === 0) return null
+  const home = coerceHome(raw.home)
   return {
     requestId: raw.request_id,
     toolName: typeof raw.tool_name === 'string' ? raw.tool_name : 'tool',
@@ -105,7 +109,9 @@ export function rawToApproval(raw: RawApprovalPush): ApprovalRequest | null {
     // Undefined unless present and well-formed: an ordinary request stays byte-identical.
     workerTaskId: typeof raw.worker_task_id === 'string' && raw.worker_task_id ? raw.worker_task_id : undefined,
     sessionId: typeof raw.session_id === 'string' && raw.session_id ? raw.session_id : undefined,
-    onceOnly: raw.once_only === true ? true : undefined
+    onceOnly: raw.once_only === true ? true : undefined,
+    // Present only when usable, so every other request stays byte-identical.
+    ...(home ? { home } : {})
   }
 }
 

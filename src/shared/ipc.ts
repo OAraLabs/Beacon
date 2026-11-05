@@ -736,6 +736,12 @@ export interface ApprovalRequest {
    * every worker and desktop-task request. The card offers no lasting scope when it is set.
    */
   onceOnly?: boolean
+  /**
+   * HOME ASSISTANT (docs/HA-UI-DATA-CONTRACT.md §3.1): the devices a `ha_control_*` call touches,
+   * with each one's tier and current → requested state, as the daemon worked them out. Present only
+   * for an owner and only when the daemon sent a usable one; absent means the generic card.
+   */
+  home?: import('./home-approval').HomeApproval
 }
 
 /**

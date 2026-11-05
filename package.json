@@ -264,6 +264,7 @@
     "probe:system-theme": "node scripts/system-theme-probe.mjs",
     "probe:live-announce": "node scripts/live-announce-probe.mjs",
     "probe:approval-card": "node scripts/approval-card-probe.mjs",
+    "probe:home-approval": "node scripts/home-approval-probe.mjs",
     "probe:main-model": "node scripts/main-model-app-probe.mjs",
     "probe:make-owner": "node scripts/make-owner-app-probe.mjs",
     "probe:owner-only": "node scripts/owner-only-app-probe.mjs",
