@@ -181,6 +181,7 @@ export const IPC = {
   // Settings → Make this Beacon an owner (@shared/owner-promotion, Prometheus #748): the page sends the one-time code; main trades it
   // for an owner token, keeps it in place of the API token and reconnects. The token never comes back.
   // Devices → Enrol (0.4.3, @shared/devices): the pairing code's TLS pin, decided before the one-shot token is minted.
+  PHONE_JOIN: 'devices:phone-join', // renderer -> main: the no-secret join code a phone scans, for one Prometheus Beacon keeps (@shared/phone-join)
   PAIR_PIN: 'devices:pair-pin', // renderer -> main: plain, pinned (with the pin) or refused (why), for the code's host
   OWNER_PROMOTE: 'owner:promote', // renderer -> main: redeem a one-time owner code at the connected Prometheus
   // Config → Models → Main model (@shared/main-model): which AI the connected Prometheus thinks with (its GET/PUT /api/model,
@@ -1171,6 +1172,8 @@ export interface BeaconBridge {
   /** Settings → Make this Beacon an owner (@shared/owner-promotion): trade `oara pair --owner`'s one-time code for an owner token,
    *  kept in place of the API token. The answer never carries the token. */
   /** Devices → Enrol (0.4.3): whether the pairing code for `host` carries the daemon's TLS pin, asked BEFORE minting. */
+  /** "Add a phone" (@shared/phone-join): the code for Prometheus `id` (the one Beacon is on when omitted), or why there is none. */
+  phoneJoin(id?: string): Promise<import('./phone-join').JoinCode & { name?: string }>
   pairPin: {
     decide(host: string): Promise<{ kind: 'plain'; node: string | null } | { kind: 'pinned'; pin: string; node: string | null } | { kind: 'refused'; message: string }>
   }

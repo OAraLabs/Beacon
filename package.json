@@ -256,6 +256,7 @@
     "probe:owner-only": "node scripts/owner-only-app-probe.mjs",
     "probe:plain-public": "node scripts/plain-public-app-probe.mjs",
     "probe:add-instance": "node scripts/add-instance-app-probe.mjs",
+    "probe:add-phone": "node scripts/add-phone-app-probe.mjs",
     "probe:dialog-drag": "node scripts/dialog-drag-app-probe.mjs",
     "probe:edit-address": "node scripts/edit-address-app-probe.mjs",
     "probe:instance-list": "node scripts/instance-list-app-probe.mjs",

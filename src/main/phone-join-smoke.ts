@@ -4,7 +4,7 @@
 // phone), never a token.
 //
 //   npm run build && npm run smoke:phone-join
-import { joinCode, joinHost, joinUrl, parseTailnet, shortTailnetName, type Tailnet } from '@shared/phone-join'
+import { joinCode, joinHost, joinUrl, parseTailnet, phoneJoinPort, shortTailnetName, type Tailnet } from '@shared/phone-join'
 
 let failures = 0
 function assert(cond: boolean, label: string, extra?: unknown): void {
@@ -71,16 +71,21 @@ console.log('\n[smoke] === which name the phone gets ===')
 console.log('\n[smoke] === the whole code, from the instance ===')
 {
   const t = parseTailnet(status)
-  const ok = joinCode({ apiBase: `http://${TS_PEER_IP}:8005`, nodePub: NODE_B64, name: 'Home mini', tailnet: t, mode: 'home_network' })
+  const ok = joinCode({ apiBase: `http://${TS_PEER_IP}:8005`, nodePub: NODE_B64, name: 'Home mini', tailnet: t, bind: '0.0.0.0' })
   assert(ok.ok && ok.url === `beacon://join?host=my-mini&node=${NODE_HEX}&name=Home%20mini` && ok.host === 'my-mini', 'the pinned node key and the name the phone can reach', ok)
   assert(ok.ok && !ok.url.includes(TS_PEER_IP) && !/(^|[^0-9])100\.\d+\.\d+\.\d+/.test(ok.url), 'never a 100.x address in it')
-  const old = joinCode({ apiBase: 'http://my-mini:8005', nodePub: null, name: 'Home mini', tailnet: t, mode: null })
+  const old = joinCode({ apiBase: 'http://my-mini:8005', nodePub: null, name: 'Home mini', tailnet: t, bind: null })
   assert(!old.ok && /0\.9\.18/.test(old.why), "nothing pinned (it can't prove who it is): says to update it to 0.9.18 or later", old)
-  const local = joinCode({ apiBase: 'http://localhost:8005', nodePub: NODE_B64, name: 'Laptop', tailnet: t, mode: 'this_mac' })
-  assert(!local.ok && /Other computers/.test(local.why), "it only listens to its own Mac: says to turn on Other computers", local)
-  const bad = joinCode({ apiBase: 'http://my-mini:8005', nodePub: 'not a key', name: 'x', tailnet: t, mode: null })
+  const local = joinCode({ apiBase: 'http://localhost:8005', nodePub: NODE_B64, name: 'Laptop', tailnet: t, bind: '127.0.0.1' })
+  assert(!local.ok && /Other computers/.test(local.why), "it listens on its own computer only (a loopback bind): says to turn on Other computers", local)
+  const tsBind = joinCode({ apiBase: `http://${TS_PEER_IP}:8005`, nodePub: NODE_B64, name: 'Home mini', tailnet: t, bind: TS_PEER_IP })
+  assert(tsBind.ok, 'bound to its Tailscale address (a phone on the tailnet reaches it): a code', tsBind)
+  const bad = joinCode({ apiBase: 'http://my-mini:8005', nodePub: 'not a key', name: 'x', tailnet: t, bind: null })
   assert(!bad.ok, 'a pinned value that is not a key: no code')
 }
+
+console.log('\n[smoke] === the port, and the probe seam ===')
+assert(phoneJoinPort({ BEACON_PHONE_JOIN_PORT: '18005' }, true) === 18005 && phoneJoinPort({ BEACON_PHONE_JOIN_PORT: '18005' }, false) === 8005, 'a release build always says 8005; only a debuggable one reads BEACON_PHONE_JOIN_PORT')
 
 if (failures) {
   console.log(`\n[smoke] FAIL — ${failures} check(s) failed`)

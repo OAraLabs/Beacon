@@ -112,6 +112,8 @@ import type { InstanceSummary } from '@shared/ipc'
 import { UNKNOWN, WATCH_EVERY_MS, aiLabel, type InstanceHealth } from '@shared/instance-watch'
 import { addInstance, checkNewInstance, type AddDeps } from './add-instance'
 import { isAddRequest, type AddCheck, type AddOutcome } from '@shared/add-instance'
+import { readTailnet } from './phone-tailnet'
+import { joinCode, phoneJoinPort, type JoinCode } from '@shared/phone-join'
 import { appendViewTrail } from './view-trail-log'
 import { InstanceWatch } from './instance-watch'
 import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
@@ -1937,6 +1939,20 @@ app.whenReady().then(() => {
   registerModelSetupHandlers({ setup: modelSetup, newSignIn: newOpenRouterSignIn, tradeOwed: () => repo?.getSetting(CREDENTIAL_KIND_KEY) === 'master' }) // O9: the cloud AI's key, and the owner trade
   registerJoinHandlers(joinSession, pairingWatcher) // path B: ask to join, wait for approval, be connected; and the owner's side
   registerNetworkSettingHandlers(networkSetting) // Settings → Other computers: the home-network switch, and the restart
+  // "Add a phone" (@shared/phone-join): a code with no secret, for any Prometheus Beacon keeps: its address made into a name a phone
+  // can reach (this Mac's tailnet, read locally), the node key pinned for it, its name; and, for the one Beacon is on, its bind.
+  handleFromShell(IPC.PHONE_JOIN, async (_e, id: unknown): Promise<JoinCode & { name?: string }> => {
+    const list = folders?.listInstances() ?? []
+    const rec = (typeof id === 'string' ? list.find((i) => i.id === id) : undefined) ?? list.find((i) => i.active)
+    if (!rec) return { ok: false, why: 'Connect Beacon to a Prometheus first, then add a phone to it.' }
+    let bind: string | null = null
+    if (rec.active && connection) {
+      const net = (await connection.getDaemon('/api/network').catch(() => null)) as { bind?: unknown } | null
+      bind = typeof net?.bind === 'string' ? net.bind : null
+    }
+    const code = joinCode({ apiBase: rec.apiBase, nodePub: rec.nodePub, name: rec.label, tailnet: await readTailnet(process.env, debuggingAllowedHere()), bind, port: phoneJoinPort(process.env, debuggingAllowedHere()) })
+    return code.ok ? { ...code, name: rec.label } : code
+  })
   registerPairPinHandlers(pairPin) // Devices → Enrol: the pairing code's TLS pin, before the token is minted
   registerOwnerPromotionHandlers(ownerPromotion) // Settings → Make this Beacon an owner: the one-time code for an owner token
   registerMainModelHandlers(mainModelSetting) // Config → Models → Main model: which AI Prometheus thinks with (restart: the network setting's)

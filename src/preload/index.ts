@@ -350,6 +350,7 @@ const api: BeaconBridge = {
     set: (on: boolean) => ipcRenderer.invoke(IPC.NETWORK_SET, on),
     restart: () => ipcRenderer.invoke(IPC.NETWORK_RESTART)
   },
+  phoneJoin: (id?: string) => ipcRenderer.invoke(IPC.PHONE_JOIN, id),
   pairPin: {
     decide: (host: string) => ipcRenderer.invoke(IPC.PAIR_PIN, host)
   },

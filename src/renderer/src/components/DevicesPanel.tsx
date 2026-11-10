@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import qrcode from 'qrcode-generator'
 import {
   activeDevices,
   fmtDeviceTime,
@@ -15,6 +14,7 @@ import {
   type MintedDevice
 } from '@shared/devices'
 import { Icon } from './Icon'
+import { qrSvg } from '../qr'
 import { OwnerOnlyNote, useDeviceRole } from './OwnerOnlyNote'
 
 // Device enrolment — the desktop half of GRAFT-MOBILE-BRIDGE Piece 1 (Prometheus PR 310).
@@ -56,14 +56,6 @@ const warn: CSSProperties = {
   border: '1px solid var(--c-line)', background: 'var(--c-inset)', color: 'var(--c-text-dim)'
 }
 
-/** SVG, generated locally. Never a hosted image service: the payload contains a live credential,
- *  and a remote QR renderer would be exfiltrating it by construction. */
-function qrSvg(payload: string): string {
-  const qr = qrcode(0, 'M')
-  qr.addData(payload)
-  qr.make()
-  return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true })
-}
 
 export function DevicesPanel() {
   const [rows, setRows] = useState<DeviceDTO[] | null>(null)
@@ -203,6 +195,14 @@ export function DevicesPanel() {
                 <span style={{ fontSize: 11, color: 'var(--c-text-dim)' }}>
           {rows === null ? 'loading…' : `${live} enrolled`}
         </span>
+        <button
+          style={{ ...btn(false), padding: '4px 10px', fontSize: 12 }}
+          onClick={() => window.dispatchEvent(new CustomEvent('beacon:add-phone'))}
+          data-testid="devices-add-phone"
+          title="Show a code the phone scans to ask to join; you approve it here. No password in it."
+        >
+          Add a phone
+        </button>
         {limited ? (
           <span style={{ marginLeft: 'auto' }} />
         ) : (
