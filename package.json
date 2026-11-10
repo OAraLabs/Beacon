@@ -59,6 +59,7 @@
     "smoke:identity-challenge": "ELECTRON_RUN_AS_NODE=1 electron out/main/identity-challenge-smoke.js",
     "smoke:daemon-list": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-list-smoke.js",
     "smoke:instance-watch": "ELECTRON_RUN_AS_NODE=1 electron out/main/instance-watch-smoke.js",
+    "smoke:join-notice": "ELECTRON_RUN_AS_NODE=1 electron out/main/join-notice-smoke.js",
     "smoke:phone-join": "ELECTRON_RUN_AS_NODE=1 electron out/main/phone-join-smoke.js",
     "smoke:add-instance": "ELECTRON_RUN_AS_NODE=1 electron out/main/add-instance-smoke.js",
     "smoke:view-trail": "ELECTRON_RUN_AS_NODE=1 electron out/main/view-trail-smoke.js",
