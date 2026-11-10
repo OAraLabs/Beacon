@@ -276,3 +276,8 @@ export function fmtDeviceTime(seconds: number | null | undefined, now: number = 
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
+
+// Red first: not built yet.
+export function deviceErrorWords(message: string): string {
+  return message
+}
