@@ -279,13 +279,13 @@ console.log('[smoke] === 11. what went wrong, in words that say what to do (neve
   const ipc = (m: string): string => `Error invoking remote method 'daemon:write': Error: ${m}`
   const w = (m: string): string => deviceErrorWords(ipc(m))
   const mint401 = w('HTTP 401: POST /api/devices — {"detail":"minting a device token requires the global token"}')
-  assert(/Add a phone/.test(mint401) && /approve/i.test(mint401), 'minting with a device key (401): use Add a phone, the phone asks and you approve', mint401)
+  assert(/Add a phone/.test(mint401) && /approve/i.test(mint401), `minting with a device key (401): use Add a phone, the phone asks and you approve (${mint401})`)
   assert(/owner/.test(w('HTTP 403: POST /api/devices — {"error":"operator_only"}')), 'not an owner (403 operator_only): says this Beacon is not an owner')
   assert(/already/.test(w('HTTP 404: DELETE /api/devices/x — {"detail":"not found"}')), 'revoking one that is gone (404): already gone')
   assert(/Wait/.test(w('HTTP 429: POST /api/devices — {"error":"rate_limited"}')), 'too many (429): wait, then try again')
   assert(/reach Prometheus/.test(w('fetch failed')) && /reach Prometheus/.test(w('The operation was aborted due to timeout')), "nothing answered: couldn't reach Prometheus")
   const all = [mint401, w('HTTP 403: POST /api/devices — {"error":"operator_only"}'), w('HTTP 500: POST /api/devices — boom'), w('HTTP 418: x'), w('fetch failed')]
-  assert(all.every((t) => !/HTTP \d{3}|Error invoking|\/api\//.test(t) && t.length > 15), 'never a status code, a route or an IPC wrapper on screen', all)
+  assert(all.every((t) => !/HTTP \d{3}|Error invoking|\/api\//.test(t) && t.length > 15), `never a status code, a route or an IPC wrapper on screen (${all.join(' | ')})`)
 }
 
 async function fromThePin(): Promise<void> {

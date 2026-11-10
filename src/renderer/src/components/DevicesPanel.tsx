@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   activeDevices,
+  deviceErrorWords,
   fmtDeviceTime,
   hostForPairing,
   normalizePlatform,
@@ -118,7 +119,7 @@ export function DevicesPanel() {
     window.beacon.daemon
       .get('/api/devices')
       .then((raw) => setRows(Array.isArray(raw) ? (raw as DeviceDTO[]) : []))
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setErr(deviceErrorWords(e instanceof Error ? e.message : String(e))))
   }, [])
 
   useEffect(() => {
@@ -174,7 +175,7 @@ export function DevicesPanel() {
         // already visible and therefore revocable. See the panel comment.
         load()
       })
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setErr(deviceErrorWords(e instanceof Error ? e.message : String(e))))
       .finally(() => setBusy(false))
   }
 
@@ -183,7 +184,7 @@ export function DevicesPanel() {
     window.beacon.daemon
       .write(`/api/devices/${encodeURIComponent(d.id)}`, undefined, 'DELETE')
       .then(() => load())
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setErr(deviceErrorWords(e instanceof Error ? e.message : String(e))))
   }
 
   // Both questions, because they fail differently: a malformed payload the phone cannot parse,
