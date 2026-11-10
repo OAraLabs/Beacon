@@ -134,6 +134,7 @@ export default defineConfig({
           'identity-challenge-smoke': resolve('src/main/identity-challenge-smoke.ts'),
           'daemon-list-smoke': resolve('src/main/daemon-list-smoke.ts'),
           'instance-watch-smoke': resolve('src/main/instance-watch-smoke.ts'),
+          'join-notice-smoke': resolve('src/main/join-notice-smoke.ts'),
           'phone-join-smoke': resolve('src/main/phone-join-smoke.ts'),
           'add-instance-smoke': resolve('src/main/add-instance-smoke.ts'),
           'view-trail-smoke': resolve('src/main/view-trail-smoke.ts'),

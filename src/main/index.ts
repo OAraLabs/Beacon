@@ -112,6 +112,7 @@ import type { InstanceSummary } from '@shared/ipc'
 import { UNKNOWN, WATCH_EVERY_MS, aiLabel, type InstanceHealth } from '@shared/instance-watch'
 import { addInstance, checkNewInstance, type AddDeps } from './add-instance'
 import { isAddRequest, type AddCheck, type AddOutcome } from '@shared/add-instance'
+import { joinNotice } from '@shared/join-notice'
 import { readTailnet } from './phone-tailnet'
 import { joinCode, phoneJoinPort, type JoinCode } from '@shared/phone-join'
 import { appendViewTrail } from './view-trail-log'
@@ -929,6 +930,8 @@ const mainModelSetting = new MainModelSetting({
 // The owner's side of joining: who is waiting for this Prometheus's owner to say yes. It runs whenever a connection is up; a Beacon that is
 // not an owner is told 403 and the watcher stops asking. Its answers go to the page; a pairing frame goes ONLY here (see the gatewayEvent
 // handler in bringUpConnection).
+/** The join requests a notification has already been shown for, or seen while Beacon was in front. */
+let joinKnown: ReadonlySet<string> = new Set()
 const pairingWatcher = new PairingWatcher({
   list: async () => {
     try {
@@ -949,7 +952,18 @@ const pairingWatcher = new PairingWatcher({
     const t = setTimeout(fn, ms)
     return () => clearTimeout(t)
   },
-  publish: (requests) => broadcast(IPC.PAIRING_REQUESTS, requests),
+  publish: (requests) => {
+    broadcast(IPC.PAIRING_REQUESTS, requests)
+    // A device asking while Beacon isn't in front: a notification in Beacon's own words (@shared/join-notice), never the requester's
+    // device name or address. In front, the prompt itself shows.
+    const n = joinNotice(joinKnown, requests, { focused: windowFocused(), instance: folders?.listInstances().find((i) => i.active)?.label ?? null })
+    joinKnown = n.known
+    if (n.notice && Notification.isSupported()) {
+      const note = new Notification(n.notice)
+      note.on('click', () => showWindow())
+      note.show()
+    }
+  },
   // A probe may turn asking off, so that only the daemon's frames can show a request; a release build always asks (@shared/join-owner).
   pollMs: pairingPollMs(process.env, debuggingAllowedHere())
 })

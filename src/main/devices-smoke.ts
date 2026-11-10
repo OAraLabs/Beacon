@@ -19,6 +19,7 @@ import {
   pairPayloadProblem,
   pairUrl,
   nodeHex,
+  deviceErrorWords,
   pairPinSource,
   pairPinVerdict,
   PAIR_TLS_PORTS,
@@ -272,6 +273,21 @@ console.log('[smoke] === 9. the node key in the code (node=, for the phone to pi
   assert([NODE.toUpperCase(), NODE.slice(1), NODE + '0', ` ${NODE}`, '', NODE_B64].every(throws), 'a node that is not exactly 64 lower-case hex is never emitted (the phone refuses the whole code)')
 }
 
+console.log('')
+console.log('[smoke] === 11. what went wrong, in words that say what to do (never a raw HTTP code) ===')
+{
+  const ipc = (m: string): string => `Error invoking remote method 'daemon:write': Error: ${m}`
+  const w = (m: string): string => deviceErrorWords(ipc(m))
+  const mint401 = w('HTTP 401: POST /api/devices — {"detail":"minting a device token requires the global token"}')
+  assert(/Add a phone/.test(mint401) && /approve/i.test(mint401), `minting with a device key (401): use Add a phone, the phone asks and you approve (${mint401})`)
+  assert(/owner/.test(w('HTTP 403: POST /api/devices — {"error":"operator_only"}')), 'not an owner (403 operator_only): says this Beacon is not an owner')
+  assert(/already/.test(w('HTTP 404: DELETE /api/devices/x — {"detail":"not found"}')), 'revoking one that is gone (404): already gone')
+  assert(/Wait/.test(w('HTTP 429: POST /api/devices — {"error":"rate_limited"}')), 'too many (429): wait, then try again')
+  assert(/reach Prometheus/.test(w('fetch failed')) && /reach Prometheus/.test(w('The operation was aborted due to timeout')), "nothing answered: couldn't reach Prometheus")
+  const all = [mint401, w('HTTP 403: POST /api/devices — {"error":"operator_only"}'), w('HTTP 500: POST /api/devices — boom'), w('HTTP 418: x'), w('fetch failed')]
+  assert(all.every((t) => !/HTTP \d{3}|Error invoking|\/api\//.test(t) && t.length > 15), `never a status code, a route or an IPC wrapper on screen (${all.join(' | ')})`)
+}
+
 async function fromThePin(): Promise<void> {
   console.log('')
   console.log("[smoke] === 10. the node key comes from the instance's pinned identity, never from what answers now ===")
@@ -312,7 +328,7 @@ async function fromThePin(): Promise<void> {
 }
 
 void fromThePin().then(() => {
-  const MIN_CHECKS = 92
+  const MIN_CHECKS = 98
   if (checks < MIN_CHECKS) {
     console.log(`[smoke] FAIL  only ${checks} checks ran, expected at least ${MIN_CHECKS}`)
     failures++
