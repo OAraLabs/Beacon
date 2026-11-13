@@ -77,6 +77,12 @@ export const IPC = {
   CAPTURE_OPEN_MAIN: 'capture:open-main', // renderer -> main (send): quick-capture → open main on a session
   WORK_FOLDER_WHERE: 'work-folder:where', // renderer -> main: is Prometheus on this computer, and this computer's home folder
   WORK_FOLDER_PICK: 'work-folder:pick', // renderer -> main: the system folder picker, offered only when Prometheus is on this computer
+  // Files handed to Beacon by the system (@shared/os-entry). An offer is a list of names; nothing is
+  // read until the person says yes on the confirmation screen.
+  OS_ENTRY_OFFER: 'os-entry:offer', // main -> renderer: files were handed over; show the confirmation
+  OS_ENTRY_PENDING: 'os-entry:pending', // renderer -> main: the offer waiting, if any (one may have arrived before the window)
+  OS_ENTRY_TAKE: 'os-entry:take', // renderer -> main: yes to THAT offer; main reads the files and returns them
+  OS_ENTRY_DISMISS: 'os-entry:dismiss', // renderer -> main (send): no to that offer
   CAPTURE_HOLD: 'capture:hold', // renderer -> main (send): keep the quick-capture window up while its file picker is open
   CAPTURE_SHOT: 'capture:shot', // renderer -> main: hide the quick-capture window, grab one source, show it again
   EVENTS_RECENT: 'events:recent', // renderer -> main: GET /api/events/recent (activity-feed backfill)
@@ -1095,6 +1101,15 @@ export interface BeaconBridge {
     where(): Promise<import('./work-folder').FolderWhere>
     /** Opens the system folder picker. 'not-here' when Prometheus is on another computer: no picker is shown. */
     pick(): Promise<import('./work-folder').FolderPick>
+  }
+  /** Files handed to Beacon from outside it: Open with, a drop on its icon, a path on the command
+   *  line (@shared/os-entry). Main only NAMES them until `take`. */
+  osEntry: {
+    pending(): Promise<import('./os-entry').FileOffer | null>
+    /** Yes to the offer with this id. Main reads the files then, and only then. */
+    take(id: string): Promise<import('./os-entry').OfferTake>
+    dismiss(id: string): void
+    onOffer(cb: (offer: import('./os-entry').FileOffer) => void): Unsubscribe
   }
   capture: {
     /** Quick-capture (Slice 10): hide the mini window and open the main window on a session. */

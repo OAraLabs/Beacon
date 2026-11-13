@@ -15,10 +15,14 @@ export type DeepLinkAction =
 /** Session ids on the wire look like `beacon:<uuid>` / `desktop:<uuid>` / `voice:beacon` —
  * printable, no whitespace, and never long. Anything outside that shape is refused, not repaired. */
 function validSessionId(id: string): boolean {
-    // Control characters and whitespace are refused outright; everything printable passes.
-  // eslint-disable-next-line no-control-regex
-  return id.length > 0 && id.length <= 128 && !/[\s\u0000-\u001f\u007f]/.test(id)
+  // One word of the plain characters session ids are made of. Anything else is refused, not
+  // repaired: an id is also a place a link could try to carry a sentence, a path, or characters
+  // that reshape how it reads.
+  return /^[A-Za-z0-9][A-Za-z0-9:_.@+=|/-]{0,127}$/.test(id) && !id.includes('..') && !id.includes('//')
 }
+
+/** Parameter names that could hold words for the assistant. Refused on every route. */
+const TEXT_PARAMS = new Set(['text', 'prompt', 'message', 'msg', 'q', 'query', 'body', 'content', 'instructions', 'instruction', 'input', 'ask', 'say', 'draft', 'command', 'cmd', 'run'])
 
 /**
  * Classify one URL. Returns null for anything that is not a beacon:// URL at all (argv is full of
@@ -35,7 +39,24 @@ export function parseDeepLink(raw: string): DeepLinkAction | null {
     return { kind: 'refused', reason: 'malformed beacon:// link' }
   }
   const route = u.host.toLowerCase()
+  // A LINK NEVER CARRIES WORDS FOR THE ASSISTANT. Anyone can mint a beacon:// link (a web page, a
+  // chat message, a QR code), so a link may say WHERE to go and nothing else. `open` is the one
+  // route there is (an unknown route is refused and named, below, whatever it carries), and on it
+  // a parameter that could hold text is refused by name, with the whole link: a link that is half
+  // obeyed ("opened the conversation, ignored the text") teaches people that such links work.
   if (route === 'open') {
+    for (const k of u.searchParams.keys()) {
+      // The reason is fixed words: nothing the link itself says is repeated in a REASON, so a
+      // link cannot write a line of its own into the log through one.
+      if (TEXT_PARAMS.has(k.toLowerCase())) return { kind: 'refused', reason: 'a link cannot carry text for your assistant' }
+    }
+    // Exactly one thing: which conversation. Nothing else rides along, in the query, the path or
+    // after a #.
+    const extra = [...u.searchParams.keys()].find((k) => k !== 'session')
+    if (extra !== undefined) return { kind: 'refused', reason: 'beacon://open takes only ?session=<id>' }
+    if (u.searchParams.getAll('session').length > 1 || (u.pathname !== '' && u.pathname !== '/') || u.hash !== '' || u.username !== '' || u.password !== '' || u.port !== '') {
+      return { kind: 'refused', reason: 'beacon://open takes only ?session=<id>' }
+    }
     const sessionId = u.searchParams.get('session') ?? ''
     if (!validSessionId(sessionId)) return { kind: 'refused', reason: 'beacon://open needs a valid ?session=<id>' }
     return { kind: 'open', sessionId }

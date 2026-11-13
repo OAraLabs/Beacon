@@ -130,6 +130,11 @@ export class CacheService {
 
   /** The sidebar list: cache sessions (durable) reconciled with the daemon's in-memory list.
    * Offline → returns the cache as-is. */
+  /** Whether this Beacon has that conversation, from the cache alone (nothing is asked of Prometheus). */
+  knowsSession(id: string): boolean {
+    return this.repo.getSessions().some((r) => r.id === id)
+  }
+
   async listSessions(): Promise<SessionSummary[]> {
     try {
       this.refuseWhileHeld()
