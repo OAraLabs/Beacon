@@ -1,3 +1,4 @@
+import { advertisesApprovalCritical } from '@shared/approval-push'
 import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { notEncrypted } from '@shared/plain-lan'
 import { DEVICES_PATH, roleFromDevices, type DeviceRole } from '@shared/device-role'
@@ -91,7 +92,12 @@ export class ConnectionManager extends EventEmitter {
       {
         onState: (state, meta) => this.setState(state, meta),
         onFrame: (frame: ChatStreamFrame) => this.emit('stream', frame),
-        onGatewayEvent: (ev: GatewayEvent) => this.emit('gatewayEvent', ev),
+        onGatewayEvent: (ev: GatewayEvent) => {
+          // The reply to each subscribe says what THIS daemon does. Read every time, on or off: the
+          // Prometheus at an address can be upgraded, or rolled back, between two connections.
+          if (ev.type === 'subscribed') this.setApprovalCritical(advertisesApprovalCritical(ev.payload))
+          this.emit('gatewayEvent', ev)
+        },
         onAuthFailure: () => this.setWsAuth('unauthorized'),
         // A redial is a new connect: whoever answers now proves who it is first, and REST waits for the same answer.
         beforeRedial: async () => {
@@ -169,6 +175,7 @@ export class ConnectionManager extends EventEmitter {
       refused: words,
       ...(this.plainHome ? { notEncrypted: true } : {}),
       ...(this.role ? { role: this.role } : {}),
+      ...(this.approvalCritical !== null ? { approvalCritical: this.approvalCritical } : {}),
       ...(this.identity ? { identity: this.identity } : {})
     }
     this.emit('status', this.status)
@@ -223,6 +230,28 @@ export class ConnectionManager extends EventEmitter {
     const { identity: _old, ...rest } = this.status
     this.status = { ...rest, ...(next ? { identity: next } : {}) }
     this.emit('status', this.status)
+  }
+
+  /** Whether this Prometheus's latest `subscribed` reply advertised `approval_critical`. Kept across
+   *  state changes (a dropped socket is still the same Prometheus) until the next reply says otherwise. */
+  private approvalCritical: boolean | null = null // null: it has not said yet
+  private approvalCriticalWait: NodeJS.Timeout | null = null
+  private setApprovalCritical(next: boolean): void {
+    if (this.approvalCriticalWait) clearTimeout(this.approvalCriticalWait)
+    this.approvalCriticalWait = null
+    if (this.approvalCritical === next) return
+    this.approvalCritical = next
+    this.status = { ...this.status, approvalCritical: next }
+    this.emit('status', this.status)
+  }
+  /** Connected, and it has never said: give its `subscribed` reply a few seconds, then take silence
+   *  for "no". A Prometheus old enough not to reply at all must not be left in doubt for good. */
+  private awaitApprovalCritical(): void {
+    if (this.approvalCritical !== null || this.approvalCriticalWait) return
+    this.approvalCriticalWait = setTimeout(() => {
+      this.approvalCriticalWait = null
+      if (this.approvalCritical === null) this.setApprovalCritical(false)
+    }, 5000)
   }
 
   private setWsAuth(next: 'ok' | 'unauthorized'): void {
@@ -374,6 +403,7 @@ export class ConnectionManager extends EventEmitter {
     if (state === 'connected' && this.wsAuth === 'unauthorized') this.wsAuth = 'ok'
     if (state === 'connected') this.wrongKey = null
     if (state === 'connected') this.askRole()
+    if (state === 'connected') this.awaitApprovalCritical()
     this.status = {
       state,
       gateway: this.status.gateway,
@@ -384,6 +414,7 @@ export class ConnectionManager extends EventEmitter {
       ...(this.wrongKey ? { wrongKey: this.wrongKey } : {}),
       ...(this.plainHome ? { notEncrypted: true } : {}),
       ...(this.role ? { role: this.role } : {}),
+      ...(this.approvalCritical !== null ? { approvalCritical: this.approvalCritical } : {}),
       ...(this.refused ? { refused: this.refused } : {}),
       ...(this.identity ? { identity: this.identity } : {})
     }

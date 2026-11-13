@@ -30,6 +30,8 @@ const activeInstance = async (): Promise<string | null> => {
 
 export function TodayHome({
   approvals,
+  approvalCardOnly,
+  onShowApproval,
   onResolveApproval,
   onNewChat,
   onOpenView,
@@ -37,6 +39,10 @@ export function TodayHome({
   titles
 }: {
   approvals: ApprovalRequest[]
+  /** Whether a request may be approved only from its full card (Prometheus marked it critical). */
+  approvalCardOnly?: (requestId: string) => boolean
+  /** Put focus on the approval cards, with this request's in view. */
+  onShowApproval?: (requestId: string) => void
   onResolveApproval: (id: string, decision: ApprovalDecision) => void
   onNewChat: () => void
   onOpenView: (v: ViewId) => void
@@ -179,9 +185,16 @@ export function TodayHome({
                     </div>
                     {/* Only the action that grants nothing lasting, named as such. Anything that
                         outlives this one call is read and chosen on the full approval card. */}
-                    <button className="today-btn" aria-label={`Approve once: ${item.approval.toolName}`} onClick={() => onResolveApproval(item.approval.requestId, { kind: 'approve', scope: 'once' })}>
-                      Approve once
-                    </button>
+                    {/* A request Prometheus marked critical is approved on its full card and nowhere else. */}
+                    {approvalCardOnly?.(item.approval.requestId) ? (
+                      <button className="today-btn" data-testid="approval-row-show" aria-label={`Answer on the card: ${item.approval.toolName}`} onClick={() => onShowApproval?.(item.approval.requestId)}>
+                        Answer on the card
+                      </button>
+                    ) : (
+                      <button className="today-btn" data-testid="approval-row-approve" aria-label={`Approve once: ${item.approval.toolName}`} onClick={() => onResolveApproval(item.approval.requestId, { kind: 'approve', scope: 'once' })}>
+                        Approve once
+                      </button>
+                    )}
                     <button className="today-btn today-btn-quiet" aria-label={`Deny: ${item.approval.toolName}`} onClick={() => onResolveApproval(item.approval.requestId, { kind: 'deny' })}>
                       Deny
                     </button>

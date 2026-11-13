@@ -27,7 +27,8 @@ import {
   type DictationOutcome
 } from '@shared/dictation'
 import type { GatewayEvent } from '@shared/gateway-events'
-import { applyApprovalFrame } from '@shared/approval-push'
+import { applyApprovalFrame, isCardOnly } from '@shared/approval-push'
+import { useApprovalCriticalAdvertised } from '../approval-critical-store'
 import { BEACON_GATEWAY } from '@shared/session-sources'
 import { SearchOverlay } from './SearchOverlay'
 import type { SearchSummaryHit } from '@shared/search'
@@ -207,6 +208,19 @@ export function MainView() {
   /** The approvals as last rendered, for resolveApproval (a stable callback) to read the request it is answering. */
   const approvalsRef = useRef<ApprovalRequest[]>([])
   approvalsRef.current = approvals
+  // Which requests may be approved only from their full card (Prometheus marked them critical).
+  const criticalAdvertised = useApprovalCriticalAdvertised()
+  const approvalCardOnly = useCallback((id: string) => isCardOnly(id, approvals, criticalAdvertised), [approvals, criticalAdvertised])
+  // The approvals area (the stack of cards). `A`/`D` answer only the card focus is on.
+  const approvalsArea = useRef<HTMLDivElement | null>(null)
+  /** From a row that cannot answer a request itself: put focus on THAT request's card, in view. */
+  const showApproval = useCallback((id: string) => {
+    for (const el of approvalsArea.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []) {
+      if (el.dataset.approvalId !== id) continue
+      el.scrollIntoView({ block: 'nearest' })
+      el.focus()
+    }
+  }, [])
   /** The approval ids STILL in the daemon's queue, as a set. The progress pane's desktop log joins
    *  a step's `approvalRequestId` against this to decide whether to render an approve/deny control
    *  inline — a step whose request has been answered keeps its row but has nothing left to act on.
@@ -1632,12 +1646,14 @@ export function MainView() {
             flexDirection: 'column',
             gap: 8
           }}
+          ref={approvalsArea}
+          data-approvals-area=""
         >
-          {approvals.map((a, i) => (
+          {approvals.map((a) => (
             <ExecApprovalCard
               key={a.requestId}
               approval={a}
-              first={i === 0}
+              critical={approvalCardOnly(a.requestId)}
               activeSessionId={view === 'chat' ? active : null}
               error={approvalErrors[a.requestId] || null}
               cannotApprove={cannotApprove[a.requestId] ?? null}
@@ -1853,6 +1869,8 @@ export function MainView() {
           ) : view === 'mission' && uiMode === 'everyday' ? (
             <TodayHome
               approvals={approvals}
+              approvalCardOnly={approvalCardOnly}
+              onShowApproval={showApproval}
               onResolveApproval={(id, d) => void resolveApproval(id, d)}
               onNewChat={goHome}
               onOpenView={setView}
@@ -1865,6 +1883,8 @@ export function MainView() {
           ) : view === 'mission' ? (
             <MissionHome
               approvals={approvals}
+              approvalCardOnly={approvalCardOnly}
+              onShowApproval={showApproval}
               onResolveApproval={(id, d) => void resolveApproval(id, d)}
               onNewChat={goHome}
               onOpenView={setView}
@@ -1925,6 +1945,8 @@ export function MainView() {
                   sessionId={null}
                   view={view}
                   pendingApprovalIds={pendingApprovalIds}
+                  approvalCardOnly={approvalCardOnly}
+                  onShowApproval={showApproval}
                   onResolveApproval={(id, d) => void resolveApproval(id, d)}
                 />
               ) : null}
