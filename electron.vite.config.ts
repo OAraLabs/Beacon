@@ -199,6 +199,8 @@ export default defineConfig({
           'slash-smoke': resolve('src/main/slash-smoke.ts'),
           'work-folder-smoke': resolve('src/main/work-folder-smoke.ts'),
           'os-entry-smoke': resolve('src/main/os-entry-smoke.ts'),
+          // Not a smoke: the helper process that looks at and reads files handed to Beacon (src/main/offer-looker.ts).
+          'offer-look-process': resolve('src/main/offer-look-process.ts'),
           'saved-prompts-smoke': resolve('src/main/saved-prompts-smoke.ts'),
           'quick-capture-smoke': resolve('src/main/quick-capture-smoke.ts'),
           'ui-mode-smoke': resolve('src/main/ui-mode-smoke.ts'),
