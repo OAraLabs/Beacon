@@ -36,6 +36,7 @@ import {
   decisionGradeBody,
   advertisesApprovalCritical,
   answeredInApp,
+  isCardOnly,
   APPROVAL_CRITICAL_CAPABILITY,
   notificationPlan,
   rawToApproval,
@@ -55,7 +56,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53 + 39
+const MIN_CHECKS = 53 + 39 + 16
 
 let failures = 0
 let checks = 0
@@ -297,6 +298,7 @@ console.log('\n=== 6. critical — the daemon says a request is answered in the 
   check(!answeredInApp(false, true) && !answeredInApp(false, false), 'critical: false is not')
   check(answeredInApp(undefined, true), 'a request that does not say, from a daemon that promised every request would, is: doubt is critical')
   check(!answeredInApp(undefined, false), 'a request that does not say, from a daemon that advertises nothing, is ordinary: an older Prometheus behaves as it always did')
+  check(answeredInApp(undefined, undefined) && answeredInApp(true, undefined) && !answeredInApp(false, undefined), 'before a Prometheus has said what it does, a request that does not say is treated as critical; one that says is taken at its word')
   // What the notification then offers.
   const plain = notificationPlan('bash', 'git push origin main')
   const crit = notificationPlan('bash', 'git push origin main', undefined, true)
@@ -311,12 +313,41 @@ console.log('\n=== 6. critical — the daemon says a request is answered in the 
 
   // main wires it: per connection, from the subscribed reply, on both paths.
   check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical: the frame path as mapped, the poll path re-checked where it crosses from the page')
-  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy !== null && criticalAdvertisedBy\.has\(raisedBy\)\)\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
-  const frame = mainSrc.slice(mainSrc.indexOf('function handleApprovalFrame('), mainSrc.indexOf('function snippet('))
-  check(/if \(ev\.type === 'subscribed'\) \{[\s\S]{0,400}if \(advertisesApprovalCritical\(p\)\) criticalAdvertisedBy\.add\(raisedBy\)\s*else criticalAdvertisedBy\.delete\(raisedBy\)/.test(frame), 'every subscribed reply sets it, on or off: a Prometheus rolled back between connections stops being treated as advertising')
-  check(/const criticalAdvertisedBy = new WeakSet<ConnectionManager>\(\)/.test(mainSrc) && (mainSrc.match(/criticalAdvertisedBy\.(add|delete)\(/g) ?? []).length === 2, 'kept per connection, and set nowhere else')
+  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\)\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
+  const connSrc = readFileSync(new URL('../../src/main/connection/index.ts', import.meta.url), 'utf8')
+  check(/if \(ev\.type === 'subscribed'\) this\.setApprovalCritical\(advertisesApprovalCritical\(ev\.payload\)\)\s*this\.emit\('gatewayEvent', ev\)/.test(connSrc), 'every subscribed reply sets it, on or off, on the connection it came over: a Prometheus rolled back between connections stops being treated as advertising')
+  check((connSrc.match(/\.\.\.\(this\.approvalCritical !== null \? \{ approvalCritical: this\.approvalCritical \} : \{\}\),/g) ?? []).length === 2, 'kept in the status across a dropped socket and a refusal, until the next reply')
+  check(/private approvalCritical: boolean \| null = null/.test(connSrc) && /if \(state === 'connected'\) this\.awaitApprovalCritical\(\)/.test(connSrc) && /if \(this\.approvalCritical === null\) this\.setApprovalCritical\(false\)\s*\}, 5000\)/.test(connSrc), 'unknown until the Prometheus says; once connected, silence for a few seconds is taken for "no", so one too old to reply is not left in doubt')
   check(/handleApprovalFrame\(conn, ev as/.test(mainSrc), 'and the frames reach it with the connection they came over')
   check(/&& plan\.offersActions\s*\? \(\[[\s\S]{0,160}\] as Electron\.NotificationAction\[\]\)\s*: \[\]/.test(mainSrc) && (mainSrc.match(/text: 'Approve'/g) ?? []).length === 1, 'the Approve button exists in one place, behind the plan: a plan with no actions makes a notification with none')
+}
+
+console.log('\n=== 7. a critical request is approved from its full card and nowhere else ===')
+{
+  const req = (id: string, critical?: boolean): ApprovalRequest => ({ requestId: id, toolName: 'bash', description: '', createdAt: 0, extents: {}, critical })
+  const list = [req('t', true), req('f', false), req('u')]
+  check(isCardOnly('t', list, true) && isCardOnly('t', list, false), 'critical: true is card-only, advertised or not')
+  check(!isCardOnly('f', list, true) && !isCardOnly('f', list, false), 'critical: false is not')
+  check(isCardOnly('u', list, true) && !isCardOnly('u', list, false), 'a request that does not say is card-only exactly when its Prometheus advertises the flag')
+  check(isCardOnly('gone', list, true) && !isCardOnly('gone', list, false) && !isCardOnly('gone', [], false), 'an id that is not in the list is judged the same way: an older Prometheus keeps its short answers')
+  check(isCardOnly('u', list, undefined) && isCardOnly('gone', list, undefined) && !isCardOnly('f', list, undefined), 'and before the Prometheus has said what it does, only a request that says it is not critical keeps them')
+  const comp = (name: string): string => readFileSync(new URL(`../../src/renderer/src/components/${name}.tsx`, import.meta.url), 'utf8')
+  // Each short surface: ONE approve, and it is the branch taken only when the request is not card-only.
+  for (const [name, idExpr] of [['MissionControl', 'a.requestId'], ['TodayHome', 'item.approval.requestId'], ['ProgressPane', 'r.pendingApprovalId']] as const) {
+    const src = comp(name)
+    const approves = [...src.matchAll(/kind: 'approve'/g)]
+    const gate = src.indexOf(`approvalCardOnly?.(${idExpr}) ? (`)
+    const show = src.indexOf('data-testid="approval-row-show"', gate)
+    const approve = src.indexOf('data-testid="approval-row-approve"', gate)
+    check(approves.length === 1 && gate > 0 && show > gate && approve > show && (approves[0].index ?? 0) > approve && (approves[0].index ?? 0) - approve < 400, `${name}: its one Approve is offered only when the request is not card-only; otherwise the row leads to the card`)
+    check(/onShowApproval\?\.\(/.test(src.slice(show, approve)) && !/onResolveApproval/.test(src.slice(show, approve)), `${name}: "Answer on the card" answers nothing`)
+  }
+  const view = comp('MainView')
+  check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalCardOnly\}/g) ?? []).length === 3 && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule, made once in the main view, handed to the card and to all three short surfaces')
+  const store = readFileSync(new URL('../../src/renderer/src/approval-critical-store.ts', import.meta.url), 'utf8')
+  check(/typeof s\?\.approvalCritical === 'boolean' \? s\.approvalCritical : undefined/.test(store) && /b\.connection\.status\(\)\.then\(set\)/.test(store) && /b\.connection\.onStatus\(set\)/.test(store), 'and the page learns what its Prometheus advertises from the connection status, when it opens and on every change')
+  const card = comp('ExecApprovalCard')
+  check(/keysLive && !critical \? <span style=\{actionKey\}> A<\/span> : null/.test(card) && /data-testid="approval-critical-note"/.test(card), 'the card of a critical request shows no A, and says it is approved only there')
 }
 
 // The verdict runs on process EXIT for the same reason approval-smoke's does: a run that leaves

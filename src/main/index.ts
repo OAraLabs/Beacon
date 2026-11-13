@@ -10,7 +10,7 @@ import { dirname, isAbsolute, join, resolve } from 'path'
 import { refusedSwitches } from '@shared/release-gate'
 import { buildFlavor, debuggingAllowedHere } from './build-flavor'
 import { IPC } from '@shared/ipc'
-import { advertisesApprovalCritical, answeredInApp, approvalActionTarget, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
+import { answeredInApp, approvalActionTarget, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
 import { coerceArguments, type ApprovalArguments } from '@shared/approval-arguments'
 import { describeLoginItem, type LoginItemPlatform } from '@shared/login-item'
 import { isLegalDoc, legalDocPath, type LegalDocResult } from '@shared/legal-docs'
@@ -1970,7 +1970,7 @@ function notifyApproval(
 
   // A critical request offers no answer here; it is answered in Beacon. Judged against what the
   // Prometheus that ASKED advertises, not whichever one is connected now.
-  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy !== null && criticalAdvertisedBy.has(raisedBy)))
+  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy?.getStatus().approvalCritical))
   const actions =
     process.platform === 'darwin' && plan.offersActions
       ? ([
@@ -1995,23 +1995,13 @@ function notifyApproval(
   n.show()
 }
 
-/** The connections whose Prometheus, in its latest `subscribed` reply, advertised that every
- *  approval request says `critical` (@shared/approval-push). Per connection, so one Prometheus's
- *  answer is never applied to another's requests; weak, so a dropped connection is forgotten. */
-const criticalAdvertisedBy = new WeakSet<ConnectionManager>()
-
 /** Frame path: the daemon pushes approval_pending/approval_resolved (PR #280).
  * Pending → notification; resolved → drop the id from the dedupe set so a
  * FUTURE request with the same id can notify again. The renderer's overlay
  * list is driven by its own frame+poll paths; main owns only the notification. */
 function handleApprovalFrame(raisedBy: ConnectionManager, ev: { type?: string; payload?: Record<string, unknown> }): void {
   const p = ev.payload ?? {}
-  if (ev.type === 'subscribed') {
-    // The reply to each subscribe says what THIS daemon does. Read every time: the Prometheus at
-    // an address can be upgraded, or rolled back, between two connections.
-    if (advertisesApprovalCritical(p)) criticalAdvertisedBy.add(raisedBy)
-    else criticalAdvertisedBy.delete(raisedBy)
-  } else if (ev.type === 'approval_pending') {
+  if (ev.type === 'approval_pending') {
     const a = rawToApproval(p as RawApprovalPush)
     if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments, a.critical)
   } else if (ev.type === 'approval_resolved') {

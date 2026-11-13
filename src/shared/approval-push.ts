@@ -137,10 +137,27 @@ export function advertisesApprovalCritical(subscribedPayload: unknown): boolean 
  *   missing one is something gone wrong, and the daemon's own rule is that doubt is critical.
  * - From a daemon that does not advertise it, a request that does not say is an ordinary one,
  *   exactly as before the flag existed: an older Prometheus behaves as it always did.
+ * - Before a daemon has said either way, a request that does not say is treated as critical.
  */
-export function answeredInApp(critical: boolean | undefined, advertised: boolean): boolean {
+export function answeredInApp(critical: boolean | undefined, advertised: boolean | undefined): boolean {
   if (critical === true) return true
-  return advertised && critical !== false
+  if (critical === false) return false
+  // The request does not say. `advertised` undefined: this Prometheus has not yet said what it does
+  // (the first moments of a connection, before its `subscribed` reply). Until it has, doubt is
+  // critical; the connection settles it within seconds either way (ConnectionManager).
+  return advertised !== false
+}
+
+/**
+ * Whether a pending request may be approved ONLY from its full card: not from a short row on
+ * Mission or Today, not inline in the desktop-prompt pane, not with the `A` key. The same rule as
+ * the notification's (`answeredInApp`), asked by request id for the surfaces that hold only an id.
+ * An id that is not in the list is judged like a request that does not say: card-only when this
+ * Prometheus advertises the flag, ordinary when it does not.
+ */
+export function isCardOnly(requestId: string, approvals: readonly ApprovalRequest[], advertised: boolean | undefined): boolean {
+  const a = approvals.find((x) => x.requestId === requestId)
+  return answeredInApp(a?.critical, advertised)
 }
 
 /** The resolved frame's payload: request_id + resolution (approved|denied|expired). */
