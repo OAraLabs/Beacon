@@ -943,7 +943,8 @@ export interface BeaconBridge {
     /** Poll the daemon's GLOBAL pending-approval queue. */
     list(): Promise<ApprovalRequest[]>
     /** Approve or deny one pending action (binary; the daemon expects no body). */
-    resolve(requestId: string, decision: ApprovalDecision): Promise<void>
+    /** `from`: where in the window the answer was given. Main refuses an approve of a critical request from anywhere but 'card'. */
+    resolve(requestId: string, decision: ApprovalDecision, from?: import('./approval-critical').ApprovalSurface): Promise<void>
     /** Tell main how many approvals are pending (tray badge/menu line; Slice 9). Fire-and-forget. */
     notifyCount(n: number): void
     /** NEW pending requests seen by the poll → main decides notification (one authority, one dedupe). */

@@ -495,7 +495,7 @@ async function main(): Promise<void> {
     check('SidePanel forwards onResolveApproval to the pane', /onResolveApproval=\{onResolveApproval\}/.test(panel))
     check('MainView derives the pending set from the approvals it already holds', /new Set\(approvals\.map\(\(a\) => a\.requestId\)\)/.test(main))
     check('MainView passes it to the dock', /pendingApprovalIds=\{pendingApprovalIds\}/.test(main))
-    check('MainView passes its one resolve function to the dock', /onResolveApproval=\{\(id, d\) => void resolveApproval\(id, d\)\}/.test(main))
+    check('MainView passes its one resolve function to the dock, saying the answer came from a row (main refuses a critical approve from one)', /onResolveApproval=\{\(id, d\) => void resolveApproval\(id, d, 'row'\)\}/.test(main))
 
     // The store feeds the section, and keeps the per-step frames out of Activity (both from #194;
     // pinned here because the log depends on both and a regression would be silent).
