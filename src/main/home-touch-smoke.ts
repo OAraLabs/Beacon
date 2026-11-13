@@ -23,6 +23,7 @@ import {
   filterDevices,
   groupByRoom,
   grantRowView,
+  homeEntryVisible,
   revokeDialog,
   revokePath,
   showHomeFor,
@@ -97,6 +98,14 @@ assert(coerceStatus(null) === undefined && coerceStatus('x') === undefined && co
 assert(coerceStatus({ state: 'connected', device_count: 'many' })?.deviceCount === null, 'a non-number count is unknown')
 assert(coerceStatus({ state: 'connected', open_url: 'javascript:alert(1)' })?.openUrl === null, 'a non-web link is dropped')
 assert(coerceStatus({ state: 'connected', open_url: 'file:///etc/passwd' })?.openUrl === null, 'a file link is dropped')
+assert(coerceStatus({ state: 'connected', open_url: 'http://homeassistant.local:8123/' })?.openUrl === 'http://homeassistant.local:8123/', 'plain http to a .local name is kept (Q3)')
+assert(coerceStatus({ state: 'connected', open_url: 'http://192.168.1.20:8123/' })?.openUrl === 'http://192.168.1.20:8123/', 'and to a private address')
+assert(coerceStatus({ state: 'connected', open_url: 'http://203.0.113.9:8123/' })?.openUrl === null, 'but plain http to a public address is dropped')
+assert(coerceStatus({ state: 'connected', open_url: 'https://home.example.test/?token=abc' })?.openUrl === null, 'a link carrying a token is dropped')
+assert(coerceStatus({ state: 'connected', open_url: 'https://u:p@home.example.test/' })?.openUrl === null, 'and one carrying a password')
+assert(coerceDevices({ devices: [{ id: 'a', name: 'Hall light', tier: 'ordinary', open_url: 'http://203.0.113.9/' }] })!.devices[0].openUrl === null, 'a device link goes through the same rule')
+assert(coerceDevices({ devices: [{ id: 'a', name: 'Hall light', tier: 'ordinary', open_url: 'https://home.example.test/d?access_token=x' }] })!.devices[0].openUrl === null, 'and a token in it is refused')
+
 
 // ── 3. when the screen cannot load ───────────────────────────────────────────
 console.log('[smoke] === 3. failure words ===')
@@ -282,6 +291,16 @@ assert(showHomeFor('owner') === true, 'an owner sees Home')
 assert(showHomeFor(null) === true, 'a Beacon that cannot tell the role sees it, as everywhere else')
 assert(showHomeFor('limited') === false, 'an approved (limited) device does not')
 assert(showHomeFor(undefined) === false, 'and nothing shows before the role is known')
+// The Home entry also needs the Prometheus to advertise Home (@shared/home-capability): nobody sees a Home row that opens on an error.
+assert(homeEntryVisible('owner', true) === true, 'an owner on a Prometheus that advertises Home sees the entry')
+assert(homeEntryVisible(null, true) === true, 'so does a Beacon that cannot tell its role')
+assert(homeEntryVisible('owner', false) === false, 'an owner on a Prometheus that does not advertise Home does not')
+assert(homeEntryVisible(null, false) === false, 'nor a Beacon that cannot tell, without the capability')
+assert(homeEntryVisible('limited', true) === false && homeEntryVisible(undefined, true) === false, 'and a limited device, or one whose role is not yet known, never does')
+assert(/useHomeCapability\(\)/.test(integ) && /homeEntryVisible\(role, /.test(integ), 'Integrations shows the row only as homeEntryVisible says, from the advertised capability')
+assert(/refreshHomeCapability\(\)/.test(integ), 'and asks again when the page opens, in case the capability has just appeared')
+assert(/homeEntryVisible/.test(integ) && !/showHomeFor\(role\)/.test(integ), 'the role alone no longer decides')
+
 
 console.log(`[smoke] ${checks} checks, ${failures} failures`)
 if (checks < MIN_CHECKS) {
