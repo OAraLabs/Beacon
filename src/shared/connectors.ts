@@ -7,6 +7,8 @@
 // surface, and per-server `allowed_tools` (Prometheus#331) is a named prerequisite — so the
 // allowlist is a first-class control in this model, not an afterthought.
 
+import { isPrivateHost } from './daemon-api'
+
 export const MCP_SERVERS_PATH = '/api/mcp/servers'
 
 export type McpTransport = 'stdio' | 'http' | 'sse'
@@ -41,6 +43,9 @@ export interface McpServer {
    * explicitly). An array — even an empty one — is authoritative: [] means "none".
    */
   allowedTools: string[] | null
+  /** NAMES of the headers the daemon sends this server (its `header_names`). The values are the
+   *  sign-in secret: the daemon never returns them, and this model has no field that could hold one. */
+  headerNames: string[]
 }
 
 const asStr = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
@@ -111,7 +116,8 @@ export function parseMcpServers(raw: unknown): McpServer[] {
       health: o.enabled === false && healthState === undefined ? 'disabled' : health,
       healthDetail: healthDetail || (healthState && health === 'failed' ? healthState : undefined),
       tools,
-      allowedTools
+      allowedTools,
+      headerNames: Array.isArray(o.header_names) ? o.header_names.filter((x): x is string => typeof x === 'string') : []
     })
   }
   return out
@@ -149,6 +155,146 @@ export function healthLabel(s: McpServer): string {
     case 'unknown':
       return 'health unknown'
   }
+}
+
+// ── A server at an address (http / sse), and its sign-in token ──────────────────────────────────
+//
+// WHERE THE TOKEN GOES. The person types it into the form; it is sent once, in the body of the
+// POST that defines the server, to Prometheus, which keeps it in its own store and sends it as a
+// header to that server. Beacon does not write it to its settings, its cache or a log, clears it
+// from the form when the POST answers, and can never show it again: the daemon's listing returns
+// header NAMES only. `scrubSecret` exists because the one place a secret could still surface is a
+// refusal that quotes what it was sent.
+
+
+/** How the daemon talks to a server at an address. 'streamable-http' is what current servers
+ *  speak; 'sse' is the older transport, and what the daemon assumes when none is named. */
+export type UrlTransport = 'streamable-http' | 'sse'
+
+export interface UrlServerForm {
+  name: string
+  url: string
+  transport: UrlTransport
+  /** The sign-in token, or '' for a server that needs none. */
+  token: string
+  /** The header that carries it. Authorization (as `Bearer <token>`) unless the server says otherwise. */
+  headerName: string
+}
+
+export const DEFAULT_TOKEN_HEADER = 'Authorization'
+const HEADER_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9-]*$/
+const TOKEN_MAX = 4096
+// eslint-disable-next-line no-control-regex
+const CONTROL_RE = /[\u0000-\u001f\u007f]/
+
+/** Why this form can't be sent, in words for the form, or '' when it can. */
+export function urlServerProblem(f: UrlServerForm): string {
+  if (!f.name.trim()) return 'Give the server a name.'
+  const raw = f.url.trim()
+  if (!raw) return 'Enter the server address.'
+  if (/\s/.test(raw) || CONTROL_RE.test(raw)) return 'The address has a space in it.'
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return 'That is not an address. It should start with https://'
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'The address must start with https://'
+  if (!u.hostname) return 'The address has no server name in it.'
+  // A token in the address would be stored and shown with it. The token field is the place.
+  if (u.username || u.password) return 'Take the name and password out of the address, and put the token in the token field.'
+  // Plain http carries the token in the clear. Only to a private address (this computer, the home
+  // network, a tailnet), where the daemon and the server are the person's own machines.
+  if (u.protocol === 'http:' && !isPrivateHost(u.hostname.replace(/^\[|\]$/g, ''))) return 'Use https:// for a server on the internet. An http:// address would send the token unprotected.'
+  const token = f.token
+  if (token) {
+    if (CONTROL_RE.test(token)) return 'The token has a line break or a hidden character in it. Paste it again.'
+    if (token.length > TOKEN_MAX) return 'That token is too long to be a token.'
+    if (!HEADER_NAME_RE.test(f.headerName.trim())) return 'The header name can only have letters, digits and hyphens.'
+  }
+  return ''
+}
+
+/** The header value for a token: `Bearer <token>` in Authorization (left alone when the person
+ *  pasted a scheme with it), the token as it is in any other header. */
+export function tokenHeaderValue(headerName: string, token: string): string {
+  const t = token.trim()
+  if (headerName.trim().toLowerCase() !== 'authorization') return t
+  return /^[A-Za-z][A-Za-z0-9_-]*\s+\S/.test(t) ? t : `Bearer ${t}`
+}
+
+/** The POST body for a server at an address. `headers` is present only when there is a token. */
+export function urlServerBody(f: UrlServerForm): Record<string, unknown> {
+  const body: Record<string, unknown> = { name: f.name.trim(), url: f.url.trim(), transport: f.transport }
+  if (f.token.trim()) body.headers = { [f.headerName.trim() || DEFAULT_TOKEN_HEADER]: tokenHeaderValue(f.headerName, f.token) }
+  return body
+}
+
+/** `text` with every appearance of the secret (and of its header value) blanked. For a refusal
+ *  that quotes what it was sent: nothing the person typed as a token is ever drawn back. */
+export function scrubSecret(text: string, ...secrets: string[]): string {
+  let out = text
+  for (const s of secrets) {
+    const t = s.trim()
+    if (t.length >= 4) out = out.split(t).join('•••')
+  }
+  return out
+}
+
+/**
+ * A failed write's message with any secret the REQUEST carried blanked: every value under the
+ * body's `headers` or `env`, and the token inside a `Scheme token` value. For main, which is where
+ * a refusal first exists as text: Electron prints a rejected IPC handler's error, so a daemon that
+ * quoted a header back would otherwise put the token in Beacon's own output.
+ */
+export function scrubWriteError(message: string, body: unknown): string {
+  if (!body || typeof body !== 'object') return message
+  const secrets: string[] = []
+  for (const key of ['headers', 'env']) {
+    const map = (body as Record<string, unknown>)[key]
+    if (!map || typeof map !== 'object') continue
+    for (const v of Object.values(map as Record<string, unknown>)) {
+      if (typeof v !== 'string') continue
+      secrets.push(v)
+      const rest = /^[A-Za-z][A-Za-z0-9_-]*\s+(\S.*)$/.exec(v.trim())?.[1]
+      if (rest) secrets.push(rest)
+    }
+  }
+  return scrubSecret(message, ...secrets)
+}
+
+// ── Who may change the list ─────────────────────────────────────────────────────────────────────
+// Prometheus lets only its MAIN KEY (the global token) add, change or remove a tool server: a
+// stdio server is a program started on that computer, and the daemon does not hand that to a
+// device key, an owner's included. Beacon holds the main key when it was connected with it in
+// Settings → Connection → Advanced; a Beacon that joined by approval or a code holds a device key.
+
+/** Whether this Beacon signs in with the main key, from GET /api/devices' answer: the main key is
+ *  no device, so no row is its own. null when the answer cannot say (the list was refused or is
+ *  not a list); the form is then offered, and a refusal is put in the same plain words. */
+export function holdsMainKey(devices: unknown): boolean | null {
+  if (!Array.isArray(devices)) return null
+  return !devices.some((d) => !!d && typeof d === 'object' && (d as Record<string, unknown>).is_self === true)
+}
+
+export const MAIN_KEY_NOTE = {
+  title: 'Adding or changing tool servers needs the main key',
+  body: "This Beacon signs in to Prometheus with a device key. Prometheus only lets its main key add, change or remove tool servers, because a server can be a program that runs on that computer. You can still see which servers are connected and what tools they offer.",
+  how: 'To manage them from here, connect this Beacon with the main key (the key Prometheus was set up with on its own computer) in Settings → Connection → Advanced. Or add the server on that computer, in prometheus.yaml.'
+} as const
+
+/** A failed write, in words. A 401 is the main-key refusal whatever else the daemon said. */
+export function writeFailure(message: string, ...secrets: string[]): string {
+  if (/\bHTTP 401\b/.test(message)) return `${MAIN_KEY_NOTE.title}. ${MAIN_KEY_NOTE.how}`
+  const said = /—\s*(.*)$/s.exec(message)?.[1] ?? message
+  let detail = said
+  try {
+    const j = JSON.parse(said) as { error?: unknown }
+    if (typeof j.error === 'string') detail = j.error
+  } catch {
+    /* not JSON: use it as it is */
+  }
+  return `Prometheus did not accept that: ${scrubSecret(detail, ...secrets).slice(0, 240)}`
 }
 
 /** Validate an add-form submission before any write. Returns '' when fine, else the problem. */
