@@ -7,7 +7,10 @@
  * verbatim and decides nothing itself, with one exception that is a safety floor: an unknown tier is
  * Sensitive, and a call is as strict as its strictest device.
  */
-import { rawToApproval, type RawApprovalPush } from '@shared/approval-push'
+import { BODY_BUDGET, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
+import { HOME_CAPABILITY, STATUS_PATH, hasHomeCapability, showHomeCard } from '@shared/home-capability'
+import { homeLinkOrNull, isPrivateHost } from '@shared/home-link'
+import { answeredView, coerceResolved, droppedHomeApprovals } from '@shared/home-answered'
 import {
   COLLAPSE_AFTER,
   RESULT_POLL_MS,
@@ -264,6 +267,90 @@ assert(coerceActionResult(null) === undefined && coerceActionResult('x') === und
 assert(coerceActionResult({ state: 'done', results: 'x' })?.results.length === 0, 'results not a list → empty')
 assert(coerceActionResult({ state: 'weird', results: [] })?.state === 'pending', 'an unknown state is still pending, never done')
 
+// ── 5b. a notification can never answer a Home call ──────────────────────────
+console.log('[smoke] === 5b. notifications ===')
+{
+  const one = notificationPlan('mcp__home__ha_control_ordinary', 'Turn on Hall light (60%)')
+  assert(one.offersActions === false, 'a Home control call never gets a one-tap Approve in a notification')
+  assert(/answer it in Beacon/.test(one.body) && one.body.includes('Turn on Hall light'), 'its body says where to answer, and what is asked')
+  assert(one.body.length <= BODY_BUDGET, 'and stays within the notification budget')
+  assert(notificationPlan('mcp__x__ha_control_sensitive', 'Run Evening scene', { action: 'turn_on' }).offersActions === false, 'a sensitive one, with arguments, likewise')
+  assert(notificationPlan('ha_control_ordinary', 'x'.repeat(400)).body.length <= BODY_BUDGET, 'a long description is still within budget')
+  assert(notificationPlan('bash', 'git status').offersActions === true, 'any other tool is unchanged')
+  assert(notificationPlan('mcp__home__ha_list', 'List devices').offersActions === true, 'and so is a Home read')
+}
+
+// ── 5c. the capability ───────────────────────────────────────────────────────
+console.log('[smoke] === 5c. the home capability ===')
+assert(HOME_CAPABILITY === 'home/1' && STATUS_PATH === '/api/status', 'capability id and the route it is read from')
+assert(hasHomeCapability({ capabilities: ['home/1'] }) === true, 'advertised: yes')
+assert(hasHomeCapability({ capabilities: ['voice/1', 'home/1'] }) === true, 'among others: yes')
+assert(hasHomeCapability({ state: 'idle' }) === false, 'not advertised: no')
+assert(hasHomeCapability({ capabilities: [] }) === false, 'an empty list: no')
+assert(hasHomeCapability({ capabilities: ['home/2'] }) === false, 'a version Beacon does not speak: no')
+assert(hasHomeCapability({ capabilities: ['home'] }) === false && hasHomeCapability({ capabilities: ['HOME/1'] }) === false, 'exact match only')
+assert(hasHomeCapability({ capabilities: 'home/1' }) === false, 'not a list: no')
+assert(hasHomeCapability({ capabilities: [1, null, { id: 'home/1' }] }) === false, 'a list of the wrong things: no')
+assert(hasHomeCapability(null) === false && hasHomeCapability(undefined) === false && hasHomeCapability('home/1') === false && hasHomeCapability([]) === false, 'junk: no')
+{
+  const withHome = approval(ORDINARY_LIGHT)
+  const without = approval({ ...ORDINARY_LIGHT, home: undefined })
+  assert(showHomeCard(withHome, true) === true, 'a Home approval on a Prometheus that advertises Home gets the Home card')
+  assert(showHomeCard(withHome, false) === false, 'without the capability it gets the generic card, which shows everything the daemon sent')
+  assert(showHomeCard(without, true) === false, 'and an approval with no home details is generic whatever the capability')
+}
+
+// ── 5d. a link out is safe ───────────────────────────────────────────────────
+console.log('[smoke] === 5d. links to Home Assistant ===')
+// The lint refuses a literal tailnet address in source, so the range's own edges are built from their octets.
+const ip = (...o: number[]): string => o.join('.')
+assert(homeLinkOrNull('https://home.example.test/lovelace') === 'https://home.example.test/lovelace', 'an https link is fine')
+assert(homeLinkOrNull('https://home.example.test:8123/?tab=devices') === 'https://home.example.test:8123/?tab=devices', 'with a port and a harmless query')
+assert(homeLinkOrNull('  https://home.example.test/x \n') === 'https://home.example.test/x', 'trimmed')
+for (const host of [ip(192, 168, 1, 20), ip(10, 0, 0, 5), ip(172, 16, 0, 9), ip(172, 31, 255, 1), ip(127, 0, 0, 1), ip(169, 254, 1, 1), ip(100, 64, 0, 5), ip(100, 127, 255, 254), 'homeassistant.local', 'homeassistant', 'localhost', 'box.example.ts.net', '[::1]', '[fe80::1]', '[fd12:3456::1]']) // precommit:allow-example-host
+  assert(homeLinkOrNull(`http://${host}:8123/`) === `http://${host}:8123/`, `plain http is fine for a private or tailnet host: ${host.replace(/\d+\.\d+$/, 'x.x')}`)
+for (const host of [ip(203, 0, 113, 9), ip(172, 32, 0, 1), ip(172, 15, 0, 1), ip(100, 128, 0, 1), ip(100, 63, 255, 255), ip(11, 0, 0, 1), ip(192, 169, 0, 1), 'home.example.test', 'example.com', '[2001:db8::1]'])
+  assert(homeLinkOrNull(`http://${host}/`) === null, `plain http to a public host is refused: ${host.replace(/\d+\.\d+$/, 'x.x')}`)
+assert(isPrivateHost('192.168.0.1') && isPrivateHost('HomeAssistant.LOCAL') && !isPrivateHost('example.com') && !isPrivateHost(''), 'isPrivateHost')
+assert(homeLinkOrNull('https://user:pw@home.example.test/') === null && homeLinkOrNull('https://user@home.example.test/') === null, 'a link never carries a name or password')
+for (const q of ['token=abc', 'access_token=abc', 'auth=abc', 'api_key=abc', 'apikey=abc', 'password=abc', 'secret=abc', 'key=abc', 'bearer=abc', 'sig=abc', 'session=abc', 'TOKEN=abc', 'tab=devices&token=abc'])
+  assert(homeLinkOrNull(`https://home.example.test/?${q}`) === null, `a link never carries a token in its query (${q.split('=')[0]})`)
+assert(homeLinkOrNull('https://home.example.test/#access_token=abc') === null && homeLinkOrNull('https://home.example.test/#token=abc') === null, 'nor in its fragment')
+assert(homeLinkOrNull('https://home.example.test/#devices') === 'https://home.example.test/#devices', 'a plain fragment is fine')
+for (const bad of ['javascript:alert(1)', 'file:///etc/hosts', 'ftp://home.example.test/', 'data:text/html,x', 'beacon://x', '//home.example.test/', 'home.example.test', '', 'https://', 'http://[::1', 7, null, undefined, {}, ['https://home.example.test/']])
+  assert(homeLinkOrNull(bad) === null, `not a link: ${JSON.stringify(bad)}`)
+assert(homeLinkOrNull('https://home.example.test/' + 'a'.repeat(3000)) === null, 'an enormous link is refused')
+assert(coerceHome({ tier: 'ordinary', devices: [{ id: 'a', name: 'Hall light', open_url: 'http://example.com/' }] })!.devices[0].openUrl === null, 'a device link goes through the same rule')
+
+// ── 5e. an approval answered somewhere else ──────────────────────────────────
+console.log('[smoke] === 5e. answered elsewhere ===')
+{
+  const r = coerceResolved({ request_id: 'r1', resolution: 'approved', answered_on: 'Telegram' })!
+  assert(r.requestId === 'r1' && r.resolution === 'approved' && r.answeredOn === 'Telegram', 'the resolved frame maps')
+  assert(coerceResolved({ request_id: 'r1', resolution: 'weird' })!.resolution === null, 'an unknown resolution is not guessed')
+  assert(coerceResolved({ request_id: 'r1' })!.answeredOn === null, 'no answered_on is null')
+  assert(coerceResolved({ request_id: 'r1', answered_on: 5 })!.answeredOn === null, 'a non-text answered_on is null')
+  assert(coerceResolved({ request_id: 'r1', answered_on: 'x'.repeat(200) })!.answeredOn!.length <= 80, 'a long answered_on is cut')
+  assert(coerceResolved({ resolution: 'denied' }) === null && coerceResolved(null) === null && coerceResolved('x') === null, 'no request id, no frame')
+  assert(coerceResolved({ request_id: 'r1', answered_on: '  Telegram  ' })!.answeredOn === 'Telegram', 'trimmed')
+  assert(answeredView({ resolution: 'approved', answeredOn: 'Telegram' }).title === 'Answered on Telegram', '"Answered on …"')
+  assert(answeredView({ resolution: 'approved', answeredOn: 'Telegram' }).detail === 'It was approved.', 'and what the answer was')
+  assert(answeredView({ resolution: 'denied', answeredOn: null }).title === 'Answered elsewhere', 'no surface named: "Answered elsewhere"')
+  assert(answeredView({ resolution: 'denied', answeredOn: null }).detail === 'It was denied.', 'denied')
+  assert(answeredView({ resolution: 'expired', answeredOn: null }).title === 'Expired' && /expired/i.test(answeredView({ resolution: 'expired', answeredOn: null }).detail ?? ''), 'expired is not an answer')
+  assert(answeredView({ resolution: null, answeredOn: 'Telegram' }).title === 'Answered on Telegram' && answeredView({ resolution: null, answeredOn: 'Telegram' }).detail === null, 'answered, but not what with: no invented detail')
+  assert(answeredView({ resolution: null, answeredOn: null }).title === 'Answered elsewhere', 'nothing known: "Answered elsewhere"')
+  const A = approval(ORDINARY_LIGHT)
+  const B = approval({ ...ORDINARY_LIGHT, request_id: 'home-two' })
+  const G = approval({ request_id: 'generic', tool_name: 'bash', description: 'git status' })
+  assert(droppedHomeApprovals([A, G, B], [B], new Set()).map((x) => x.requestId).join() === 'home-ordinary', 'a Home card that left the list unanswered by this Beacon is reported')
+  assert(droppedHomeApprovals([A, G, B], [B], new Set(['home-ordinary'])).length === 0, 'one this Beacon answered is not')
+  assert(droppedHomeApprovals([A, G, B], [A, B], new Set()).length === 0, 'one still waiting is not')
+  assert(droppedHomeApprovals([G], [], new Set()).length === 0, 'an ordinary approval is never reported: only Home cards turn into this')
+  assert(droppedHomeApprovals([], [A], new Set()).length === 0, 'a new one is not a drop')
+  assert(droppedHomeApprovals([A, B], [], new Set()).length === 2, 'both, when the list empties')
+}
+
 // ── 6. the fixtures are made up ──────────────────────────────────────────────
 console.log('[smoke] === 6. fixtures ===')
 {
@@ -286,6 +373,16 @@ assert(!/\bfetch\(|XMLHttpRequest|WebSocket/.test(card), 'the card never calls a
 assert(/canApprove/.test(card) && /criticalNote/.test(card), 'the card honours Critical')
 assert(/aria-expanded/.test(card), 'the "and N more" control says whether it is open')
 assert(/HomeApprovalCard/.test(main) && /\.home\b/.test(main), 'MainView mounts the Home card for an approval that has home')
+assert(/useHomeCapability\(\)/.test(main) && /showHomeCard\(/.test(main), 'MainView shows the Home card only as showHomeCard says, from the advertised capability')
+assert(/HomeAnsweredCard/.test(main) && /droppedHomeApprovals\(/.test(main) && /coerceResolved\(/.test(main), 'MainView turns a Home card answered elsewhere into the answered card')
+{
+  const answered = read('../../src/renderer/src/components/HomeAnsweredCard.tsx')
+  assert(!/approval-btn-approve|onResolve|Approve once|Deny/.test(answered), 'the answered card has no way to approve or deny')
+  assert(/Dismiss/.test(answered), 'it can be dismissed')
+  const store = read('../../src/renderer/src/home-capability-store.ts')
+  assert(/daemon\.get\(STATUS_PATH\)/.test(store) && /hasHomeCapability/.test(store), 'the capability is read from the daemon status, through the bridge')
+  assert(/onStatus/.test(store), 'and read again when the connection changes, so it follows the Prometheus Beacon is on')
+}
 assert(/homeActionPath/.test(read('../../src/renderer/src/components/HomeResultCard.tsx')), 'the result card reads the daemon route through homeActionPath')
 assert(/daemon\.get/.test(read('../../src/renderer/src/components/HomeResultCard.tsx')), 'and through the daemon bridge, not a URL')
 
