@@ -33,7 +33,7 @@ const check = (ok, label, extra) => {
 const json = (res, code, body) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(body))
 
 // ── the stand-in Prometheus ───────────────────────────────────────────────────────────────────
-const daemon = { advertises: true, sockets: new Set(), resolved: [], polled: [], polls: 0, pending: new Map() }
+const daemon = { advertises: true, silent: true, sockets: new Set(), resolved: [], polled: [], polls: 0, pending: new Map() }
 const rest = createServer((req, res) => {
   let body = ''
   req.on('data', (c) => (body += c))
@@ -68,6 +68,10 @@ new WebSocketServer({ server: wsHttp }).on('connection', (ws) => {
       return
     }
     // The reply to the subscribe frame, shaped as the daemon sends it.
+    if (f?.type === 'subscribe' && daemon.silent) {
+      daemon.subscribes = (daemon.subscribes ?? 0) + 1 // a Prometheus too old to reply
+      return
+    }
     if (f?.type === 'subscribe') {
       ws.send(JSON.stringify({ type: 'subscribed', timestamp: Date.now() / 1000, payload: { sessions: [], capabilities: f.payload?.capabilities ?? [], server_capabilities: daemon.advertises ? ['voice_input', 'approval_critical'] : ['voice_input'], channels: [] } }))
       daemon.subscribes = (daemon.subscribes ?? 0) + 1
@@ -125,6 +129,29 @@ try {
   const titles = await ev(`[...document.querySelectorAll('nav[aria-label="Views"] > button')].map((x) => x.title)`)
   await ev(`(() => { const b = [...document.querySelectorAll('nav[aria-label="Views"] > button')].find((x) => /^(Mission|Today)/.test(x.title)); b?.click(); return !!b })()`)
   console.log(`[probe] views: ${titles.join(', ')}`)
+
+  // ── first, a Prometheus that never replies to subscribe (one too old to) ────────────────────
+  // Until it has had a few seconds of connected silence, Beacon does not know what it supports,
+  // and a request that does not say is answered on its card. After that it is an ordinary one.
+  const connectedAt = Date.now()
+  push({ request_id: 'k-old', description: 'A request from a Prometheus that says nothing' }, { stays: true })
+  const early = await until(() => ev(`${CARD('k-old')}?.dataset.critical ?? null`), (v) => v !== null)
+  if (Date.now() - connectedAt < 3500) check(early === 'yes', 'in the first seconds, before it is known what this Prometheus supports, a request that does not say is card-only')
+  else console.log('[probe] note: the app took too long to show the first card to observe the unknown window')
+  const settled = await until(() => ev(`${CARD('k-old')}?.dataset.critical ?? null`), (v) => v === 'no', 10000)
+  check(settled === 'no' && (await ev(`window.beacon.connection.status().then((s) => s.approvalCritical)`)) === false, 'after a few seconds of connected silence it is an ordinary request: this Prometheus is taken not to mark requests')
+  check((await until(rowButtons, (v) => v.includes('Approve once'))).join() === 'Approve once,Deny', 'its short row offers Approve once, as it always did', (await rowButtons()).join())
+  await clickAt(`${CARD('k-old')}.querySelector('div')`)
+  await until(() => ev(`${CARD('k-old')}.dataset.keysLive`), (v) => v === 'yes', 2000)
+  await key('a', 'KeyA', 65)
+  check((await until(async () => answers('k-old'), (v) => v.length > 0, 4000)).join() === 'approve', 'and A, with focus on its card, approves it', answers('k-old').join())
+  await until(() => ev(`!!${CARD('k-old')}`), (v) => v === false, 5000)
+  // The Prometheus at this address is upgraded: the next connection gets a reply, and it is believed at once.
+  daemon.silent = false
+  const subs0 = daemon.subscribes
+  for (const ws of daemon.sockets) ws.terminate()
+  await until(async () => daemon.subscribes, (v) => v > subs0, 20000)
+  check((await until(() => ev(`window.beacon.connection.status().then((s) => s.approvalCritical)`), (v) => v === true, 5000)) === true, 'upgraded to one that replies and advertises the flag, it is believed at once')
 
   push({ request_id: 'k-ord', description: 'List the files in the project folder', critical: false }, { stays: true })
   check((await until(() => ev(`!!${CARD('k-ord')}`), (v) => v === true)) === true, 'an ordinary request brings up its card')
@@ -197,8 +224,9 @@ try {
   check((await until(() => ev(`${CARD('k-silent')}?.dataset.critical ?? null`), (v) => v !== null)) === 'yes' && (await until(rowButtons, (v) => v.length > 0)).join() === 'Answer on the card,Deny', 'a request that does not say, from a Prometheus that advertises the flag, is card-only as well')
   await ev(`(() => { [...${CARD('k-silent')}.querySelectorAll('button')].find((b) => /^Deny/.test(b.textContent)).click(); return true })()`)
   await until(() => ev(`!!${CARD('k-silent')}`), (v) => v === false, 5000)
+  check(daemon.resolved.length === 6, 'six answers in all, each one made on purpose', daemon.resolved.join(' '))
+
   const answeredInWindow = daemon.resolved.length
-  check(answeredInWindow === 5, 'five answers in all, each one made on purpose', daemon.resolved.join(' '))
 
   // Watch the notifications main makes, and keep them off the screen. A focused window gets no
   // approval notification at all (the card is the surface), so the window is hidden for the run.
@@ -248,6 +276,20 @@ try {
   if (daemon.polls === polledAt) check(false, 'the page polled for approvals while the window was hidden (without that this path is not covered here)')
   else check(viaPoll && viaPoll.actions.length === 0 && IN_APP.test(viaPoll.body) && viaPoll.body.includes('Send the report'), 'a critical request found by the poll, with no frame, has no buttons either', JSON.stringify(viaPoll))
   daemon.polled = []
+
+  // ── silence never withdraws a "yes" ────────────────────────────────────────────────────────
+  daemon.advertises = true
+  const subsA = daemon.subscribes
+  for (const ws of daemon.sockets) ws.terminate()
+  await until(async () => daemon.subscribes, (v) => v > subsA, 20000)
+  await until(() => ev(`window.beacon.connection.status().then((s) => s.approvalCritical)`), (v) => v === true, 5000)
+  daemon.silent = true
+  const subsB = daemon.subscribes
+  for (const ws of daemon.sockets) ws.terminate()
+  await until(async () => daemon.subscribes, (v) => v > subsB, 20000)
+  await sleep(6500)
+  check((await ev(`window.beacon.connection.status().then((s) => s.approvalCritical)`)) === true, 'a Prometheus that said yes and then goes quiet (a reconnect with no reply, six seconds on) is still taken to mark requests: only a reply withdraws a yes')
+  daemon.silent = false
 
   // ── and back: advertised again on the next connection ──────────────────────────────────────
   daemon.advertises = true
