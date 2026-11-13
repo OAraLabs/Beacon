@@ -56,7 +56,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53 + 39 + 14
+const MIN_CHECKS = 53 + 39 + 15
 
 let failures = 0
 let checks = 0
@@ -351,6 +351,14 @@ console.log('\n=== 7. a critical request is approved from its full card and nowh
   check(/typeof s\?\.approvalCritical === 'boolean' \? s\.approvalCritical : undefined/.test(store) && /b\.connection\.status\(\)\.then\(\(s\) => \(told \? undefined : set\(s\)\)\)/.test(store) && /told = true\s*set\(s\)/.test(store), 'and the page learns what its Prometheus advertises from the connection status, when it opens and on every change')
   const card = comp('ExecApprovalCard')
   check(/critical \|\| cannotApprove\s*\? 'D denies\.'\s*: 'A approves once, D denies\.'/.test(card) && /data-testid="approval-critical-note"/.test(card), 'the card of a critical request never says A approves, and says it is approved only there')
+  // What Prometheus advertises can flip under a mouse that is already down, so the note's room is held on every card: the same words,
+  // laid out and invisible (and hidden from a screen reader) when the request is not critical, the one place the words are written.
+  check(
+    /\{critical \? \(\s*<div style=\{criticalNote\} data-testid="approval-critical-note">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\) : \(\s*<div style=\{\{ \.\.\.criticalNote, visibility: 'hidden' \}\} aria-hidden="true" data-testid="approval-critical-reserved">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\)\}/.test(card) &&
+      (card.match(/This request can be approved only here/g) ?? []).length === 1 &&
+      !/\{critical \? \([^)]*\) : null\}/.test(card),
+    "the critical note's room is held on every card, so the card is the same size whether or not the request is critical"
+  )
 }
 
 // The verdict runs on process EXIT for the same reason approval-smoke's does: a run that leaves
