@@ -1,10 +1,11 @@
+import type { ApprovalSurface } from '@shared/approval-critical'
 import { useEffect, useState, type CSSProperties, useRef } from 'react'
 import type { ApprovalDecision, ApprovalRequest } from '@shared/ipc'
 import { approvalKey, isTypingTarget } from '@shared/approval-keys'
 import { COLLAPSE_AFTER, homeCardView } from '@shared/home-approval'
 import { Icon } from './Icon'
 import { HomeTierBadge } from './HomeTierBadge'
-import { approvalActionKey, approvalCardStyle, approvalHeaderStyle, approvalNoteStyle, approvalVerbChip } from './ExecApprovalCard'
+import { approvalKeysHint, approvalCardStyle, approvalHeaderStyle, approvalNoteStyle, approvalVerbChip } from './ExecApprovalCard'
 import { trace } from '../ui-trace-client'
 
 /**
@@ -49,7 +50,8 @@ export function HomeApprovalCard({
   onToggleDisclosure?: () => void
   /** Prometheus marked this request critical (`isCardOnly`): `A` does not approve it; its button does. */
   critical?: boolean
-  onResolve: (d: ApprovalDecision) => void
+  /** `from`: 'card' for this card's own buttons, 'key' for `A`/`D` (main refuses a critical approve that is not from 'card'). */
+  onResolve: (d: ApprovalDecision, from: ApprovalSurface) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const view = homeCardView(approval, expanded)
@@ -81,8 +83,8 @@ export function HomeApprovalCard({
       e.preventDefault()
       if (action === 'approve') {
         trace({ point: 'card:click', requestId: approval.requestId, scope: 'once' })
-        onResolve({ kind: 'approve', scope: 'once' })
-      } else onResolve({ kind: 'deny' })
+        onResolve({ kind: 'approve', scope: 'once' }, 'key')
+      } else onResolve({ kind: 'deny' }, 'key')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -95,6 +97,7 @@ export function HomeApprovalCard({
       className="approval-card"
       role="group"
       aria-label={`Home approval request: ${view.title}`}
+      aria-describedby={`approval-keys-${approval.requestId}`}
       data-testid="home-approval"
       data-tier={view.tier}
       data-request={approval.requestId}
@@ -160,20 +163,31 @@ export function HomeApprovalCard({
           </div>
         ) : null}
 
+        {/* Always here, one fixed-height line; only its words change with focus (see ExecApprovalCard:
+            a line that came and went moved the buttons under the pointer mid-click). */}
+        <div style={approvalKeysHint} id={`approval-keys-${approval.requestId}`} data-testid="approval-keys-hint">
+          {keysLive
+            ? critical || !canApprove
+              ? 'D denies.'
+              : 'A approves once, D denies.'
+            : critical || !canApprove
+              ? 'Click this card, or Tab to it, to deny with D.'
+              : 'Click this card, or Tab to it, to answer with A or D.'}
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {canApprove ? (
             <button
               className="approval-btn approval-btn-approve"
               onClick={() => {
                 trace({ point: 'card:click', requestId: approval.requestId, scope: 'once' })
-                onResolve({ kind: 'approve', scope: 'once' })
+                onResolve({ kind: 'approve', scope: 'once' }, 'card')
               }}
             >
-              Approve once{keysLive && !critical ? <span style={approvalActionKey}> A</span> : null}
+              Approve once
             </button>
           ) : null}
-          <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' })}>
-            Deny{keysLive ? <span style={approvalActionKey}> D</span> : null}
+          <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' }, 'card')}>
+            Deny
           </button>
         </div>
 
@@ -197,7 +211,7 @@ export function HomeApprovalCard({
                     title={describes}
                     onClick={() => {
                       trace({ point: 'card:click', requestId: approval.requestId, scope: verb })
-                      onResolve({ kind: 'approve', scope: verb })
+                      onResolve({ kind: 'approve', scope: verb }, 'card')
                     }}
                   >
                     <span style={approvalVerbChip}>{verb}</span>

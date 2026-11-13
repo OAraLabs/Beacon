@@ -56,7 +56,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53 + 39 + 21
+const MIN_CHECKS = 53 + 39 + 14
 
 let failures = 0
 let checks = 0
@@ -314,16 +314,7 @@ console.log('\n=== 6. critical — the daemon says a request is answered in the 
   // main wires it: per connection, from the subscribed reply, on both paths.
   check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical: the frame path as mapped, the poll path re-checked where it crosses from the page')
   check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\)\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
-  const connSrc = readFileSync(new URL('../../src/main/connection/index.ts', import.meta.url), 'utf8')
-  check(/if \(ev\.type === 'subscribed'\) \{\s*this\.approvalCriticalSaid = true\s*this\.setApprovalCritical\(advertisesApprovalCritical\(ev\.payload\)\)\s*\}\s*this\.emit\('gatewayEvent', ev\)/.test(connSrc), 'every subscribed reply sets it, on or off, on the connection it came over: a Prometheus rolled back between connections stops being treated as advertising')
-  check((connSrc.match(/\.\.\.\(this\.approvalCritical !== null \? \{ approvalCritical: this\.approvalCritical \} : \{\}\),/g) ?? []).length === 2, 'kept in the status across a dropped socket and a refusal, until the next reply')
-  check(/private approvalCritical: boolean \| null = null/.test(connSrc) && /const APPROVAL_CRITICAL_WAIT_MS = 5000/.test(connSrc), 'unknown until the Prometheus says')
-  const waitFn = connSrc.slice(connSrc.indexOf('private awaitApprovalCritical(): void {'), connSrc.indexOf('private cancelApprovalCriticalWait(): void {'))
-  check(/if \(this\.approvalCritical !== null \|\| this\.approvalCriticalSaid \|\| this\.approvalCriticalWait\) return/.test(waitFn), 'silence is waited out only from "never said": it never replaces an answer, so a yes is withdrawn only by a reply')
-  check(/if \(!this\.halted && this\.status\.state === 'connected' && this\.approvalCritical === null && !this\.approvalCriticalSaid\) this\.setApprovalCritical\(false\)\s*\}, APPROVAL_CRITICAL_WAIT_MS\)/.test(waitFn) && (connSrc.match(/setApprovalCritical\(false\)/g) ?? []).length === 1, 'and is taken for "no" only if, when the wait ends, the socket is still connected and nothing was said')
-  check(/if \(state === 'connected'\) this\.awaitApprovalCritical\(\)\s*else this\.cancelApprovalCriticalWait\(\)/.test(connSrc) && (connSrc.match(/this\.awaitApprovalCritical\(\)/g) ?? []).length === 1, 'the wait starts only at connected, and leaving connected cancels it: time spent dialling or backing off is not the daemon\'s silence')
-  check(/this\.halted = true\s*this\.cancelApprovalCriticalWait\(\)/.test(connSrc) && /private setApprovalCritical\(next: boolean\): void \{\s*if \(this\.approvalCriticalWait\) clearTimeout\(this\.approvalCriticalWait\)/.test(connSrc), 'a reply cancels the wait, and so does stopping the connection')
-  check(/beforeRedial: async \(\) => \{\s*this\.cancelApprovalCriticalWait\(\)\s*this\.approvalCriticalSaid = false/.test(connSrc) && /start\(\): void \{\s*this\.halted = false[\s\S]{0,220}this\.cancelApprovalCriticalWait\(\)\s*this\.approvalCriticalSaid = false/.test(connSrc), 'each new attempt and each new dial ends any wait left from the connection before, and is asked afresh whether it has said')
+  // What a Prometheus advertises, and how the connection keeps it, is approval-critical-smoke's (the rule is run through its sequences there).
   check(/handleApprovalFrame\(conn, ev as/.test(mainSrc), 'and the frames reach it with the connection they came over')
   check(/&& plan\.offersActions\s*\? \(\[[\s\S]{0,160}\] as Electron\.NotificationAction\[\]\)\s*: \[\]/.test(mainSrc) && (mainSrc.match(/text: 'Approve'/g) ?? []).length === 1, 'the Approve button exists in one place, behind the plan: a plan with no actions makes a notification with none')
 }
@@ -350,10 +341,16 @@ console.log('\n=== 7. a critical request is approved from its full card and nowh
   }
   const view = comp('MainView')
   check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalCardOnly\}/g) ?? []).length === 3 && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule, made once in the main view, handed to the card and to all three short surfaces')
+  {
+    const c = comp('ExecApprovalCard')
+    // Nothing in a card may change size when it takes focus: a line that came and went moved the
+    // buttons between mouse-down and mouse-up, and a click on Approve missed.
+    check(!/\{keysLive \? null :/.test(c) && !/keysLive &&[^\n]*<span/.test(c) && !/\{keysLive \?\s*</.test(c) && !/keysLive &&/.test(c.replace(/if \(keysLive && !cardRef/, '')) && /<div style=\{keysHint\} id=\{`approval-keys-\$\{approval\.requestId\}`\} data-testid="approval-keys-hint">/.test(c) && /aria-describedby=\{`approval-keys-\$\{approval\.requestId\}`\}/.test(c) && /const keysHint: CSSProperties = \{[^}]*height: 16,[^}]*whiteSpace: 'nowrap'/.test(c), 'focus changes only the WORDS of the key line (always there, one fixed-height line): no element appears, disappears or resizes with it')
+  }
   const store = readFileSync(new URL('../../src/renderer/src/approval-critical-store.ts', import.meta.url), 'utf8')
   check(/typeof s\?\.approvalCritical === 'boolean' \? s\.approvalCritical : undefined/.test(store) && /b\.connection\.status\(\)\.then\(\(s\) => \(told \? undefined : set\(s\)\)\)/.test(store) && /told = true\s*set\(s\)/.test(store), 'and the page learns what its Prometheus advertises from the connection status, when it opens and on every change')
   const card = comp('ExecApprovalCard')
-  check(/keysLive && !critical \? <span style=\{actionKey\}> A<\/span> : null/.test(card) && /data-testid="approval-critical-note"/.test(card), 'the card of a critical request shows no A, and says it is approved only there')
+  check(/critical \|\| cannotApprove\s*\? 'D denies\.'\s*: 'A approves once, D denies\.'/.test(card) && /data-testid="approval-critical-note"/.test(card), 'the card of a critical request never says A approves, and says it is approved only there')
 }
 
 // The verdict runs on process EXIT for the same reason approval-smoke's does: a run that leaves
