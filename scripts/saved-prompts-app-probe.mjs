@@ -94,40 +94,72 @@ const home = () => ev(`document.querySelector('.chat-home textarea')?.value ?? n
 check((await home()) === '', 'the message box starts empty')
 check(await click(byText('.starter-chip', first[0])), `clicked the "${first[0]}" starter`)
 const filled = await waitFor(home, (v) => typeof v === 'string' && v.length > 0)
-check(typeof filled === 'string' && filled.length > 10, 'its text is in the message box', q(filled))
+const PLAN = 'Help me plan today. Here is what is on my plate:\n\n'
+check(first[0] === 'Plan my day' && filled === PLAN, 'its text is in the message box exactly as written, the blank line it ends on included', q(filled))
 check((await ev(`!!document.querySelector('.chat-home')`)) === true, 'and nothing was sent: still on the new-chat screen, no conversation opened')
 check((await chips()).at(-1) === 'Save as a prompt…', 'with text in the box the last chip offers Save as a prompt…')
 await shot('saved-prompts-home.png')
 
 // ── save one from the box ───────────────────────────────────────────────────────────────────
+const key = async (k, code, vk, extra = {}) => {
+  await app.page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, ...extra })
+  await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk })
+}
+/** Enter with the key held: a first keyDown, then auto-repeats, as a real held key sends them. */
+const heldEnter = async () => {
+  await app.page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  for (let i = 0; i < 3; i++) {
+    await sleep(60)
+    await app.page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, autoRepeat: true })
+  }
+  await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+}
+const focused = () => ev(`(() => { const a = document.activeElement; return a ? a.tagName + (a.getAttribute('aria-label') ? ':' + a.getAttribute('aria-label') : '') + (a.placeholder ? ':' + a.placeholder : '') : null })()`)
+
 check(await click(byText('.starter-chip', 'Save as a prompt…')), 'clicked Save as a prompt…')
 const dlg = `document.querySelector('[role="dialog"][aria-label="Saved prompts"]')`
 check((await waitFor(() => ev(`!!${dlg}`), (v) => v === true)) === true, 'the dialog opened')
 check((await ev(`${dlg}.querySelector('textarea').value`)) === filled, 'on a new prompt already holding the text from the box')
+check((await waitFor(focused, (v) => typeof v === 'string' && v.startsWith('INPUT'))).startsWith('INPUT'), 'with the cursor in the Name field', await focused())
 const saveDisabled = () => ev(`${byText('[role="dialog"] button', 'Save')}?.disabled ?? null`)
+const hintText = () => ev(`document.getElementById('saved-prompt-name-hint')?.textContent ?? ''`)
 check((await saveDisabled()) === true, 'Save is off until it has a name')
 await typeInto(`${dlg}.querySelector('input')`, 'status')
-await sleep(120)
-check((await saveDisabled()) === true, '"status" is refused: it is a command', await ev(`${dlg}.querySelector('label span').textContent`))
+check((await waitFor(saveDisabled, (v) => v === false)) === false, '"status" can be saved as a name')
+check(/\/status is a command, so this prompt has no \/ name/.test(await hintText()), 'and the form says it gets no / name, because /status is a command', q(await hintText()))
 await typeInto(`${dlg}.querySelector('input')`, TITLE)
 await typeInto(`${dlg}.querySelector('textarea')`, TEXT)
-check((await waitFor(saveDisabled, (v) => v === false)) === false, 'a real name and text turn Save on')
-check((await ev(`${dlg}.querySelector('label span').textContent`)).includes(`/${NAME}`), 'the form says which / name it gets')
+check((await waitFor(hintText, (v) => v.includes(`/${NAME}`))).includes(`type /${NAME}`), 'a free name: the form says which / name it gets', q(await hintText()))
+// Esc with typed text asks first; it does not throw the text away.
+await key('Escape', 'Escape', 27)
+check((await waitFor(() => ev(`!!${dlg}?.querySelector('[role="alertdialog"]')`), (v) => v === true)) === true, 'Esc with text typed asks before discarding')
+check(await click(byText('[role="dialog"] button', 'Keep editing')), 'Keep editing')
+check((await ev(`${dlg}.querySelector('textarea').value`)) === TEXT, 'and the text is still there')
+// A press on the backdrop does not close the form either.
+await ev(`${dlg}.parentElement.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`)
+await sleep(150)
+check((await ev(`!!${dlg}`)) === true, 'a click outside does not close the form')
 await click(byText('[role="dialog"] button', 'Save'))
 const stored = await waitFor(() => ev(`window.beacon.settings.get(${q(KEY)})`), (v) => typeof v === 'string' && v.includes(TITLE))
 check(typeof stored === 'string' && JSON.parse(stored).prompts.length === 1, 'the prompt is in the settings table', stored)
-check(JSON.parse(stored).prompts[0].text === TEXT && JSON.parse(stored).prompts[0].name === NAME, 'with its text exactly and its derived name')
+check(JSON.parse(stored).prompts[0].text === TEXT && JSON.parse(stored).prompts[0].title === TITLE && !('name' in JSON.parse(stored).prompts[0]), 'with its text exactly, and no stored / name')
 check((await ev(`${dlg}.querySelectorAll('button[aria-label^="Change "]').length`)) === 5, 'the dialog now lists it with the four built-ins')
+check((await waitFor(focused, (v) => v === 'H2')) === 'H2', 'the list rests on its heading, not on a Use button', await focused())
+// A held Enter here presses nothing: no prompt is used, the dialog stays.
+await heldEnter()
+await sleep(200)
+check((await ev(`!!${dlg}`)) === true, 'a held Enter on the list uses nothing')
 await shot('saved-prompts-dialog.png')
 
-// Esc closes, and focus goes back to the app.
-await app.page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
-await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+await key('Escape', 'Escape', 27)
 check((await waitFor(() => ev(`!${dlg}`), (v) => v === true)) === true, 'Esc closes the dialog')
+check((await ev(`!!document.activeElement?.closest('.chat-home')`)) === true, 'and focus is back on the new-chat screen', await focused())
 const after = await chips()
 check(after[0] === TITLE, 'the saved prompt is the first starter on the new-chat screen', after.join(' | '))
 
 // ── the / list in a conversation ────────────────────────────────────────────────────────────
+// From here Enter IS pressed in a message box. Nothing can reach a conversation: the scratch
+// profile has no key (app-driver), and the checks below are that the text stays in the box.
 const picked = await ev(`(() => {
   const b = [...document.querySelectorAll('button.session-row')].find((x) => x.title.endsWith(' — ' + ${q(SCRATCH)}) || x.title === ${q(SCRATCH)})
   if (!b) return false
@@ -145,23 +177,30 @@ const rows = await waitFor(
 )
 check(Array.isArray(rows) && rows.length > 0 && rows[0].includes(`/${NAME}`) && rows[0].includes('prompt'), 'typing / and its name lists it, tagged prompt', q(rows))
 await shot('saved-prompts-slash.png')
-await ev(`document.querySelector('[aria-label="Slash commands"] .slash-item').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))`)
-check((await waitFor(() => ev(`${box}.value`), (v) => v === TEXT)) === TEXT, 'choosing it puts the prompt text in the box', q(await ev(`${box}.value`)))
+// Chosen with a HELD Enter: the first press inserts, and the repeats must not send.
+await heldEnter()
+check((await waitFor(() => ev(`${box}.value`), (v) => v === TEXT)) === TEXT, 'Enter puts the prompt text in the box', q(await ev(`${box}.value`)))
 check((await ev(`document.querySelectorAll('[aria-label="Slash commands"] .slash-item').length`)) === 0, 'and the list closes')
 await sleep(400)
-check((await ev(`${box}.value`)) === TEXT, 'the text is still in the box a moment later: it was not sent')
+check((await ev(`${box}.value`)) === TEXT, 'the held key did not send it: the text is still in the box')
 
 // ── the palette ─────────────────────────────────────────────────────────────────────────────
+await ev(`(() => { const t = ${box}; t.focus(); t.select() })()`)
+await key('Backspace', 'Backspace', 8)
+check((await waitFor(() => ev(`${box}.value`), (v) => v === '')) === '', 'cleared the box')
 await ev(`${box}.blur()`)
 const mod = process.platform === 'darwin' ? 4 : 2
-await app.page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, modifiers: mod })
-await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, modifiers: mod })
-const palette = await waitFor(() => ev(`!!document.querySelector('[role="dialog"] input, .palette input')`), (v) => v === true, 2000)
-if (palette === true) {
-  await app.page.send('Input.insertText', { text: `Use prompt: ${TITLE}` })
-  const found = await waitFor(() => ev(`document.body.innerText.includes(${q(`Use prompt: ${TITLE}`)})`), (v) => v === true, 2000)
-  check(found === true, 'the command palette offers "Use prompt: …" for it')
-} else check(false, 'the command palette opened on ⌘K')
+await key('k', 'KeyK', 75, { modifiers: mod })
+const palette = await waitFor(() => ev(`document.activeElement?.tagName === 'INPUT' && !document.activeElement.closest('.composer-shell')`), (v) => v === true, 2500)
+check(palette === true, 'the command palette opened on ⌘K')
+const opening = await ev(`document.body.innerText`)
+check(/Reconnect to gateway/.test(opening) && /Saved prompts…/.test(opening), 'the list it opens on still has Reconnect and Saved prompts…')
+await app.page.send('Input.insertText', { text: `Use prompt: ${TITLE}` })
+check((await waitFor(() => ev(`document.body.innerText.includes(${q(`Use prompt: ${TITLE}`)})`), (v) => v === true, 2000)) === true, 'typing finds "Use prompt: …" for it')
+await heldEnter()
+check((await waitFor(() => ev(`${box}?.value ?? null`), (v) => v === TEXT, 3000)) === TEXT, 'Enter on it puts the text in the conversation\'s box, exactly', q(await ev(`${box}?.value ?? null`)))
+await sleep(400)
+check((await ev(`${box}.value`)) === TEXT, 'and the held key did not send it')
 
 const writes = await app.mainEval('globalThis.__probeWrites ?? []')
 check(!writes.some((w) => /\/api\/chat/.test(w)), 'main made no chat request', writes.join(', ') || 'no writes at all')

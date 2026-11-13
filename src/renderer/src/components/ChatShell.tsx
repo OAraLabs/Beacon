@@ -67,7 +67,7 @@ import { destructiveSlash, parseLocalSlash, resolveModel, resolveSkin, slashBoun
 import { coerceTheme, THEME_LABEL, THEMES } from '@shared/theme'
 import { jumpHasNew, jumpLabel, shouldStick, showJumpPill } from '@shared/jump-latest'
 import { setTheme } from '../theme/apply-theme'
-import { slashCatalogWith } from '@shared/saved-prompts'
+import { insertPrompt, slashCatalogWith } from '@shared/saved-prompts'
 import { useSavedPrompts } from '../saved-prompts-store'
 import { applyAtChoice, atKey, atMatches, atQuery, chipFromToken, chipsNote, fileQueryParts, referencesFromChips, slashWithReferences, MAX_REFERENCES, type AtCandidate, type ReferenceChip } from '@shared/at-references'
 import type { FileEntry, FileListDTO } from '@shared/daemon-api'
@@ -541,7 +541,7 @@ export function ChatShell({
   useEffect(() => {
     if (!insert || insert.n === lastInsertRef.current) return
     lastInsertRef.current = insert.n
-    setDraft((d) => appendComposerInsert(d, insert.text))
+    setDraft((d) => (insert.exact ? insertPrompt(d, insert.text) : appendComposerInsert(d, insert.text)))
     onInsertConsumed?.()
     setTimeout(() => draftRef.current?.focus(), 0)
   }, [insert, onInsertConsumed])
@@ -1633,7 +1633,10 @@ export function ChatShell({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void send()
+      // A HELD Enter never sends. The key that chose a saved prompt (from the `/` list, the
+      // palette or the dialog) may still be down when its text lands here, and its auto-repeat
+      // would send text the person has not read.
+      if (!e.repeat) void send()
     }
   }
 
@@ -1641,6 +1644,13 @@ export function ChatShell({
     // Completion = "/name " (trailing space, ready for arguments) — slashQuery closes the
     // popup on its own (space ends the leading token), so no extra state dance here.
     setDraft(slashCompletion(cmd))
+    // A saved prompt's text is not a command being typed: keep both popups shut over it until the
+    // person edits (a prompt that begins with `/word` or `@name` would otherwise reopen one, and
+    // Enter would choose from it instead of sending).
+    if (cmd.prompt !== undefined) {
+      setSlashDismissed(true)
+      setAtDismissed(true)
+    }
     draftRef.current?.focus()
   }
 
@@ -1652,7 +1662,7 @@ export function ChatShell({
   // covers the message being answered — and past six the ranking is doing the work anyway.
   // Saved prompts and starters ride in the same list, after the commands: `/plan` finds "Plan my
   // day" and choosing it puts the prompt's text in the box (slashCompletion). Nothing is sent.
-  const slashList = slashQ !== null && !slashDismissed ? slashMatches(slashQ, slashCatalogWith(savedPrompts)).slice(0, 6) : []
+  const slashList = slashQ !== null && !slashDismissed ? slashMatches(slashQ, slashCatalogWith(savedPrompts, slashQ)).slice(0, 6) : []
   const atTok = atChips.length < MAX_REFERENCES && !atDismissed && slashQ === null ? atQuery(draft, atCaret) : null
   const atList: AtCandidate[] = atTok ? atMatches(atTok.query, atEntries.dir === fileQueryParts(atTok.query).dir ? atEntries.entries : []) : []
   const atVisible = atTok !== null && atList.length > 0

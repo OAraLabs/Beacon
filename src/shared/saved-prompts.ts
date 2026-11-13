@@ -11,9 +11,12 @@
 // a rewrite: each prompt stands alone, has an id that never changes, and carries `updatedAt`, which
 // is what a merge between two devices would compare.
 //
-// THE SLASH NAME is derived from the title (`Plan my day` is `/plan-my-day`), never typed, so there
-// is one thing to name. It may not equal a command in the slash catalog: `/status` has to keep
-// meaning the daemon's status, whatever a person saves.
+// THE SLASH NAME IS DERIVED, NEVER STORED AND NEVER A REASON TO REFUSE. `Plan my day` is
+// `/plan-my-day`. A title that derives no usable name (no ASCII letter or digit, a name the slash
+// catalog already uses, or one an earlier prompt took) simply has no slash name: the prompt is
+// still on the new-chat screen, in the palette and in the dialog. Deriving at read time is what
+// makes this safe across releases: a command added to the catalog later takes its name back from
+// a prompt without the prompt being dropped, and `/status` always means the daemon's status.
 
 import { SLASH_COMMANDS, type SlashCommand } from './slash-commands'
 
@@ -31,8 +34,6 @@ export interface SavedPrompt {
   /** Stable for the prompt's life; the caller mints it (a uuid), so this module stays pure. */
   id: string
   title: string
-  /** The slash name, derived from the title by `slugOf`. */
-  name: string
   text: string
   /** Epoch ms. */
   createdAt: number
@@ -49,6 +50,7 @@ export interface PromptStore {
 export interface Starter {
   id: string
   title: string
+  /** The slash name, or '' when this one has none (see the header). */
   name: string
   text: string
   builtin: boolean
@@ -101,17 +103,16 @@ export function slugOf(title: string): string {
 }
 
 const RESERVED = new Set(SLASH_COMMANDS.map((c) => c.name))
+const sameTitle = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase()
 
 /** Why this title can't be saved, in words for the form, or null when it can. `exceptId` is the
- *  prompt being edited, which may keep its own name. */
+ *  prompt being edited, which may keep its own title. Only two things refuse a title: it is empty
+ *  or too long, or the person already has a prompt called that. */
 export function titleProblem(store: PromptStore, title: string, exceptId?: string): string | null {
   const t = title.trim()
   if (!t) return 'Give it a name.'
   if (t.length > PROMPT_TITLE_MAX) return `Keep the name to ${PROMPT_TITLE_MAX} characters.`
-  const name = slugOf(t)
-  if (!name) return 'Use letters or numbers in the name.'
-  if (RESERVED.has(name)) return `/${name} is already a command. Pick another name.`
-  if (store.prompts.some((p) => p.name === name && p.id !== exceptId)) return 'You already have a prompt with that name.'
+  if (store.prompts.some((p) => p.id !== exceptId && sameTitle(p.title, t))) return 'You already have a prompt with that name.'
   return null
 }
 
@@ -126,8 +127,7 @@ export function addPrompt(store: PromptStore, input: { title: string; text: stri
   if (!id || store.prompts.some((p) => p.id === id)) return store
   if (store.prompts.length >= PROMPTS_MAX) return store
   if (titleProblem(store, input.title) || textProblem(input.text)) return store
-  const title = input.title.trim()
-  return { ...store, prompts: [...store.prompts, { id, title, name: slugOf(title), text: input.text, createdAt: now, updatedAt: now }] }
+  return { ...store, prompts: [...store.prompts, { id, title: input.title.trim(), text: input.text, createdAt: now, updatedAt: now }] }
 }
 
 export function updatePrompt(store: PromptStore, id: string, input: { title: string; text: string }, now: number): PromptStore {
@@ -136,7 +136,7 @@ export function updatePrompt(store: PromptStore, id: string, input: { title: str
   if (titleProblem(store, input.title, id) || textProblem(input.text)) return store
   const title = input.title.trim()
   if (title === cur.title && input.text === cur.text) return store
-  return { ...store, prompts: store.prompts.map((p) => (p.id === id ? { ...p, title, name: slugOf(title), text: input.text, updatedAt: now } : p)) }
+  return { ...store, prompts: store.prompts.map((p) => (p.id === id ? { ...p, title, text: input.text, updatedAt: now } : p)) }
 }
 
 /** Remove a saved prompt, or hide a built-in starter. */
@@ -153,22 +153,64 @@ export function restoreBuiltins(store: PromptStore): PromptStore {
 }
 
 /** Everything on offer, the person's own first (in the order they were made), then the built-ins
- *  they kept. A saved prompt with a built-in's name replaces that built-in. */
+ *  they kept. A saved prompt with a built-in's title replaces that built-in. Slash names are
+ *  handed out here, in this order, first come first served; see the header for who gets none. */
 export function starters(store: PromptStore): Starter[] {
-  const own: Starter[] = store.prompts.map((p) => ({ id: p.id, title: p.title, name: p.name, text: p.text, builtin: false }))
-  const taken = new Set(own.map((s) => s.name))
+  const taken = new Set<string>()
+  const nameFor = (title: string): string => {
+    const name = slugOf(title)
+    if (!name || RESERVED.has(name) || taken.has(name)) return ''
+    taken.add(name)
+    return name
+  }
+  const own: Starter[] = store.prompts.map((p) => ({ id: p.id, title: p.title, name: nameFor(p.title), text: p.text, builtin: false }))
   const hidden = new Set(store.hiddenBuiltins)
-  return [...own, ...BUILTIN_STARTERS.filter((b) => !hidden.has(b.id) && !taken.has(b.name))]
+  const kept = BUILTIN_STARTERS.filter((b) => !hidden.has(b.id) && !store.prompts.some((p) => sameTitle(p.title, b.title)))
+  return [...own, ...kept.map((b) => ({ ...b, name: nameFor(b.title) }))]
 }
 
-/** The starters as entries for the composer's `/` popup. `prompt` is what choosing one inserts. */
-export function promptSlashCommands(store: PromptStore): SlashCommand[] {
-  return starters(store).map((s) => ({ name: s.name, desc: s.title, web: true, prompt: s.text }))
+/** The slash name a title would get if saved now, or '' with the reason it gets none. For the
+ *  form's hint; `exceptId` is the prompt being edited. */
+export function slashNameFor(store: PromptStore, title: string, exceptId?: string): { name: string; why: '' | 'none' | 'command' | 'taken' } {
+  const name = slugOf(title)
+  if (!name) return { name: '', why: 'none' }
+  if (RESERVED.has(name)) return { name, why: 'command' }
+  // Ask the real rule: put the title where the prompt sits (its own place when edited, last when
+  // new) and see whether it comes out with the name.
+  const probe = exceptId ?? '\u0000new'
+  const prompts = exceptId
+    ? store.prompts.map((p) => (p.id === exceptId ? { ...p, title } : p))
+    : [...store.prompts, { id: probe, title, text: '-', createdAt: 0, updatedAt: 0 }]
+  const got = starters({ ...store, prompts }).find((s) => s.id === probe)?.name
+  return got ? { name, why: '' } : { name, why: 'taken' }
 }
 
-/** The slash catalog with the starters after it. Catalog names are reserved, so nothing collides. */
-export function slashCatalogWith(store: PromptStore): SlashCommand[] {
-  return [...SLASH_COMMANDS, ...promptSlashCommands(store)]
+/** A prompt's text into a draft: on its own paragraph after anything already typed, and EXACTLY
+ *  as saved. The trailing space or blank line a prompt ends on is where the person's own words
+ *  begin, so nothing is trimmed from it. */
+export function insertPrompt(draft: string, text: string): string {
+  if (!text) return draft
+  const head = draft.replace(/\s+$/, '')
+  return head ? `${head}\n\n${text}` : text
+}
+
+/**
+ * The starters as rows for the composer's `/` popup, for what has been typed after the slash.
+ * `prompt` is what choosing one inserts. A starter is offered only when its name CONTAINS the
+ * query: the popup's fuzzy ranking also matches letters in order, which is right for a short
+ * command catalog but would put a prompt under almost any unknown `/word`, and Enter on a
+ * listed row inserts it where it used to send the word to the daemon.
+ */
+export function promptSlashCommands(store: PromptStore, query = ''): SlashCommand[] {
+  const q = query.toLowerCase()
+  return starters(store)
+    .filter((s) => s.name && s.name.includes(q))
+    .map((s) => ({ name: s.name, desc: s.title, web: true, prompt: s.text }))
+}
+
+/** The slash catalog with the matching starters after it. Catalog names are reserved, so nothing collides. */
+export function slashCatalogWith(store: PromptStore, query = ''): SlashCommand[] {
+  return [...SLASH_COMMANDS, ...promptSlashCommands(store, query)]
 }
 
 // ── Storage ─────────────────────────────────────────────────────────────────────────────────────
@@ -184,9 +226,16 @@ function time(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0
 }
 
-/** Read a stored row. Anything unreadable is dropped, record by record: one bad prompt never costs
- *  the others, and a row that is not JSON at all reads as empty. The name is re-derived from the
- *  title, so a hand-edited row can't claim a reserved or mismatched name. */
+/** Far above anything the form allows; a record past these is damage, not a long prompt. */
+const STORED_TITLE_MAX = 400
+const STORED_TEXT_MAX = PROMPT_TEXT_MAX * 8
+
+/**
+ * Read a stored row. STRUCTURE is checked, the form's rules are not: a record is dropped only when
+ * it is not a prompt at all (no id, a repeated id, no title, no text) or is absurdly large. A
+ * title longer than today's limit, or two prompts with one title, are kept as they are, because a
+ * record dropped here is erased for good by the next save. A row that is not JSON reads as empty.
+ */
 export function parsePromptStore(raw: string | null | undefined): PromptStore {
   if (!raw) return emptyPromptStore()
   let data: unknown
@@ -197,22 +246,68 @@ export function parsePromptStore(raw: string | null | undefined): PromptStore {
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return emptyPromptStore()
   const obj = data as Record<string, unknown>
-  let store = emptyPromptStore()
+  const prompts: SavedPrompt[] = []
   const seenIds = new Set<string>()
   for (const row of Array.isArray(obj.prompts) ? obj.prompts : []) {
-    if (store.prompts.length >= PROMPTS_MAX) break
+    if (prompts.length >= PROMPTS_MAX) break
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
     const id = str(r.id)
     const title = str(r.title)?.trim()
     const text = str(r.text)
-    if (!id || seenIds.has(id) || !title || text === null) continue
-    if (titleProblem(store, title) || textProblem(text)) continue
+    if (!id || seenIds.has(id) || !title || !text || !text.trim()) continue
+    if (title.length > STORED_TITLE_MAX || text.length > STORED_TEXT_MAX) continue
     seenIds.add(id)
     const createdAt = time(r.createdAt)
-    store = { ...store, prompts: [...store.prompts, { id, title, name: slugOf(title), text, createdAt, updatedAt: Math.max(createdAt, time(r.updatedAt)) }] }
+    prompts.push({ id, title, text, createdAt, updatedAt: Math.max(createdAt, time(r.updatedAt)) })
   }
   const builtinIds = new Set(BUILTIN_STARTERS.map((b) => b.id))
   const hidden = (Array.isArray(obj.hiddenBuiltins) ? obj.hiddenBuiltins : []).filter((x): x is string => typeof x === 'string' && builtinIds.has(x))
-  return { ...store, hiddenBuiltins: [...new Set(hidden)] }
+  return { prompts, hiddenBuiltins: [...new Set(hidden)] }
+}
+
+// ── Loading and saving, as a state machine ──────────────────────────────────────────────────────
+// The window's copy of the store, and the three things that can go wrong keeping it:
+//   * a save before the stored row has ever been read would replace it with an empty list;
+//   * a read that started BEFORE a change and finishes after it would undo the change in memory,
+//     and the next edit would then write that older state back;
+//   * a save that fails would leave the window showing a prompt that is not kept.
+// Pure, so the smoke can walk each one. The renderer store (saved-prompts-store.ts) does the IO.
+
+export interface PromptSync {
+  store: PromptStore
+  /** False until one read has succeeded. No change is accepted before that. */
+  loaded: boolean
+  /** Bumped by every accepted change. A read carries the value it started under. */
+  gen: number
+  /** The last save did not reach the settings table. Cleared by the next one that does. */
+  saveFailed: boolean
+}
+
+export function emptyPromptSync(): PromptSync {
+  return { store: emptyPromptStore(), loaded: false, gen: 0, saveFailed: false }
+}
+
+/** A read came back. Ignored when a change was made since it started (`startedAt` is the `gen`
+ *  the read began under): the change is newer than what the read saw. */
+export function syncRead(state: PromptSync, startedAt: number, raw: string | null | undefined): PromptSync {
+  if (startedAt !== state.gen) return state
+  const next = parsePromptStore(raw)
+  if (state.loaded && serializePromptStore(next) === serializePromptStore(state.store)) return state
+  return { ...state, store: next, loaded: true }
+}
+
+/** Apply a change. `write` is the row to save, or null when nothing changed (the model refused
+ *  the input, or nothing has been read yet), in which case the state is the same object. */
+export function syncChange(state: PromptSync, fn: (s: PromptStore) => PromptStore): { state: PromptSync; write: string | null } {
+  if (!state.loaded) return { state, write: null }
+  const next = fn(state.store)
+  if (next === state.store) return { state, write: null }
+  return { state: { ...state, store: next, gen: state.gen + 1 }, write: serializePromptStore(next) }
+}
+
+/** The save for the change made at `gen` finished. A failure is reported, and the caller reads the
+ *  stored row again so the window shows what is really kept. */
+export function syncSaved(state: PromptSync, ok: boolean): PromptSync {
+  return state.saveFailed === !ok ? state : { ...state, saveFailed: !ok }
 }

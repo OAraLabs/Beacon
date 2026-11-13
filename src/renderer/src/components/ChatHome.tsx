@@ -10,8 +10,8 @@ import { stageFiles, type PendingFile } from '../attachments-io'
 import { useDeviceRole } from './OwnerOnlyNote'
 import { useInstances } from '../instances-store'
 import { composerPlaceholder } from '@shared/instance-rows'
-import { starters } from '@shared/saved-prompts'
-import { useSavedPrompts } from '../saved-prompts-store'
+import { insertPrompt, starters } from '@shared/saved-prompts'
+import { useSavedPrompts, useSavedPromptsStatus } from '../saved-prompts-store'
 
 // Chat home / landing: the new-conversation entry shown when no conversation is open.
 //
@@ -74,8 +74,10 @@ export function ChatHome({
   const [draft, setDraft] = useState('')
   const instances = useInstances()
   // Starters: the person's saved prompts, then the built-in ones they kept. Six at most here; the
-  // rest are in the dialog and under `/` in the message box.
+  // rest are in the dialog, the palette, and under `/` in a conversation's message box. Nothing is
+  // shown until the stored prompts have been read, so a starter someone removed never flashes up.
   const promptList = starters(useSavedPrompts())
+  const promptsLoaded = useSavedPromptsStatus().loaded
   const [mode, setMode] = useState<ChatMode>('agent')
   const [files, setFiles] = useState<PendingFile[]>([])
   const [attachNote, setAttachNote] = useState('')
@@ -117,7 +119,7 @@ export function ChatHome({
   useEffect(() => {
     if (!insert || insert.n === lastInsertRef.current) return
     lastInsertRef.current = insert.n
-    setDraft((d) => appendComposerInsert(d, insert.text))
+    setDraft((d) => (insert.exact ? insertPrompt(d, insert.text) : appendComposerInsert(d, insert.text)))
     onInsertConsumed?.()
     setTimeout(() => ref.current?.focus(), 0)
   }, [insert, onInsertConsumed])
@@ -152,7 +154,9 @@ export function ChatHome({
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      submit()
+      // A held Enter never starts a conversation: the key that chose a saved prompt in the palette
+      // may still be down when its text lands here (same rule as the thread composer).
+      if (!e.repeat) submit()
     }
   }
 
@@ -305,16 +309,16 @@ export function ChatHome({
           </div>
           <input ref={fileInputRef} type="file" multiple onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
         </footer>
-        {onManagePrompts ? (
-          <div className="chat-home-starters" aria-label="Starters">
+        {onManagePrompts && promptsLoaded ? (
+          <div className="chat-home-starters" role="group" aria-label="Starters">
             {promptList.slice(0, 6).map((s) => (
               <button
                 key={s.id}
                 className="starter-chip"
-                title={s.text.trim()}
+                title={s.text.trim().slice(0, 200)}
                 onClick={() => {
                   // Into the box, never sent: the person reads it, finishes it, and sends it.
-                  setDraft((d) => appendComposerInsert(d, s.text))
+                  setDraft((d) => insertPrompt(d, s.text))
                   setTimeout(() => ref.current?.focus(), 0)
                 }}
               >
