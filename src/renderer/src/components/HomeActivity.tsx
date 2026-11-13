@@ -17,6 +17,7 @@ import type { TouchDevice } from '@shared/home-devices'
 import { unavailableLine } from '@shared/home-devices'
 import { Icon } from './Icon'
 import { HomeTierBadge } from './HomeTierBadge'
+import { useHomeCapability } from '../home-capability-store'
 
 // Integrations → Home → Activity: every Home action Prometheus took or was refused, newest first
 // (docs/HA-UI-DATA-CONTRACT.md §3.3). Read only. It has a route to read and nothing that changes anything:
@@ -89,6 +90,7 @@ function Entry({ v, compact = false }: { v: EntryView; compact?: boolean }) {
 }
 
 export function HomeActivity({ devices }: { devices: TouchDevice[] | null }) {
+  const capable = useHomeCapability() // nothing of Home shows, or is asked for, unless this Prometheus advertises it
   const [filter, setFilter] = useState<ActivityFilter>(NONE)
   const [entries, setEntries] = useState<ActivityEntry[] | null>(null)
   const [nextBefore, setNextBefore] = useState<string | null>(null)
@@ -111,10 +113,11 @@ export function HomeActivity({ devices }: { devices: TouchDevice[] | null }) {
   }, [])
 
   useEffect(() => {
+    if (!capable) return
     setEntries(null)
     setOpen(new Set())
     void load(filter)
-  }, [filter, load])
+  }, [filter, load, capable])
 
   const older = async (): Promise<void> => {
     if (!nextBefore) return
@@ -131,6 +134,8 @@ export function HomeActivity({ devices }: { devices: TouchDevice[] | null }) {
       setMore(false)
     }
   }
+
+  if (!capable) return null
 
   const rows: TimelineRow[] = entries ? timelineRows(entries, open, now) : []
   const filtered = filter.device !== '' || filter.room !== '' || filter.tier !== 'all'

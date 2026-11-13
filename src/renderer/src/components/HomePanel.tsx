@@ -28,6 +28,7 @@ import { Icon } from './Icon'
 import { HomeTierBadge } from './HomeTierBadge'
 import { useDialogFocus } from './useDialogFocus'
 import { HomeActivity } from './HomeActivity'
+import { useHomeCapability } from '../home-capability-store'
 
 // Integrations → Home: what Prometheus can touch in the house (docs/HA-UI-DATA-CONTRACT.md §3.2).
 //
@@ -96,6 +97,7 @@ function OpenLink({ url, label = 'Open in Home Assistant' }: { url: string | nul
 }
 
 export function HomePanel() {
+  const capable = useHomeCapability() // the same rule as the Integrations row: no Home unless this Prometheus advertises it
   const [status, setStatus] = useState<HomeStatus | null>(null)
   const [unavailable, setUnavailable] = useState<{ kind: string; text: string } | null>(null)
   const [devices, setDevices] = useState<TouchDevice[] | null>(null)
@@ -136,10 +138,11 @@ export function HomePanel() {
   }, [])
 
   useEffect(() => {
+    if (!capable) return
     void load()
     const t = setInterval(() => void load(), REFRESH_MS)
     return () => clearInterval(t)
-  }, [load])
+  }, [load, capable])
 
   const close = useCallback(() => {
     setDialog(null)
@@ -161,6 +164,8 @@ export function HomePanel() {
       setWriteErr(writeFailureLine(e))
     }
   }
+
+  if (!capable) return null
 
   if (unavailable) {
     return (

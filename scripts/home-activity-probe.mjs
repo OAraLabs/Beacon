@@ -27,6 +27,7 @@ const HEIGHT = 944
 const out = mkdtempSync(join(tmpdir(), 'beacon-home-activity-'))
 
 let mode = 'normal' // normal | fail | empty
+let capable = true // whether this fake Prometheus advertises home/1 on GET /api/status
 const seen = [] // { method, url }
 const ALL = [...ACTIVITY_PAGE_1.entries, ...ACTIVITY_PAGE_2.entries].sort((a, z) => z.at - a.at)
 
@@ -37,6 +38,7 @@ const gateway = createServer((req, res) => {
   req.on('end', () => {
     seen.push({ method: req.method, url })
     if (url === '/api/devices') return res.end('[]')
+    if (url === '/api/status') return res.end(JSON.stringify({ state: 'idle', model: 'stub-model', capabilities: capable ? ['home/1'] : [] }))
     if (url === '/api/home/status') return res.end(JSON.stringify(STATUS_CONNECTED))
     if (url === '/api/home/devices') return res.end(JSON.stringify(DEVICES_LIST))
     if (url === '/api/approvals/grants') return res.end(JSON.stringify(GRANTS_LIST))
@@ -262,7 +264,21 @@ check(!!t && t.empty === 'No Home actions yet.', 'an empty record says so')
 mode = 'normal'
 await shot('after')
 
-const MIN_CHECKS = 44
+// ── 10. no timeline unless the Prometheus advertises Home ────────────────────
+console.log('\n=== 10. the capability gate ===')
+capable = false
+seen.length = 0
+await evaluate(clickBy('nav[aria-label="Views"] button[title="Mission"]'))
+await sleep(300)
+await evaluate(clickBy('nav[aria-label="Views"] button[title="Workspace"]'))
+await until(`!!document.querySelector('.subnav-pills')`, 4000)
+await evaluate(clickBy('.subnav-pills button', 'Integrations')) // opening the page asks the Prometheus again
+await sleep(2500)
+check((await evaluate(`!document.querySelector('[data-testid="integration-row"][data-health="home"]') && !document.querySelector('#home-tab-activity') && !document.querySelector('[data-testid="home-activity"]')`)) === true, 'a Prometheus that stops advertising Home: no Home row, no Activity tab, no timeline')
+check(!seen.some((r) => r.url.startsWith('/api/home')), 'and nothing under /api/home is asked of it', JSON.stringify(seen.filter((r) => r.url.startsWith('/api/home')).map((r) => r.url)))
+capable = true
+
+const MIN_CHECKS = 46
 if (checks < MIN_CHECKS) {
   console.error(`  FAIL only ${checks} checks ran, expected at least ${MIN_CHECKS}`)
   failures += 1
