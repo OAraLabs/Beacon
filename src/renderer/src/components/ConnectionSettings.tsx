@@ -1,3 +1,5 @@
+import { UI_MODE_COPY } from '@shared/ui-mode'
+import { setUiMode, useUiMode } from '../ui-mode-store'
 import { EDIT_ADDRESS_COPY } from '@shared/edit-address'
 import { thisComputer } from '@shared/this-computer'
 import { NOT_ENCRYPTED_NOTICE } from '@shared/plain-lan'
@@ -274,6 +276,24 @@ function NotificationsSection() {
  * mount (the user can flip it in System Settings / Task Manager, so we never trust a cached value).
  * When the platform or build can't honour it (Linux, or an unpackaged dev build) the switch renders
  * disabled with the model's reason — a control that silently no-ops is the lie this avoids. */
+/** Everyday or everything (@shared/ui-mode). One switch; it changes what is shown and nothing else. */
+function ViewsSection() {
+  const mode = useUiMode()
+  const full = mode === 'full'
+  return (
+    <div style={{ borderTop: '1px solid var(--c-line)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-dim)' }}>{UI_MODE_COPY.title}</div>
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: 'var(--c-text)', cursor: 'pointer' }}>
+        <input type="checkbox" checked={full} onChange={() => setUiMode(full ? 'everyday' : 'full')} style={{ marginTop: 2 }} />
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span>{UI_MODE_COPY.label}</span>
+          <span style={{ fontSize: 11, color: 'var(--c-text-dim)', lineHeight: 1.35 }}>{full ? UI_MODE_COPY.on : UI_MODE_COPY.off}</span>
+        </span>
+      </label>
+    </div>
+  )
+}
+
 function LoginItemSection() {
   const [st, setSt] = useState<LoginItemState | null>(null)
   const [busy, setBusy] = useState(false)
@@ -873,6 +893,7 @@ export function ConnectionSettings({ onClose, onSetUpAgain, at = null }: { onClo
             <SetupAgainSection onSetUpAgain={onSetUpAgain} />
             <OtherComputersSection />
             <OwnerSection />
+            <ViewsSection />
             <NotificationsSection />
             <LoginItemSection />
             <WorkerModelSection />

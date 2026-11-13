@@ -1,3 +1,4 @@
+import { decideFirstUiMode } from './ui-mode-store'
 import { resumesHere } from '@shared/setup-wizard'
 import { useCallback, useEffect, useState } from 'react'
 import type { SetupResume, SetupStatus } from '@shared/ipc'
@@ -52,6 +53,9 @@ export default function App() {
       return
     }
     const s: SetupStatus = await b.setup.status().catch(() => ({ needsSetup: false }))
+    // Everyday or full, decided once for an install with nothing stored (a new install starts
+    // everyday; one that already exists keeps everything). Before anything mounts.
+    await decideFirstUiMode(s.needsSetup)
     setCurrentAddress(s.currentAddress ?? keepAddress)
     setResume(s.resume)
     const browsing = s.needsSetup && s.onboarding === true ? parseBrowsing(await b.settings.get(ONBOARDING_BROWSING_KEY).catch(() => null)) : false
