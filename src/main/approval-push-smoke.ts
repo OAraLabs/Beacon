@@ -34,6 +34,9 @@ import {
   applyApprovalFrame,
   BODY_BUDGET,
   decisionGradeBody,
+  advertisesApprovalCritical,
+  answeredInApp,
+  APPROVAL_CRITICAL_CAPABILITY,
   notificationPlan,
   rawToApproval,
   type RawApprovalPush
@@ -52,7 +55,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53
+const MIN_CHECKS = 53 + 39
 
 let failures = 0
 let checks = 0
@@ -270,6 +273,51 @@ check(
   callSites.length > 0 && callSites.every((c) => c.includes('.arguments')),
   `every call site passes the arguments (${callSites.filter((c) => !c.includes('.arguments')).length} do not)`
 )
+
+console.log('\n=== 6. critical — the daemon says a request is answered in the app ===')
+{
+  const base: RawApprovalPush = { request_id: 'r1', tool_name: 'bash', description: 'git push origin main' }
+  // What the daemon said, and nothing else.
+  check(rawToApproval({ ...base, critical: true })?.critical === true, 'critical: true is carried')
+  check(rawToApproval({ ...base, critical: false })?.critical === false, 'critical: false is carried (it is an answer, not an absence)')
+  check(rawToApproval(base)?.critical === undefined, 'a request that does not say carries nothing: an older daemon')
+  for (const odd of ['true', 1, 0, null, 'false', {}, [], 'yes']) {
+    check(rawToApproval({ ...base, critical: odd })?.critical === undefined, `critical: ${JSON.stringify(odd)} is neither answer`)
+  }
+  // The capability, off the subscribed reply.
+  check(APPROVAL_CRITICAL_CAPABILITY === 'approval_critical', 'the capability is the name the daemon lists')
+  check(advertisesApprovalCritical({ sessions: [], capabilities: [], server_capabilities: ['voice_input', 'approval_critical'], channels: [] }), 'a subscribed reply that lists it advertises it')
+  check(!advertisesApprovalCritical({ server_capabilities: ['voice_input'] }) && !advertisesApprovalCritical({ server_capabilities: [] }) && !advertisesApprovalCritical({}), 'one that does not list it (an older daemon) does not')
+  check(!advertisesApprovalCritical({ capabilities: ['approval_critical'] }), "listed among the CLIENT's capabilities, which the daemon echoes back, it is not the daemon's")
+  for (const odd of [null, undefined, 'approval_critical', ['approval_critical'], { server_capabilities: 'approval_critical' }, { server_capabilities: { approval_critical: true } }, { server_capabilities: ['APPROVAL_CRITICAL'] }, { server_capabilities: ['approval_critical_v2'] }]) {
+    check(!advertisesApprovalCritical(odd), `a malformed reply is "no": ${JSON.stringify(odd) ?? 'undefined'}`)
+  }
+  // Who is answered in the app.
+  check(answeredInApp(true, true) && answeredInApp(true, false), 'critical: true is answered in the app, advertised or not (only a daemon that knows the flag sends it)')
+  check(!answeredInApp(false, true) && !answeredInApp(false, false), 'critical: false is not')
+  check(answeredInApp(undefined, true), 'a request that does not say, from a daemon that promised every request would, is: doubt is critical')
+  check(!answeredInApp(undefined, false), 'a request that does not say, from a daemon that advertises nothing, is ordinary: an older Prometheus behaves as it always did')
+  // What the notification then offers.
+  const plain = notificationPlan('bash', 'git push origin main')
+  const crit = notificationPlan('bash', 'git push origin main', undefined, true)
+  check(plain.offersActions === true && plain.body === decisionGradeBody('bash', 'git push origin main') && !/Beacon/.test(plain.body), 'an ordinary request is planned as before: buttons, and the body with nothing added')
+  check(crit.offersActions === false, 'a critical request offers no buttons: no Approve to tap')
+  check(/answer it in Beacon$/.test(crit.body) && crit.body.includes('git push origin main'), `and its body says where to answer it (${JSON.stringify(crit.body)})`)
+  const long = notificationPlan('bash', 'x'.repeat(5000), undefined, true)
+  check(long.body.length <= BODY_BUDGET && /answer it in Beacon$/.test(long.body), 'the sentence is kept within the budget however long the description is')
+  const withArgs = notificationPlan('write_file', 'write', { path: '/tmp/a' }, true)
+  check(withArgs.offersActions === false && /answer it in Beacon$/.test(withArgs.body), 'with arguments too: critical is decided first, and nothing after it hands the buttons back')
+  check(notificationPlan('write_file', 'write', { path: '/tmp/a' }, false).body === notificationPlan('write_file', 'write', { path: '/tmp/a' }).body, 'and a request with arguments that is not critical reads as it did')
+
+  // main wires it: per connection, from the subscribed reply, on both paths.
+  check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical: the frame path as mapped, the poll path re-checked where it crosses from the page')
+  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy !== null && criticalAdvertisedBy\.has\(raisedBy\)\)\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
+  const frame = mainSrc.slice(mainSrc.indexOf('function handleApprovalFrame('), mainSrc.indexOf('function snippet('))
+  check(/if \(ev\.type === 'subscribed'\) \{[\s\S]{0,400}if \(advertisesApprovalCritical\(p\)\) criticalAdvertisedBy\.add\(raisedBy\)\s*else criticalAdvertisedBy\.delete\(raisedBy\)/.test(frame), 'every subscribed reply sets it, on or off: a Prometheus rolled back between connections stops being treated as advertising')
+  check(/const criticalAdvertisedBy = new WeakSet<ConnectionManager>\(\)/.test(mainSrc) && (mainSrc.match(/criticalAdvertisedBy\.(add|delete)\(/g) ?? []).length === 2, 'kept per connection, and set nowhere else')
+  check(/handleApprovalFrame\(conn, ev as/.test(mainSrc), 'and the frames reach it with the connection they came over')
+  check(/&& plan\.offersActions\s*\? \(\[[\s\S]{0,160}\] as Electron\.NotificationAction\[\]\)\s*: \[\]/.test(mainSrc) && (mainSrc.match(/text: 'Approve'/g) ?? []).length === 1, 'the Approve button exists in one place, behind the plan: a plan with no actions makes a notification with none')
+}
 
 // The verdict runs on process EXIT for the same reason approval-smoke's does: a run that leaves
 // early must not be able to leave quietly. See the note there — a mutation proved a mid-file bail

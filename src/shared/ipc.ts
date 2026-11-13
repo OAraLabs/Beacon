@@ -736,6 +736,13 @@ export interface ApprovalRequest {
    * every worker and desktop-task request. The card offers no lasting scope when it is set.
    */
   onceOnly?: boolean
+  /**
+   * What the daemon said about answering this from a notification: `true` means it must be
+   * answered in the app; `false` means it need not be; undefined means the daemon did not say (an
+   * older Prometheus). Main decides what a notification offers with `answeredInApp`
+   * (@shared/approval-push). Beacon never sets or guesses this.
+   */
+  critical?: boolean
 }
 
 /**
