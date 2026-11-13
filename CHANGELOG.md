@@ -10,6 +10,14 @@ later update themselves.
 
 Beacon 0.5.0 is for everyday use as well as for running an assistant: a Today home, saved prompts, files and screenshots in quick capture, tool servers at an address, and a folder to work in. Adding a phone is now a scan and an approval, Beacon keeps several Prometheus side by side, and approvals are harder to answer by accident.
 
+### Safety improvements
+
+Three things in 0.4.9 are fixed here. Each is also described under Approvals or Links and files below.
+
+- **The `A` key could approve a request nobody had read.** In 0.4.9, pressing `A` anywhere in the window except a text field approved the first pending approval card, so a letter typed at a list or a button could approve a command. `A` and `D` now answer only the card you have clicked or Tabbed to.
+- **A blocked link could put its own words in a notification.** When Beacon refused a `beacon://` link, the notification showed the link's first 80 characters, so whoever made the link chose text that appeared as a Beacon notification. It now says only that a link was blocked.
+- **A `beacon://open` link could carry extra parameters that Beacon ignored.** It opened the conversation it named and dropped everything else in the link. A link that carries anything besides which conversation to open is now refused whole.
+
 ### Everyday use
 
 - **Everyday mode, and a Today home.** A new install opens on the everyday views: Today, Chats, Workspace (Documents, Artifacts, Wiki, Files) and Config with the settings you change. Today shows what needs you (an approval, a message with no reply, messages that could not be sent), what happened since you last looked (replies by conversation, tasks that finished or failed), and what is coming up. Settings → Views → Show everything brings back Mission, Coding, Activity, the Board and the rest, and the command palette has the same switch. An install that already exists keeps everything, and nothing changes for it until that switch is turned off.
