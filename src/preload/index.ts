@@ -245,6 +245,16 @@ const api: BeaconBridge = {
     where: () => ipcRenderer.invoke(IPC.WORK_FOLDER_WHERE),
     pick: () => ipcRenderer.invoke(IPC.WORK_FOLDER_PICK)
   },
+  osEntry: {
+    pending: () => ipcRenderer.invoke(IPC.OS_ENTRY_PENDING),
+    take: (id: string) => ipcRenderer.invoke(IPC.OS_ENTRY_TAKE, id),
+    dismiss: (id: string) => ipcRenderer.send(IPC.OS_ENTRY_DISMISS, id),
+    onOffer: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, offer: Parameters<typeof cb>[0]): void => cb(offer)
+      ipcRenderer.on(IPC.OS_ENTRY_OFFER, listener)
+      return () => ipcRenderer.removeListener(IPC.OS_ENTRY_OFFER, listener)
+    }
+  },
   capture: {
     openMain: (sessionId: string) => ipcRenderer.send(IPC.CAPTURE_OPEN_MAIN, sessionId),
     hold: (on: boolean) => ipcRenderer.send(IPC.CAPTURE_HOLD, on),

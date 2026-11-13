@@ -126,6 +126,31 @@ asarUnpack:
 
 mac:
   category: public.app-category.productivity
+  # "Open with Beacon", and dropping a file on Beacon's icon (src/shared/os-entry.ts). macOS only
+  # offers an app for a kind of file the app says it can take, so the kinds are listed here; the
+  # same list as OPEN_WITH_EXTENSIONS, which smoke:os-entry compares with this file.
+  #   rank: Alternate   Beacon is one of the choices under Open With. It is NEVER the app a file
+  #                     opens in by default: installing Beacon must not change what a double-click does.
+  #   role: Viewer      it reads the file (as an attachment, after the person says yes); it does not edit it.
+  # macOS only, on purpose: on Linux a .desktop MimeType entry can make an app the default for a
+  # type nothing else claims. A path on the command line works there without any association.
+  fileAssociations:
+    - ext:
+        - png
+        - jpg
+        - jpeg
+        - gif
+        - webp
+        - pdf
+        - txt
+        - md
+        - csv
+        - json
+        - docx
+        - xlsx
+      name: Document
+      role: Viewer
+      rank: Alternate
   # arm64 ONLY (Apple Silicon). The universal target stopped building with Electron 44 (#152):
   # better-sqlite3 13 loads its addon from prebuilds/<platform>-<arch>.node when there is no
   # build/Release, the installed app has no build/, so the prebuild IS the addon and cannot be

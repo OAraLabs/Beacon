@@ -260,6 +260,8 @@ export function ChatShell({
   onInitialSent,
   mode = 'agent',
   onModeChange,
+  fileInsert = null,
+  onFileInsertConsumed,
   daemonLastSeen,
   voiceState = 'idle',
   voiceNotice = '',
@@ -314,6 +316,10 @@ export function ChatShell({
   /** Per-session Agent|Chat mode — held by the parent so it survives this component's remount. */
   mode?: ChatMode
   onModeChange?: (m: ChatMode) => void
+  /** Files to stage as attachments (handed over by the system and confirmed; @shared/os-entry).
+   *  Same nonce contract as `insert`. */
+  fileInsert?: { files: PendingFile[]; n: number; target: string } | null
+  onFileInsertConsumed?: () => void
   /**
    * Voice turn state, owned by MainView (a turn targets voice:beacon regardless of the
    * session shown here, and the switch remounts this component — so the state must outlive it).
@@ -539,6 +545,19 @@ export function ChatShell({
     setDraft((d) => appendDictation(d, dictated.text))
     onDictationConsumed?.()
   }, [dictated, onDictationConsumed])
+  const lastFilesRef = useRef(0)
+  useEffect(() => {
+    // Only files meant for THIS conversation.
+    if (!fileInsert || fileInsert.target !== sessionId || fileInsert.n === lastFilesRef.current) return
+    lastFilesRef.current = fileInsert.n
+    // Attachments send in Agent mode, so that is the mode they arrive in (the confirmation said
+    // so). Staged, never sent.
+    onModeChange?.('agent')
+    setPendingFiles((prev) => [...prev, ...fileInsert.files])
+    onFileInsertConsumed?.()
+    // The message box is NOT given the keyboard: these files came from outside Beacon, and what
+    // the person types next should go where they were typing, not here with Enter one key away.
+  }, [fileInsert, onFileInsertConsumed, onModeChange, sessionId])
   const lastInsertRef = useRef(0)
   useEffect(() => {
     if (!insert || insert.n === lastInsertRef.current) return

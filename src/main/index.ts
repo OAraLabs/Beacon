@@ -3,6 +3,10 @@ import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeIma
 } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'fs'
+import { OFFER_GATHER_MS, OFFER_MAX_PATHS, OFFER_MAX_QUEUE, OFFER_MIN_SHOWN_MS, acceptableFiles, buildOffer, filePathsInArgv, mimeForName, type FileOffer, type OfferStat, type OfferTake, type TakenFile } from '@shared/os-entry'
+import { constants as fsConstants, lstatSync, statSync } from 'node:fs'
+import { open as openFile, type FileHandle } from 'node:fs/promises'
+import { CHAT_UPLOAD_SAFE_BYTES as OFFER_BYTES_MAX } from '@shared/attachments'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import { refusedSwitches } from '@shared/release-gate'
 import { buildFlavor, debuggingAllowedHere } from './build-flavor'
@@ -243,11 +247,18 @@ function handleDeepLink(url: string): void {
   }
   // The log line is load-bearing for verification: refusals must be provable, not just visible.
   console.log(`[deeplink] ${action.kind}${action.kind === 'refused' ? `: ${action.reason}` : ` session=${action.sessionId}`}`)
-  if (action.kind === 'open') showSession(action.sessionId)
-  else {
+  if (action.kind === 'open') {
+    // A link opens a conversation this Beacon already has, from what it has cached: nothing is
+    // asked of Prometheus because a link arrived. An id nobody has seen is not made the open
+    // conversation (it would then be remembered, and reopened at the next launch).
+    if (cache?.knowsSession(action.sessionId)) return showSession(action.sessionId)
+    console.log('[deeplink] refused: no such conversation on this Beacon')
     showWindow()
-    notify('Link not opened', `${action.reason} (${url.slice(0, 80)})`, '')
+    notify('Link not opened', 'That link names a conversation this Beacon does not have.', '')
+    return
   }
+  showWindow()
+  notify('Link not opened', `${action.reason} (${url.slice(0, 80)})`, '')
 }
 
 const singleInstance = app.requestSingleInstanceLock()
@@ -258,11 +269,194 @@ if (!singleInstance) {
     showWindow()
     const url = firstDeepLinkInArgv(argv)
     if (url) handleDeepLink(url)
+    offerFiles(filePathsInArgv(argv), 'argv')
   })
 }
 app.on('open-url', (e, url) => {
   e.preventDefault()
   handleDeepLink(url)
+})
+
+// ── files handed over by the system (@shared/os-entry) ─────────────────────────
+// Open with, a file dropped on Beacon's icon ('open-file', macOS), or a path on the command line
+// (Linux and Windows, and a second launch). What arrives is only NAMED here: main looks at each
+// path (lstat, and where it really is) and reads nothing. The offer waits for the confirmation
+// screen in the main window; a pointer click on that screen (OS_ENTRY_TAKE, naming the offer by an
+// id main minted) is the one thing that reads a file.
+//
+// Paths that arrive together (a multiple selection is one 'open-file' per file) are gathered for
+// OFFER_GATHER_MS into ONE offer before anything is shown. Once an offer is on screen its list
+// never changes: what arrives later is another offer, queued behind it. So the list a person is
+// about to answer cannot be swapped under the cursor.
+interface WaitingOffer {
+  id: string
+  stats: OfferStat[]
+}
+let gathering: OfferStat[] = []
+let gatherTimer: NodeJS.Timeout | null = null
+const offerQueue: WaitingOffer[] = []
+/** The offer id the MAIN window has been handed. A yes is taken only for this one. */
+let shownOfferId: string | null = null
+/** When it was handed over. A yes sooner than OFFER_MIN_SHOWN_MS after is refused, whatever the page says. */
+let shownAt = 0
+/** The offer a yes is being carried out for. Its files are being read: it can no longer be said no to. */
+let takingOfferId: string | null = null
+let lastOfferRaise = 0
+
+const realOf = (p: string): string => {
+  try {
+    // The system's own resolution: links followed, and on a Mac the name as the disk spells it.
+    return realpathSync.native(p)
+  } catch {
+    return ''
+  }
+}
+const identOf = (p: string): string | null => {
+  try {
+    const st = statSync(p)
+    return `${st.dev}:${st.ino}`
+  } catch {
+    return null
+  }
+}
+
+/** Where a file is in relation to Beacon's profile and the home folder, by IDENTITY: its parents
+ *  are walked up and compared, device and inode, with those two folders. A spelling compare is
+ *  not enough: the same folder is reached in another letter case, another Unicode form, and on a
+ *  Mac by another route (/System/Volumes/Data/Users/…). */
+function placeOf(real: string): { inProfile: boolean; homeRel: string | null } {
+  const profile = identOf(app.getPath('userData'))
+  const home = identOf(app.getPath('home'))
+  let inProfile = false
+  let homeRel: string | null = null
+  let dir = dirname(real)
+  // To the top of the disk, however deep the file is (dirname reaches a fixed point there).
+  for (let i = 0; i < 4096; i++) {
+    const id = identOf(dir)
+    if (id && id === profile) inProfile = true
+    if (id && id === home && homeRel === null) homeRel = real.slice(dir.length).replace(/^\/+/, '')
+    const up = dirname(dir)
+    if (up === dir) break
+    dir = up
+  }
+  return { inProfile, homeRel }
+}
+
+/** One path, looked at without being read. lstat, so a link is seen as a link (it is refused:
+ *  it shows one name and would read another file). */
+function statOffered(path: string): OfferStat {
+  const nowhere = { inProfile: false, homeRel: null, ident: '' }
+  try {
+    const st = lstatSync(path)
+    const kind = st.isSymbolicLink() ? 'link' : st.isFile() ? 'file' : st.isDirectory() ? 'directory' : 'other'
+    if (kind === 'link') return { path, real: '', kind, size: 0, ...nowhere }
+    if (kind !== 'file') {
+      // Not addable, but shown: placed the same way, so its folder reads as ~/… like the others.
+      const where = realOf(path)
+      return { path, real: where, kind, size: 0, ...nowhere, ...(where ? { homeRel: placeOf(where).homeRel } : {}) }
+    }
+    const real = realOf(path)
+    if (!real) return { path, real: '', kind: 'missing', size: 0, ...nowhere }
+    return { path, real, kind, size: st.size, ...placeOf(real), ident: `${st.dev}:${st.ino}` }
+  } catch {
+    return { path, real: '', kind: 'missing', size: 0, ...nowhere }
+  }
+}
+const currentOffer = (): FileOffer | null => (offerQueue.length > 0 ? buildOffer(offerQueue[0].id, offerQueue[0].stats, offerQueue.length - 1) : null)
+
+/** Hand the offer at the head of the queue to the main window, if there is one to hand it to. */
+function presentOffer(): void {
+  const offer = currentOffer()
+  if (!offer || !appReady || isQuitting) return // not while Beacon is on its way out: no window is made for an offer then
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow() // the window asks for the offer when it is up (OS_ENTRY_PENDING)
+    return
+  }
+  // Raised at most once every few seconds: a loop handing files over must not be able to keep
+  // pulling Beacon in front of what the person is doing.
+  const now = Date.now()
+  if (now - lastOfferRaise > 3000) {
+    lastOfferRaise = now
+    showWindow()
+  }
+  noteShown(offer.id)
+  mainWindow.webContents.send(IPC.OS_ENTRY_OFFER, offer)
+}
+
+/** The main window has been handed this offer, now (or already had been: the clock is not reset
+ *  by asking again). */
+function noteShown(id: string | null): void {
+  if (id !== shownOfferId) shownAt = Date.now()
+  shownOfferId = id
+}
+
+/** The offer on screen was answered (or could not be): the next one, if any, takes its place. */
+function finishOffer(id: string): void {
+  if (offerQueue[0]?.id !== id) return
+  offerQueue.shift()
+  shownOfferId = null
+  takingOfferId = null
+  presentOffer()
+}
+
+/** `from` 'argv': a command line holds paths that are not offers at all (the app's own folder in a
+ *  development run), so only regular files count. 'system': the person aimed something at Beacon,
+ *  so a folder or a missing file is shown, with why it cannot be added. */
+function offerFiles(paths: string[], from: 'argv' | 'system'): void {
+  // Bounded BEFORE anything is looked at: a loop handing over paths costs nothing past the cap.
+  const room = OFFER_MAX_PATHS - gathering.length
+  if (room <= 0) return
+  const stats = [...new Set(paths)]
+    .filter((p) => !gathering.some((g) => g.path === p))
+    .slice(0, room)
+    .map(statOffered)
+    .filter((s) => from === 'system' || s.kind === 'file')
+  if (stats.length === 0) return
+  gathering.push(...stats)
+  if (gatherTimer) return
+  gatherTimer = setTimeout(() => {
+    gatherTimer = null
+    const batch = gathering
+    gathering = []
+    if (batch.length === 0) return
+    if (offerQueue.length > OFFER_MAX_QUEUE) {
+      console.log(`[os-entry] dropped an offer of ${batch.length} path(s): ${offerQueue.length} already waiting`)
+      return
+    }
+    offerQueue.push({ id: randomUUID(), stats: batch })
+    console.log(`[os-entry] offer of ${batch.length} path(s) from ${from}; ${offerQueue.length} waiting`)
+    // Shown now unless one is already on screen (it is shown when that one is answered).
+    if (shownOfferId === null) presentOffer()
+  }, OFFER_GATHER_MS)
+}
+
+/** Read one offered file for a yes: opened ONCE, without following a link and without blocking on
+ *  a pipe, then judged and read through that same open file, never by name again. It must be the
+ *  SAME file that was offered (device and inode) at the SAME size: one swapped in under the name,
+ *  reached through a parent folder that became a link, or grown since, is refused. */
+async function readOffered(f: { real: string; ident: string; size: number }): Promise<Buffer | null> {
+  let handle: FileHandle | null = null
+  try {
+    handle = await openFile(f.real, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK)
+    const st = await handle.stat()
+    if (!st.isFile() || `${st.dev}:${st.ino}` !== f.ident || st.size !== f.size || st.size === 0 || st.size > OFFER_BYTES_MAX) return null
+    const buf = Buffer.alloc(st.size)
+    let got = 0
+    while (got < buf.length) {
+      const { bytesRead } = await handle.read(buf, got, buf.length - got, got)
+      if (bytesRead === 0) break
+      got += bytesRead
+    }
+    return got === buf.length ? buf : null // shorter than it said it was: not the file that was offered
+  } catch {
+    return null
+  } finally {
+    await handle?.close().catch(() => undefined)
+  }
+}
+app.on('open-file', (e, path) => {
+  e.preventDefault()
+  offerFiles([path], 'system')
 })
 
 // The connection + cache live in the main process and outlive any window (spec §3.2/§3.3). The
@@ -2235,6 +2429,42 @@ app.whenReady().then(() => {
     const problem = folderProblem(real, realHome())
     return problem ? { kind: 'refused', words: problem } : { kind: 'picked', path: real }
   })
+  // Files handed over by the system: the offer, and the answer to it (@shared/os-entry). Only the
+  // MAIN window is shown offers and only it can answer one: a pop-out, the quick-capture box or
+  // the tray panel is told there is nothing waiting, and a yes from one of them is refused.
+  const fromMainWindow = (sender: Electron.WebContents): boolean => !!mainWindow && !mainWindow.isDestroyed() && sender === mainWindow.webContents
+  handleFromShell(IPC.OS_ENTRY_PENDING, async (e): Promise<FileOffer | null> => {
+    if (!fromMainWindow(e.sender)) return null
+    const offer = currentOffer()
+    noteShown(offer?.id ?? null)
+    return offer
+  })
+  onFromShell(IPC.OS_ENTRY_DISMISS, (e, id: unknown) => {
+    // Not once a yes for it is being carried out: its files are on their way into the message box.
+    if (fromMainWindow(e.sender) && typeof id === 'string' && id === shownOfferId && id !== takingOfferId) finishOffer(id)
+  })
+  handleFromShell(IPC.OS_ENTRY_TAKE, async (e, id: unknown): Promise<OfferTake> => {
+    // Yes to the offer the main window was shown, by the id main minted. Not to a path: the page
+    // never names a file to read. Not twice, and not sooner than anyone could have read the list.
+    const head = offerQueue[0]
+    if (!fromMainWindow(e.sender) || typeof id !== 'string' || !head || id !== head.id || id !== shownOfferId || takingOfferId !== null) {
+      return { ok: false, error: 'That offer is no longer waiting. Nothing was added.' }
+    }
+    if (Date.now() - shownAt < OFFER_MIN_SHOWN_MS) return { ok: false, error: 'One moment. Read the list, then click again.' }
+    takingOfferId = id
+    const files: TakenFile[] = []
+    const failed: string[] = []
+    try {
+      for (const f of acceptableFiles(head.stats)) {
+        const bytes = await readOffered(f)
+        if (!bytes) failed.push(f.name)
+        else files.push({ name: f.name, mimeType: mimeForName(f.name), base64: bytes.toString('base64'), size: bytes.byteLength })
+      }
+    } finally {
+      finishOffer(id)
+    }
+    return { ok: true, files, failed }
+  })
   // Only the quick-capture window may hold itself up or take a shot through itself.
   onFromShell(IPC.CAPTURE_HOLD, (e, on: unknown) => {
     if (fromCaptureWindow(e.sender)) holdCapture(on === true ? 'ask-on' : 'ask-off')
@@ -2391,6 +2621,11 @@ app.whenReady().then(() => {
     pendingDeepLink = null
     handleDeepLink(u)
   }
+  // Paths on this launch's own command line (Linux and Windows "Open with" on a cold start). An
+  // 'open-file' that came before the window is already waiting; the window asks for it.
+  // Only in an installed build: a development run's own command line is the program's files.
+  if (app.isPackaged) offerFiles(filePathsInArgv(process.argv), 'argv')
+  presentOffer()
 
   // Global summon (Slice 5): toggle Beacon from anywhere. Registration can fail if another app
   // owns the chord — log and move on, never block startup.

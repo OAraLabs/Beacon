@@ -11,6 +11,7 @@ import { useDeviceRole } from './OwnerOnlyNote'
 import { useInstances } from '../instances-store'
 import { composerPlaceholder } from '@shared/instance-rows'
 import { insertPrompt, starters } from '@shared/saved-prompts'
+import { HOME_TARGET } from '@shared/os-entry'
 import { useSavedPrompts, useSavedPromptsStatus } from '../saved-prompts-store'
 
 // Chat home / landing: the new-conversation entry shown when no conversation is open.
@@ -47,7 +48,9 @@ export function ChatHome({
   dictated,
   onDictationConsumed,
   voiceNotice = '',
-  onManagePrompts
+  onManagePrompts,
+  fileInsert = null,
+  onFileInsertConsumed
 }: {
   onSubmit: (start: HomeStart) => void
   dockPane?: PanelPane | null
@@ -70,6 +73,10 @@ export function ChatHome({
   /** Opens the saved-prompts dialog; with text, straight on a new prompt holding it. Absent → no
    *  starter row (a window that has nowhere to show the dialog). */
   onManagePrompts?: (draft?: string) => void
+  /** Files to stage as attachments (handed over by the system and confirmed; @shared/os-entry).
+   *  Staged, never sent. Same nonce contract as `insert`. */
+  fileInsert?: { files: PendingFile[]; n: number; target: string } | null
+  onFileInsertConsumed?: () => void
 }) {
   const [draft, setDraft] = useState('')
   const instances = useInstances()
@@ -123,6 +130,19 @@ export function ChatHome({
     onInsertConsumed?.()
     setTimeout(() => ref.current?.focus(), 0)
   }, [insert, onInsertConsumed])
+
+  const lastFilesRef = useRef(0)
+  useEffect(() => {
+    // Only files meant for the new-chat screen.
+    if (!fileInsert || fileInsert.target !== HOME_TARGET || fileInsert.n === lastFilesRef.current) return
+    lastFilesRef.current = fileInsert.n
+    // Attachments send in Agent mode, so that is the mode they arrive in (the confirmation said so).
+    setMode('agent')
+    setFiles((prev) => [...prev, ...fileInsert.files])
+    onFileInsertConsumed?.()
+    // The message box is NOT given the keyboard: these files came from outside Beacon, and what
+    // the person types next should go where they were typing, not here with Enter one key away.
+  }, [fileInsert, onFileInsertConsumed])
 
   // A delivered dictation appends to the draft and is then consumed — same contract, and the same
   // nonce guard, as the thread: two identical transcripts are two insertions, and a re-render in

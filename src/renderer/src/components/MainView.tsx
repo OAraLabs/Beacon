@@ -1,3 +1,5 @@
+import { HOME_TARGET, type FileOffer } from '@shared/os-entry'
+import { OfferedFilesDialog } from './OfferedFilesDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ApprovalDecision, ApprovalRequest, SessionSummary } from '@shared/ipc'
 import {
@@ -778,6 +780,48 @@ export function MainView() {
     setComposerInsert({ text, n: ++insertSeq.current })
   }, [])
   const onInsertConsumed = useCallback(() => setComposerInsert(null), [])
+  // Files handed to Beacon from outside it (@shared/os-entry): the offer waiting for an answer, and,
+  // after a yes, the files on their way into a message box. Owned here because the answer may
+  // change which composer is up (a new conversation, or the open one).
+  const [fileOffer, setFileOffer] = useState<FileOffer | null>(null)
+  const [fileOfferNote, setFileOfferNote] = useState('')
+  // Which conversation was open (and in this window) when each offer's screen came up. "Add to
+  // this conversation" means that one for as long as the screen is up, whatever is opened since.
+  const [offerFor, setOfferFor] = useState<{ offerId: string; session: string | null } | null>(null)
+  useEffect(() => {
+    if (!fileOfferNote) return
+    const t = setTimeout(() => setFileOfferNote(''), 9000)
+    return () => clearTimeout(t)
+  }, [fileOfferNote])
+  // `target` is the one message box they are for: a conversation's id, or HOME_TARGET for the
+  // new-chat screen. Only that box takes them, and if it is not there to take them within a few
+  // seconds they are dropped: confirmed files must never turn up later in some other conversation.
+  const [fileInsert, setFileInsert] = useState<{ files: PendingFile[]; n: number; target: string } | null>(null)
+  const onFileInsertConsumed = useCallback(() => setFileInsert(null), [])
+  useEffect(() => {
+    if (!fileInsert) return
+    const t = setTimeout(
+      () =>
+        setFileInsert((cur) => {
+          if (cur?.n !== fileInsert.n) return cur
+          // Nobody took them (the conversation they were for is no longer on screen): say so.
+          setFileOfferNote('Those files were not added: the conversation they were for is no longer open here. Hand them to Beacon again.')
+          return null
+        }),
+      4000
+    )
+    return () => clearTimeout(t)
+  }, [fileInsert])
+  useEffect(() => {
+    const b = window.beacon
+    if (!b) return
+    // One may have arrived before this window existed (a cold start by "Open with").
+    void b.osEntry
+      .pending()
+      .then((o) => o && setFileOffer(o))
+      .catch(() => undefined)
+    return b.osEntry.onOffer(setFileOffer)
+  }, [])
   // Saved prompts (@shared/saved-prompts): the dialog is hosted here so both the Chat home and the
   // palette can open it. `draft` set → it opens on a new prompt holding that text.
   const savedPrompts = useSavedPrompts()
@@ -855,6 +899,14 @@ export function MainView() {
     void window.beacon?.sessionWindows.requestClose(id)
   }, [])
   const activePopped = active !== null && (popped.has(active) || popping === active)
+  const offerId = fileOffer?.id ?? null
+  useEffect(() => {
+    // Noted once, when the offer's screen comes up. Not for a conversation in its own window:
+    // there is no message box for it here.
+    if (offerId === null) return
+    setOfferFor((cur) => (cur?.offerId === offerId ? cur : { offerId, session: active !== null && !activePopped ? active : null }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately frozen at the moment the offer appears
+  }, [offerId])
 
   // ── Split panes: what is on screen ───────────────────────────────────────────
   const onScreen = visibleSessions(layout).filter((id) => !popped.has(id))
@@ -1672,6 +1724,8 @@ export function MainView() {
                   onSubmit={startFromHome}
                   insert={composerInsert}
                   onInsertConsumed={onInsertConsumed}
+                  fileInsert={fileInsert}
+                  onFileInsertConsumed={onFileInsertConsumed}
                   dockPane={panelShowing ? panel.pane : null}
                   onToggleDock={togglePane}
                   handsFreePhase={handsFreePhase}
@@ -1720,6 +1774,8 @@ export function MainView() {
                   onDictationConsumed={() => setDictated(null)}
                   insert={focused ? composerInsert : null}
                   onInsertConsumed={onInsertConsumed}
+                  fileInsert={focused ? fileInsert : null}
+                  onFileInsertConsumed={onFileInsertConsumed}
                   handsFreePhase={focused ? handsFreePhase : undefined}
                   onHandsFreeToggle={focused && voiceOffered ? () => void onHandsFreeToggle() : undefined}
                   jumpTo={jump && jump.sessionId === target ? { messageId: jump.messageId, nonce: jump.nonce } : null}
@@ -1918,6 +1974,43 @@ export function MainView() {
         <SearchLayer initialQuery={searchQuery} onClose={() => setSearchQuery(null)} onJump={jumpToHit} />
       ) : null}
       {sheetOpen ? <ShortcutSheet onClose={() => setSheetOpen(false)} /> : null}
+      {fileOfferNote ? (
+        <div role="status" className="offer-note" data-testid="offer-note">
+          {fileOfferNote}
+        </div>
+      ) : null}
+      {fileOffer ? (
+        <OfferedFilesDialog
+          key={fileOffer.id}
+          offer={fileOffer}
+          // Not offered for a conversation that is in its own window: there is no message box for
+          // it here to put the files in.
+          conversation={offerFor && offerFor.offerId === fileOffer.id && offerFor.session !== null ? (titles[offerFor.session] ?? sessions.find((x) => x.id === offerFor.session)?.title ?? 'this conversation') : null}
+          onAdd={(files, where, left) => {
+            // Some of what was listed may not have been added after all: say which, where it will be seen.
+            if (left) setFileOfferNote(left)
+            // Into a message box, as attachments. Nothing is sent from here.
+            // The conversation that was open when this screen came up, which is the one its button
+            // names: not whichever is open by the time of the click.
+            const here = where === 'this' && offerFor?.offerId === fileOffer.id ? offerFor.session : null
+            if (here === null) goHome()
+            else setView('chat')
+            setFileInsert({ files, n: ++insertSeq.current, target: here ?? HOME_TARGET })
+            // The message box does not take the keyboard for this (the new-chat screen would
+            // otherwise focus itself): the files came from outside Beacon, and the next key the
+            // person presses should not land beside them with Enter one key away.
+            // (Not if the next offer's screen is already up: its "Don't add" keeps the keyboard.)
+            setTimeout(() => {
+              const el = document.activeElement
+              if (el instanceof HTMLElement && !el.closest('[data-testid="offered-files"]')) el.blur()
+            }, 80)
+          }}
+          // Only if this is still the offer on screen: main hands over the next one as soon as
+          // this one is answered, and that one must not be cleared by this one closing.
+          onFail={setFileOfferNote}
+          onClose={() => setFileOffer((cur) => (cur?.id === fileOffer.id ? null : cur))}
+        />
+      ) : null}
       {promptsDialog ? <SavedPromptsDialog draft={promptsDialog.draft} onUse={insertSavedPrompt} onClose={() => setPromptsDialog(null)} /> : null}
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((prev) => dismissToast(prev, id))} />
       {/* Hands-free, made visible. The Voice segment always started the mic and the VAD; what it
