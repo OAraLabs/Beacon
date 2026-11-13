@@ -26,7 +26,7 @@ import { coerceDevices } from '@shared/home-devices'
 const FIXTURES = JSON.parse(readFileSync(new URL('../../src/shared/home-fixtures.json', import.meta.url), 'utf8'))
 const { ACTIVITY_PAGE_1, ACTIVITY_PAGE_2, DEVICES_LIST, MADE_UP_NAMES } = FIXTURES as Record<string, any>
 
-const MIN_CHECKS = 107
+const MIN_CHECKS = 110
 
 let failures = 0
 let checks = 0
@@ -238,6 +238,9 @@ assert(!/method=|<form|type="checkbox"|role="switch"/.test(view), 'no form, no s
 assert(/aria-label="Device"/.test(view) && /aria-label="Room"/.test(view) && /aria-label="Tier"/.test(view), 'the three filters are labelled')
 assert(/HomeTierBadge/.test(view), 'tiers are the shared chip: a word and a glyph')
 assert(/aria-expanded/.test(view), 'and "and N more" says whether it is open')
+assert(/useHomeCapability\(\)/.test(view) && /if \(!capable\) return null/.test(view), 'the timeline renders nothing unless the Prometheus advertises Home')
+assert(/useEffect\(\(\) => \{\n    if \(!capable\) return\n/.test(view), 'and it asks the daemon for nothing then: its first effect stops before any request')
+assert(/useHomeCapability\(\)/.test(panel) && /if \(!capable\) return null/.test(panel), 'nor does the Home screen that holds it')
 assert(/HomeActivity/.test(panel) && /role="tablist"/.test(panel) && /role="tab"/.test(panel) && /aria-selected/.test(panel), 'Home has Devices and Activity tabs, and says which is open')
 
 console.log(`[smoke] ${checks} checks, ${failures} failures`)
