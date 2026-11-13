@@ -8,13 +8,18 @@
 // Two floors, both toward asking more: a tier Beacon does not recognise (or a device the daemon says is
 // unclassified) is shown Sensitive, and a Critical device is read only whatever else the payload says.
 
-import { safeExternalUrl } from './browser-pane'
+import { homeLinkOrNull } from './home-link'
 import { coerceTier, tierPresentation, type HomeTier } from './home-approval'
 
 /** Who is shown the Home row: an owner, or a Beacon that cannot tell (shown everything, as elsewhere). An approved (limited)
  *  device never sees it, and until the role is known (undefined) the row waits instead of flashing. */
 export function showHomeFor(role: 'owner' | 'limited' | null | undefined): boolean {
   return role === 'owner' || role === null
+}
+
+/** The Home row: the owner's, and only on a Prometheus that advertises Home (@shared/home-capability). Nobody is shown a row that opens on an error. */
+export function homeEntryVisible(role: 'owner' | 'limited' | null | undefined, capable: boolean): boolean {
+  return capable && showHomeFor(role)
 }
 
 export const HOME_STATUS_PATH = '/api/home/status'
@@ -61,7 +66,7 @@ export function coerceStatus(raw: unknown): HomeStatus | undefined {
     deviceCount: typeof raw.device_count === 'number' && Number.isFinite(raw.device_count) ? raw.device_count : null,
     detail: str(raw.detail) ?? STATE_WORDS[state],
     checkedAt: typeof raw.checked_at === 'number' && Number.isFinite(raw.checked_at) ? raw.checked_at : null,
-    openUrl: typeof raw.open_url === 'string' ? safeExternalUrl(raw.open_url) : null
+    openUrl: homeLinkOrNull(raw.open_url)
   }
 }
 
@@ -126,7 +131,7 @@ export function coerceDevices(raw: unknown): { updatedAt: number | null; devices
       tier: unclassified ? 'sensitive' : coerceTier(r.tier),
       unclassified,
       relaxed: r.relaxed === true,
-      openUrl: typeof r.open_url === 'string' ? safeExternalUrl(r.open_url) : null
+      openUrl: homeLinkOrNull(r.open_url)
     })
   }
   return { updatedAt: typeof raw.updated_at === 'number' && Number.isFinite(raw.updated_at) ? raw.updated_at : null, devices }

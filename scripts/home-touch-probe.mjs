@@ -26,6 +26,7 @@ const out = mkdtempSync(join(tmpdir(), 'beacon-home-touch-'))
 
 let statusMode = 'connected' // connected | unreachable | 404 | 403
 let putFails = false
+let capable = false // whether this fake Prometheus advertises home/1 on GET /api/status
 let devices = structuredClone(DEVICES_LIST.devices)
 let grants = structuredClone(GRANTS_LIST)
 const writes = [] // { method, path, body }
@@ -38,6 +39,7 @@ const gateway = createServer((req, res) => {
   req.on('data', (c) => (body += c))
   req.on('end', () => {
     if (url === '/api/devices') return res.end('[]') // no row of its own: the global token, an owner
+    if (url === '/api/status') return res.end(JSON.stringify({ state: 'idle', model: 'stub-model', capabilities: capable ? ['home/1'] : [] }))
     if (url === '/api/home/status') {
       served += 1
       if (statusMode === '404') return (res.statusCode = 404), res.end('{"error":"not_found"}')
@@ -105,6 +107,15 @@ const clickBy = (sel, text) =>
   `(() => { const els = [...document.querySelectorAll(${JSON.stringify(sel)})]; const el = ${text === undefined ? 'els[0]' : `els.find((e) => e.innerText.trim() === ${JSON.stringify(text)})`}; if (!el) return false; el.click(); return true })()`
 const PANEL = `document.querySelector('[data-testid="home-status"]')`
 
+/** Workspace → Integrations, from wherever the app is. */
+async function openIntegrations() {
+  await evaluate(clickBy('nav[aria-label="Views"] button[title="Mission"]'))
+  await sleep(300)
+  await evaluate(clickBy('nav[aria-label="Views"] button[title="Workspace"]'))
+  await until(`!!document.querySelector('.subnav-pills')`, 4000)
+  await evaluate(clickBy('.subnav-pills button', 'Integrations'))
+  await until(`!!document.querySelector('[data-testid="integrations-summary"], [data-testid="integration-row"], button')`, 4000)
+}
 /** Workspace → Integrations → Home, from wherever the app is. */
 async function openHome() {
   await evaluate(clickBy('nav[aria-label="Views"] button[title="Mission"]'))
@@ -162,6 +173,18 @@ const dialog = () => `(() => {
 
 await send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false })
 
+// ── 0. no Home row unless the Prometheus advertises Home ─────────────────────
+console.log('\n=== 0. the capability gate ===')
+capable = false
+await openIntegrations()
+await sleep(1500)
+check((await evaluate(`!document.querySelector('[data-testid="integration-row"][data-health="home"]')`)) === true, 'a Prometheus that does not advertise Home shows no Home row')
+check((await evaluate(`!/What Prometheus can touch/.test(document.body.innerText)`)) === true, 'and nothing of Home anywhere on the page')
+check(served === 0, 'and Beacon did not ask that Prometheus for Home (/api/home/status)', `asked ${served}`)
+capable = true
+await openIntegrations() // the page opening asks again
+check(!!(await until(`!!document.querySelector('[data-testid="integration-row"][data-health="home"]')`, 8000)), 'once the Prometheus advertises Home, the row appears')
+
 // ── 1. connected ─────────────────────────────────────────────────────────────
 console.log('\n=== 1. Integrations → Home, connected ===')
 await openHome()
@@ -173,7 +196,7 @@ if (!h) {
   process.exit(1)
 }
 check(h.statusText.includes('Connected to Home Assistant · 13 devices'), `connection line (got "${h.statusText}")`)
-check(h.statusState === 'connected' && h.statusLink === 'https://home.example.test', 'it carries the link to Home Assistant', h.statusLink)
+check(h.statusState === 'connected' && h.statusLink === 'https://home.example.test/', 'it carries the link to Home Assistant', h.statusLink)
 
 console.log('\n=== 2. Always allowed: first, and every row can be revoked ===')
 check(h.alwaysBeforeDevices && h.alwaysTop < h.devicesTop, 'the Always allowed list comes before the devices', `${h.alwaysTop} vs ${h.devicesTop}`)
@@ -304,7 +327,7 @@ u = await until(`document.querySelector('[data-testid="home-unavailable"][data-k
 check(!!u && /Only an owner device can see this\./.test(u), 'a device that is not an owner is told so', u ?? '')
 await shot('forbidden')
 
-const MIN_CHECKS = 53
+const MIN_CHECKS = 57
 if (checks < MIN_CHECKS) {
   console.error(`  FAIL only ${checks} checks ran, expected at least ${MIN_CHECKS}`)
   failures += 1

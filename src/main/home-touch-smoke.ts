@@ -44,7 +44,7 @@ const {
   STATUS_UNREACHABLE
 } = FIXTURES as Record<string, any>
 
-const MIN_CHECKS = 135
+const MIN_CHECKS = 149
 
 let failures = 0
 let checks = 0
@@ -72,7 +72,7 @@ assert(revokePath('a/b') === '/api/approvals/grants/a%2Fb', 'the grant id is enc
 console.log('[smoke] === 2. the connection line ===')
 {
   const s = coerceStatus(STATUS_CONNECTED)!
-  assert(s.state === 'connected' && s.deviceCount === 13 && s.openUrl === 'https://home.example.test', 'connected status maps')
+  assert(s.state === 'connected' && s.deviceCount === 13 && s.openUrl === 'https://home.example.test/', 'connected status maps (the link as it will be opened)')
   assert(statusLine(s) === 'Connected to Home Assistant · 13 devices', `the count is appended when connected (got "${statusLine(s)}")`)
   assert(statusTone(s) === 'ok', 'connected is ok')
   assert(statusLine({ ...s, deviceCount: 1 }) === 'Connected to Home Assistant · 1 device', 'one device is singular')
@@ -286,7 +286,6 @@ assert(/<input[^>]*type="search"|aria-label="Search devices"/.test(panel), 'the 
 assert(/aria-pressed|role="radio"|role="tab"/.test(panel), 'the tier filter says which one is on')
 assert(!/<input[^>]*type="checkbox"|role="switch"/.test(panel), 'no on/off switch for a device anywhere')
 assert(/HomePanel/.test(integ) && /useDeviceRole/.test(integ), 'Integrations mounts Home, and asks the role')
-assert(/showHomeFor\(role\)/.test(integ), 'and shows the row only as showHomeFor says')
 assert(showHomeFor('owner') === true, 'an owner sees Home')
 assert(showHomeFor(null) === true, 'a Beacon that cannot tell the role sees it, as everywhere else')
 assert(showHomeFor('limited') === false, 'an approved (limited) device does not')

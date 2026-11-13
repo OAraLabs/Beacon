@@ -9,7 +9,8 @@ import type {
 } from '@shared/integrations'
 import { asBrowser, asControls, asEvents, asVitals, isAuthFailure, isSupportedViewType } from '@shared/integrations'
 import { HomePanel } from './HomePanel'
-import { showHomeFor } from '@shared/home-devices'
+import { homeEntryVisible } from '@shared/home-devices'
+import { refreshHomeCapability, useHomeCapability } from '../home-capability-store'
 import { useDeviceRole } from './OwnerOnlyNote'
 
 // Integrations — the GENERIC control-surface tab (contract v0.1). Every view
@@ -354,7 +355,9 @@ export function IntegrationsPanel() {
   // Home is the owner's: an approved (limited) device sees no Home row, and nothing of Home is asked of the daemon. Until
   // the role is known the row waits rather than flashing; a Beacon that cannot tell shows it, as everywhere else.
   const role = useDeviceRole()
-  const showHome = showHomeFor(role)
+  const homeCapable = useHomeCapability()
+  const showHome = homeEntryVisible(role, homeCapable)
+  useEffect(() => refreshHomeCapability(), []) // the page opening is a reason to ask again: the Prometheus may have just started advertising Home
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState(0)
   // Inline token editor — Electron has no window.prompt(), so the "Set token…"
