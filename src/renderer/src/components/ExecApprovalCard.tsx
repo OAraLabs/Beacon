@@ -1,4 +1,4 @@
-import { Fragment, useEffect, type CSSProperties } from 'react'
+import { Fragment, useEffect, type CSSProperties, useState, useRef } from 'react'
 import type { ApprovalRequest, ApprovalDecision } from '@shared/ipc'
 import { disclosureLabel } from '@shared/approval-disclosure'
 import { approvalKey, isTypingTarget } from '@shared/approval-keys'
@@ -185,7 +185,7 @@ export function ExecApprovalCard({
   cannotApprove = null,
   disclosureOpen = false,
   onToggleDisclosure,
-  first,
+  critical = false,
   activeSessionId,
   onResolve
 }: {
@@ -204,8 +204,8 @@ export function ExecApprovalCard({
    */
   disclosureOpen?: boolean
   onToggleDisclosure?: () => void
-  /** This is the FIRST pending card, so `A`/`D` have an unambiguous referent. See approval-keys. */
-  first?: boolean
+  /** Prometheus marked this request critical (`isCardOnly`): it is approved with this card's button and nothing else, so `A` does not act. */
+  critical?: boolean
   /** The conversation on screen, so a worker's request can say whether it is this one. */
   activeSessionId?: string | null
   onResolve: (d: ApprovalDecision) => void
@@ -220,6 +220,14 @@ export function ExecApprovalCard({
   // first would be Beacon deciding which argument matters. See @shared/approval-arguments.
   const args = Object.entries(approval.arguments ?? {})
   const countdown = expiresIn(approval.expiresAt)
+  // Focus is on this card, so `A`/`D` answer it; the key hints are shown only then.
+  const [keysLive, setKeysLive] = useState(false)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  // No blur is fired when the focused element is REMOVED (a button that goes away after a refusal):
+  // focus drops to the page and the hints would go on saying the keys work. Checked after each render.
+  useEffect(() => {
+    if (keysLive && !cardRef.current?.contains(document.activeElement)) setKeysLive(false)
+  })
 
   // `A` approves once, `D` denies — under the narrow conditions in @shared/approval-keys. The
   // listener is on the window because the card has no focus of its own: the user is reading it,
@@ -230,7 +238,11 @@ export function ExecApprovalCard({
         key: e.key,
         modified: e.metaKey || e.ctrlKey || e.altKey,
         typing: isTypingTarget(e.target as HTMLElement | null),
-        first: first !== false
+        // Asked of the document at the keystroke, not remembered: where focus IS decides, and it
+        // must be on THIS card.
+        onThisCard: (document.activeElement?.closest?.('[data-approval-id]') as HTMLElement | null)?.dataset.approvalId === approval.requestId,
+        repeat: e.repeat,
+        critical
       })
       if (!action) return
       if (action === 'approve' && cannotApprove) return // nothing to approve with here; `A` falls through to the page
@@ -242,10 +254,25 @@ export function ExecApprovalCard({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [approval.requestId, first, onResolve, cannotApprove])
+  }, [approval.requestId, onResolve, cannotApprove, critical])
 
   return (
-    <div style={card}>
+    <div
+      style={card}
+      ref={cardRef}
+      className="approval-card"
+      role="group"
+      aria-label={`Approval request: ${approval.toolName}`}
+      data-approval-id={approval.requestId}
+      data-critical={critical ? 'yes' : 'no'}
+      data-keys-live={keysLive ? 'yes' : 'no'}
+      // Focusable by a click or from code, not a Tab stop of its own: its buttons are.
+      tabIndex={-1}
+      onFocus={() => setKeysLive(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setKeysLive(false)
+      }}
+    >
       <div style={header}>
         {/* A warning triangle in lapis, drawn rather than an emoji: the emoji renders full-colour
             and ignores the card's own palette, which is the whole point of the lapis decision. */}
@@ -310,6 +337,17 @@ export function ExecApprovalCard({
           </div>
         ) : null}
 
+        {keysLive ? null : (
+          <div style={{ fontSize: 11.5, color: 'var(--c-text-faint)' }} data-testid="approval-keys-hint">
+            {critical ? 'Click this card, or Tab to it, to deny with D.' : 'Click this card, or Tab to it, to answer with A or D.'}
+          </div>
+        )}
+        {critical ? (
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--c-text-dim)' }} data-testid="approval-critical-note">
+            This request can be approved only here, with the button.
+          </div>
+        ) : null}
+
         <div style={{ display: 'flex', gap: 8 }}>
           {cannotApprove ? null : (
             <button
@@ -322,11 +360,11 @@ export function ExecApprovalCard({
               {/* "once" stays in the LABEL. This button creates no remembered grant, and calling it
                   plain "Approve" beside a disclosure that does would blur exactly the line the
                   disclosure exists to draw. */}
-              Approve once <span style={actionKey}>A</span>
+              Approve once{keysLive && !critical ? <span style={actionKey}> A</span> : null}
             </button>
           )}
           <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' })}>
-            Deny <span style={actionKey}>D</span>
+            Deny{keysLive ? <span style={actionKey}> D</span> : null}
           </button>
         </div>
 
