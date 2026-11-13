@@ -97,7 +97,10 @@ import { MissionHome } from './MissionHome'
 import { ChatHome, type HomeStart } from './ChatHome'
 import type { PendingFile } from '../attachments-io'
 import { noteView } from '../view-trail-store'
-import { DEFAULT_VIEW, NAV_VIEWS, usesPillRow, viewLabel, type ViewId } from '@shared/views'
+import { DEFAULT_VIEW, NAV_VIEWS, usesPillRow as usesPillRowIn, viewLabel, type ViewId } from '@shared/views'
+import { configTabVisible, homeLabel, navTreeFor, viewInMode, viewVisible } from '@shared/ui-mode'
+import { setUiMode, useUiMode } from '../ui-mode-store'
+import { TodayHome } from './TodayHome'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HOME, LAST_SESSION_KEY, beginFromHome, resolveLaunchTarget, type ChatTarget } from '@shared/chat-home'
 import {
@@ -560,7 +563,14 @@ export function MainView() {
    * nothing renders from it directly.
    */
   const daemonLastSeen = useRef(0)
-  const [view, setView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
+  // Everyday or full (@shared/ui-mode). The view ON SCREEN is the chosen one, or the home when
+  // this mode has put the chosen one away (a remembered view, a card's link, the switch itself):
+  // derived, so a hidden view is never drawn even for a frame.
+  const uiMode = useUiMode()
+  const [chosenView, setView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
+  const view = viewInMode(chosenView, uiMode)
+  /** Whether a view has a pill row in THIS mode's navigation (everyday mode's groups are smaller). */
+  const usesPillRow = (v: ViewId): boolean => usesPillRowIn(v, navTreeFor(uiMode))
   const shownView = useRef<ViewId | null>(null)
   useEffect(() => {
     keptView = view
@@ -1452,15 +1462,16 @@ export function MainView() {
   }, [togglePane, closePanel])
 
   const paletteCommands: PaletteCommand[] = [
-    ...NAV_VIEWS.map<PaletteCommand>((v) => ({
+    // Only the views this mode shows; the home goes by its name in this mode (Today or Mission).
+    ...NAV_VIEWS.filter((v) => viewVisible(v.id, uiMode)).map<PaletteCommand>((v) => ({
       id: `view:${v.id}`,
-      label: `Go to ${v.label}`,
+      label: `Go to ${v.id === 'mission' ? homeLabel(uiMode) : v.label}`,
       group: 'view',
       run: () => setView(v.id)
     })),
     // Slice 8: deep-links into the native surfaces (Config tabs) — Memory/Skills/Telemetry/… are
     // one keystroke away without growing the nav rail.
-    ...['memory', 'skills', 'telemetry', 'sentinel', 'wiki', 'cron', 'profiles'].map<PaletteCommand>((tabId) => ({
+    ...['memory', 'skills', 'telemetry', 'sentinel', 'wiki', 'cron', 'profiles'].filter((tabId) => configTabVisible(tabId, uiMode)).map<PaletteCommand>((tabId) => ({
       id: `surface:${tabId}`,
       label: `Open ${tabId[0].toUpperCase()}${tabId.slice(1)}`,
       hint: 'config',
@@ -1485,6 +1496,14 @@ export function MainView() {
       label: 'New chat',
       group: 'action',
       run: goHome
+    },
+    // The Settings switch, from the keyboard: a view someone remembers and cannot find is one
+    // palette entry away, in words that say what it will do.
+    {
+      id: 'action:ui-mode',
+      label: uiMode === 'everyday' ? 'Show everything (Mission, Coding, Activity…)' : 'Show only the everyday views',
+      group: 'action',
+      run: () => setUiMode(uiMode === 'everyday' ? 'full' : 'everyday')
     },
     {
       id: 'action:prompts',
@@ -1767,6 +1786,18 @@ export function MainView() {
                   said which (the page's first moments), such a view waits rather than asks. */}
               {ownerGate && view !== 'coding' && view !== 'loop-manager' ? (
             ownerGate === 'note' ? <OwnerOnlyNote area={view} /> : null
+          ) : view === 'mission' && uiMode === 'everyday' ? (
+            <TodayHome
+              approvals={approvals}
+              onResolveApproval={(id, d) => void resolveApproval(id, d)}
+              onNewChat={goHome}
+              onOpenView={setView}
+              onOpenSession={(id) => {
+                void select(id)
+                setView('chat')
+              }}
+              titles={Object.fromEntries(sessions.map((s) => [s.id, titles[s.id] ?? s.title ?? '']))}
+            />
           ) : view === 'mission' ? (
             <MissionHome
               approvals={approvals}

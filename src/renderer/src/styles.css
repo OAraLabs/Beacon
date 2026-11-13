@@ -6031,3 +6031,154 @@ body.is-resizing-panel {
   outline: 2px solid var(--c-arc);
   outline-offset: -2px;
 }
+
+/* ── Today: the home in everyday mode (TodayHome.tsx) ─────────────────────────────────────────
+   One reading column: a heading, then three cards that each answer one question. Tokens only;
+   the same surfaces and lines as the rest of the shell, so every skin reaches it. */
+.today {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 24px 40px;
+}
+.today-inner {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.today-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.today-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.today-date {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ink4);
+}
+.today-new {
+  padding: 8px 16px;
+  border: 1px solid var(--c-arc);
+  border-radius: 8px;
+  background: var(--c-arc);
+  color: var(--c-on-arc);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.today-new:focus-visible,
+.today-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.today-card {
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  background: var(--node);
+  padding: 14px 16px;
+}
+.today-h {
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink2);
+}
+.today-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--c-arc-soft);
+  color: var(--c-arc-text);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.today-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink4);
+}
+.today-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.today-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line2);
+}
+.today-row:first-child {
+  border-top: none;
+  padding-top: 2px;
+}
+.today-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.today-row-main {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-row-detail {
+  font-size: 12px;
+  color: var(--ink4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-mark {
+  display: inline-flex;
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+.today-mark.is-bad {
+  color: var(--c-err-text);
+}
+.today-when {
+  font-size: 12px;
+  color: var(--ink4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.today-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.today-btn-quiet {
+  color: var(--ink4);
+}

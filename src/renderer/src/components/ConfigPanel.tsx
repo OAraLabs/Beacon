@@ -1,3 +1,5 @@
+import { configTabInMode, configTabVisible } from '@shared/ui-mode'
+import { useUiMode } from '../ui-mode-store'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import {
   CONFIG_TABS,
@@ -866,9 +868,13 @@ function TabView({ id, data, reload }: { id: string; data: unknown; reload: () =
 }
 
 export function ConfigPanel({ initialTab }: { initialTab?: string }) {
-  const [active, setActive] = useState<string>(
+  // Everyday mode shows the tabs a person sets something in (@shared/ui-mode). A tab asked for
+  // that this mode has put away opens the first one it does show.
+  const mode = useUiMode()
+  const [picked, setActive] = useState<string>(
     CONFIG_TABS.some((t) => t.id === initialTab) ? (initialTab as string) : CONFIG_TABS[0].id
   )
+  const active = configTabInMode(picked, mode)
   const [data, setData] = useState<unknown>(null)
   const [loading, setLoading] = useState(true)
   const [authErr, setAuthErr] = useState(false)
@@ -921,9 +927,9 @@ export function ConfigPanel({ initialTab }: { initialTab?: string }) {
             system — never divided into a second bar. CONFIG_TABS stays the registry (its order
             and count are a tested contract); this only decides where the gaps go. */}
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }} data-testid="config-tab-groups">
-          {CONFIG_TAB_GROUPS.map((group) => (
+          {CONFIG_TAB_GROUPS.filter((group) => group.some((id) => configTabVisible(id, mode))).map((group) => (
             <div key={group.join(',')} style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              {group.map((id) => CONFIG_TABS.find((t) => t.id === id)).filter((t): t is (typeof CONFIG_TABS)[number] => !!t).map((t) => (
+              {group.map((id) => CONFIG_TABS.find((t) => t.id === id)).filter((t): t is (typeof CONFIG_TABS)[number] => !!t && configTabVisible(t.id, mode)).map((t) => (
                 <button
                   key={t.id}
                   style={tab(t.id === active)}

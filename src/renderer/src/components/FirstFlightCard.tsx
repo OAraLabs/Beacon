@@ -1,3 +1,5 @@
+import { viewVisible } from '@shared/ui-mode'
+import { useUiMode } from '../ui-mode-store'
 import { useEffect, useState } from 'react'
 import type { ViewId } from '@shared/views'
 import {
@@ -16,13 +18,17 @@ import {
 // deep-link chips; per-item done state + dismissal persist via the SAME b.settings mechanism the
 // other panels use. Purely additive to MissionHome — the armilla and HUD are untouched.
 
-const CHIPS: { id: FirstFlightItemId; label: string; view: ViewId }[] = [
+// A chip is offered only where its view exists in the current mode (@shared/ui-mode): everyday
+// mode has no Board or Loop Manager, so "Explore a panel" points at Documents there.
+const CHIPS: { id: FirstFlightItemId; label: string; view: ViewId; everydayOnly?: boolean }[] = [
   { id: 'send-message', label: 'Chat', view: 'chat' },
+  { id: 'explore-panel', label: 'Documents', view: 'documents', everydayOnly: true },
   { id: 'explore-panel', label: 'Board', view: 'board' },
   { id: 'explore-panel', label: 'Loop Manager', view: 'loop-manager' }
 ]
 
 export function FirstFlightCard({ onOpenView }: { onOpenView: (v: ViewId) => void }) {
+  const mode = useUiMode()
   const [visible, setVisible] = useState(false)
   const [done, setDone] = useState<Set<FirstFlightItemId>>(new Set())
 
@@ -87,7 +93,7 @@ export function FirstFlightCard({ onOpenView }: { onOpenView: (v: ViewId) => voi
             ) : null}
             {item.id === 'explore-panel' ? (
               <span className="firstflight-chips">
-                {CHIPS.filter((c) => c.id === 'explore-panel').map((c) => (
+                {CHIPS.filter((c) => c.id === 'explore-panel' && viewVisible(c.view, mode) && (mode === 'everyday' || !c.everydayOnly)).map((c) => (
                   <button
                     key={c.view}
                     className="firstflight-chip"
