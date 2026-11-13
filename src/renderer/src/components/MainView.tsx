@@ -1,6 +1,7 @@
+import { approveTooSoon, refusalWords, type ApprovalSurface } from '@shared/approval-critical'
 import { HOME_TARGET, type FileOffer } from '@shared/os-entry'
 import { OfferedFilesDialog } from './OfferedFilesDialog'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react'
 import type { ApprovalDecision, ApprovalRequest, SessionSummary } from '@shared/ipc'
 import {
   VOICE_SESSION_ID,
@@ -223,6 +224,22 @@ export function MainView() {
   /** The capability as last rendered, for resolveApproval (a stable callback) to read. */
   const homeCapableRef = useRef(false)
   homeCapableRef.current = homeCapable
+  /** For each pending request, its place in the stack and when it came to be there (appeared, or
+   *  moved because one above it left or arrived). See APPROVAL_SETTLE_MS: only a card that itself
+   *  just appeared or moved is protected, so a change elsewhere in the stack costs nothing. */
+  const approvalPlaces = useRef(new Map<string, { index: number; at: number }>())
+  const approvalIds = approvals.map((a) => a.requestId).join('\n')
+  // A layout effect: recorded before the new stack is painted, so no click on what is now shown
+  // can be judged against where things were.
+  useLayoutEffect(() => {
+    const now = Date.now()
+    const ids = approvalIds ? approvalIds.split('\n') : []
+    const places = approvalPlaces.current
+    for (const id of [...places.keys()]) if (!ids.includes(id)) places.delete(id)
+    ids.forEach((id, index) => {
+      if (places.get(id)?.index !== index) places.set(id, { index, at: now })
+    })
+  }, [approvalIds])
   // Which requests may be approved only from their full card (Prometheus marked them critical).
   const criticalAdvertised = useApprovalCriticalAdvertised()
   const approvalCardOnly = useCallback((id: string) => isCardOnly(id, approvals, criticalAdvertised), [approvals, criticalAdvertised])
@@ -1507,7 +1524,7 @@ export function MainView() {
     if (!homeCapable && approvals.some((a) => a.home)) refreshHomeCapability()
   }, [approvals, homeCapable])
 
-  const resolveApproval = useCallback(async (requestId: string, decision: ApprovalDecision) => {
+  const resolveApproval = useCallback(async (requestId: string, decision: ApprovalDecision, from: ApprovalSurface) => {
     // BREADCRUMB 2 — what survived the prop hop from the card.
     trace({
       point: 'mainview:resolve-enter',
@@ -1517,6 +1534,14 @@ export function MainView() {
     })
     const b = window.beacon
     if (!b) return
+    // This request's card only just appeared, or just moved (one above it was answered): what is
+    // under the pointer may not be what was there when the click began. An approve this soon is
+    // dropped. A request with no card in the stack has no place to have moved from; one whose
+    // place is not recorded yet, or not where the record says, has just moved.
+    const at = approvalsRef.current.findIndex((a) => a.requestId === requestId)
+    const place = approvalPlaces.current.get(requestId)
+    const since = at < 0 ? Infinity : place && place.index === at ? Date.now() - place.at : 0
+    if (approveTooSoon(decision, since)) return
     setApprovalErrors((m) => (m[requestId] ? { ...m, [requestId]: '' } : m)) // clear a stale rejection
     answeredByMe.current.add(requestId)
     const approval = approvalsRef.current.find((a) => a.requestId === requestId)
@@ -1533,7 +1558,7 @@ export function MainView() {
         requestId,
         scope: decision.kind === 'approve' ? decision.scope : undefined
       })
-      await b.approvals.resolve(requestId, decision)
+      await b.approvals.resolve(requestId, decision, from)
       if (waits) remove()
       if (decision.kind === 'approve' && approval && showHomeCard(approval, homeCapableRef.current)) {
         const answered = approval
@@ -1553,7 +1578,10 @@ export function MainView() {
       // undefined)`) is what would let a scope Beacon offers but the daemon rejects look like a
       // successful approval. The request is still pending server-side, so the 3s poll restores the
       // card on its own; this only has to carry the reason back to it.
-      setApprovalErrors((m) => ({ ...m, [requestId]: String(err instanceof Error ? err.message : err) }))
+      // Refused and still pending: the card comes straight back, where it was, with why. Left to
+      // the next poll it was gone for up to three seconds, which reads as "approved".
+      if (!waits && approval) setApprovals((p) => (p.some((a) => a.requestId === requestId) ? p : [...p.slice(0, Math.max(0, at)), approval, ...p.slice(Math.max(0, at))]))
+      setApprovalErrors((m) => ({ ...m, [requestId]: refusalWords(err) }))
     }
   }, [])
 
@@ -1718,7 +1746,7 @@ export function MainView() {
                 cannotApprove={cannotApprove[a.requestId] ?? null}
                 disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
                 onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
-                onResolve={(d) => void resolveApproval(a.requestId, d)}
+                onResolve={(d, from) => void resolveApproval(a.requestId, d, from)}
               />
             ) : (
               <ExecApprovalCard
@@ -1730,7 +1758,7 @@ export function MainView() {
                 cannotApprove={cannotApprove[a.requestId] ?? null}
                 disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
                 onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
-                onResolve={(d) => void resolveApproval(a.requestId, d)}
+                onResolve={(d, from) => void resolveApproval(a.requestId, d, from)}
               />
             )
           )}
@@ -1955,7 +1983,7 @@ export function MainView() {
               approvals={approvals}
               approvalCardOnly={approvalCardOnly}
               onShowApproval={showApproval}
-              onResolveApproval={(id, d) => void resolveApproval(id, d)}
+              onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
               onNewChat={goHome}
               onOpenView={setView}
               onOpenSession={(id) => {
@@ -1969,7 +1997,7 @@ export function MainView() {
               approvals={approvals}
               approvalCardOnly={approvalCardOnly}
               onShowApproval={showApproval}
-              onResolveApproval={(id, d) => void resolveApproval(id, d)}
+              onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
               onNewChat={goHome}
               onOpenView={setView}
             />
@@ -2031,7 +2059,7 @@ export function MainView() {
                   pendingApprovalIds={pendingApprovalIds}
                   approvalCardOnly={approvalCardOnly}
                   onShowApproval={showApproval}
-                  onResolveApproval={(id, d) => void resolveApproval(id, d)}
+                  onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
                 />
               ) : null}
             </div>

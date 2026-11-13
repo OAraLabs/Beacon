@@ -44,6 +44,7 @@
     "smoke:approval-refusal": "ELECTRON_RUN_AS_NODE=1 electron out/main/approval-refusal-smoke.js",
     "smoke:owner-promotion": "ELECTRON_RUN_AS_NODE=1 electron out/main/owner-promotion-smoke.js",
     "smoke:approval-push": "ELECTRON_RUN_AS_NODE=1 electron out/main/approval-push-smoke.js",
+    "smoke:approval-critical": "ELECTRON_RUN_AS_NODE=1 electron out/main/approval-critical-smoke.js",
     "smoke:voice": "ELECTRON_RUN_AS_NODE=1 electron out/main/voice-smoke.js",
     "smoke:voice-stream": "ELECTRON_RUN_AS_NODE=1 electron out/main/voice-stream-smoke.js",
     "smoke:hands-free": "ELECTRON_RUN_AS_NODE=1 electron out/main/hands-free-smoke.js",

@@ -1989,7 +1989,7 @@ function notifyApproval(
     // to a clean no-op (ok:false / 404), so acting on an already-resolved
     // notification can never double-run.
     const decision: ApprovalDecision = index === 0 ? { kind: 'approve', scope: 'once' } : { kind: 'deny' }
-    void approvalActionTarget(raisedBy, connection)?.resolveApproval(requestId, decision).catch(() => undefined)
+    void approvalActionTarget(raisedBy, connection)?.resolveApproval(requestId, decision, 'notification').catch(() => undefined)
   })
   n.on('click', () => showWindow())
   n.show()
