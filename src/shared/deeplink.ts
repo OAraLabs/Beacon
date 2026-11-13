@@ -25,6 +25,14 @@ function validSessionId(id: string): boolean {
 const TEXT_PARAMS = new Set(['text', 'prompt', 'message', 'msg', 'q', 'query', 'body', 'content', 'instructions', 'instruction', 'input', 'ask', 'say', 'draft', 'command', 'cmd', 'run'])
 
 /**
+ * What Beacon shows when it refuses a link: fixed words, the same for every refused link. Nothing
+ * the link says is in them (not its address, not its route, not a reason built from either):
+ * anyone can make a beacon:// link, and a notification under Beacon's name is not theirs to write.
+ * Why a link was refused is in main's log.
+ */
+export const LINK_BLOCKED_NOTICE = { title: 'Link blocked', body: 'Beacon blocked a link it does not open. Nothing was opened or sent.' } as const
+
+/**
  * Classify one URL. Returns null for anything that is not a beacon:// URL at all (argv is full of
  * ordinary arguments); a DeepLinkAction for everything that is. Unknown routes and malformed
  * links come back as `refused` with a reason — the caller surfaces it, because a link that

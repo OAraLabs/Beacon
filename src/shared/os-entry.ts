@@ -29,6 +29,12 @@ export const OFFER_GATHER_MS = 400
 /** How long the confirmation's "add" buttons stay unarmed after the screen comes up or the window
  *  gains focus: long enough that a click or key already on its way lands on nothing. */
 export const OFFER_ARM_MS = 1200
+/** How long the helper process gets to look at one batch of offered paths. Looking is an lstat
+ *  and a walk up the parents: milliseconds on a disk that answers. Past this the disk is not
+ *  answering, the helper is ended, and what it did not get to is shown as not looked at. */
+export const OFFER_LOOK_MS = 5000
+/** How long the helper gets to read ONE file after a yes. */
+export const OFFER_READ_MS = 20000
 
 /** What main learned about one path, without reading the file. */
 export interface OfferStat {
@@ -38,9 +44,10 @@ export interface OfferStat {
   real: string
   /**
    * 'file' a regular file. 'link' the path itself is a link to something else. 'directory',
-   * 'other' (a device, a pipe, a socket), 'missing'. Only 'file' can be added.
+   * 'other' (a device, a pipe, a socket), 'missing'. 'slow': the disk it is on did not answer in
+   * time, so nothing is known about it. Only 'file' can be added.
    */
-  kind: 'file' | 'link' | 'directory' | 'other' | 'missing'
+  kind: 'file' | 'link' | 'directory' | 'other' | 'missing' | 'slow'
   size: number
   /**
    * Where the file is in relation to the two folders that matter, found by main by IDENTITY (the
@@ -121,6 +128,81 @@ const mb = (n: number): string => `${(n / (1024 * 1024)).toFixed(1)} MB`
 const LIBRARY_WORK = ['mobile documents', 'cloudstorage']
 const fold = (x: string): string => x.normalize('NFC').toLowerCase()
 
+/** What is said after a refusal for where a file is: the way that still works. A file a person
+ *  picks inside Beacon is their own choice; these rules are only about files handed over. */
+const PAPERCLIP = 'To attach it anyway, use the paperclip in the message box.'
+
+/** The top folders of the startup disk that hold the system and its settings, not a person's work. */
+const SYSTEM_TOP = new Set(['etc', 'private', 'var', 'usr', 'bin', 'sbin', 'lib', 'lib64', 'system', 'library', 'boot', 'root', 'proc', 'sys', 'dev', 'run', 'cores'])
+
+/** Whether folded parts, counted from the top of a disk, are inside a system folder. Temporary
+ *  folders are not (apps hand over files from there all the time), nor are the places Linux
+ *  shows a person's own files through (/run/user/<n>/doc, /run/user/<n>/gvfs).
+ *  On ANOTHER disk only the unmistakable ones count: a memory stick may well have a "Library", a
+ *  "bin", a "System" or a "Private" of its owner's making. */
+function inSystemFolder(f: readonly string[], elsewhere: boolean): boolean {
+  if (f.length < 2) return false
+  const temp = (at: number): boolean => f.length > at + 1 && (f[at] === 'tmp' || f[at] === 'folders')
+  const p = f[0] === 'private' ? 1 : 0
+  if (f.length > p + 1 && f[p] === 'etc') return true
+  if (f.length > p + 1 && f[p] === 'var') return !temp(p + 1)
+  if (elsewhere) return f.length > 2 && f[0] === 'system' && f[1] === 'library'
+  if (!SYSTEM_TOP.has(f[0])) return false
+  if (f[0] === 'private') return !(f[1] === 'tmp' && f.length > 2)
+  if (f[0] === 'run') return !(f[1] === 'user' && f.length > 4 && (f[3] === 'doc' || f[3] === 'gvfs'))
+  if (f[0] === 'dev') return !(f[1] === 'shm' && f.length > 2)
+  return true
+}
+
+/** Whether folded parts hold some person's app data, at ANY depth (a backup keeps whole home
+ *  folders far below the top of its disk): a Library apart from its cloud drives, or the folder
+ *  Linux "snap" apps keep theirs in (a browser installed that way has its whole profile there,
+ *  with no dot anywhere in the path). Returns where the folder's name is, or -1. */
+function appDataAt(f: readonly string[]): number {
+  for (let i = 0; i + 3 < f.length; i++) {
+    if (f[i] !== 'users' && f[i] !== 'home') continue
+    if (f[i + 2] === 'library' && !(f.length >= i + 6 && LIBRARY_WORK.includes(f[i + 3]))) return i + 2
+    if (f[i + 2] === 'snap') return i + 2
+  }
+  return -1
+}
+
+/**
+ * Why the place a file REALLY is makes it one Beacon will not take from outside, when nothing in
+ * the path starts with a dot: `{ where, what }` for the words, or null. Read from the real path's
+ * own parts, case and Unicode form folded. `inHome`: main found the file inside the home folder
+ * (by identity); then it is not in a system folder wherever that home is (on some Linux systems
+ * home is /var/home/<name>), though it can still be in app data.
+ * The parts that only say WHICH disk are stepped over first, so the same folder is judged the
+ * same by any route to it: /System/Volumes/Data/… is the startup disk by another name, and
+ * /Volumes/<name>/…, /mnt/…, /media/… and /run/media/… are other disks, where another computer's
+ * system sits just the same.
+ */
+export function sensitivePlace(real: string, inHome = false): { where: string; what: 'system' | 'library' | 'snap' } | null {
+  const parts = real.split('/').filter(Boolean)
+  const f = parts.map(fold)
+  const data = appDataAt(f)
+  if (data >= 0) return { where: parts[data], what: f[data] === 'library' ? 'library' : 'snap' }
+  if (inHome) return null
+  // Each way the leading parts may be read: [how many parts name the disk, is it another disk].
+  // When they do name a disk, they are not read as folders of the startup disk as well:
+  // /System/Volumes/Data/Users/… is a person's home, not something inside /System.
+  let reads: [number, boolean][] = [[0, false]]
+  if (f[0] === 'system' && f[1] === 'volumes' && f[2] === 'data') reads = [[3, false]]
+  else if (f[0] === 'volumes') reads = [[2, true]]
+  else if (f[0] === 'mnt') reads = [[1, true], [2, true]] // a disk at /mnt itself, and /mnt/<disk>
+  else if (f[0] === 'media') reads = [[2, true], [3, true]] // /media/<disk> and /media/<person>/<disk>
+  else if (f[0] === 'run' && f[1] === 'media') reads = [[4, true]]
+  for (const [skip, elsewhere] of reads) {
+    const rest = f.slice(skip)
+    if (inSystemFolder(rest, elsewhere)) {
+      const two = rest[0] === 'private' && rest.length > 2
+      return { where: `/${parts.slice(skip, skip + (two ? 2 : 1)).join('/')}`, what: 'system' }
+    }
+  }
+  return null
+}
+
 /**
  * Why one offered path will not be added, or ''. The location rules read the facts main found by
  * identity (`inProfile`, `homeRel`) and the REAL path's own parts, never the spelling it was
@@ -131,6 +213,7 @@ const fold = (x: string): string => x.normalize('NFC').toLowerCase()
 export function offerProblem(s: OfferStat): string {
   // A link shows one name and reads another file. Beacon adds the file a person can see.
   if (s.kind === 'link') return 'This is a link to another file. Beacon adds a file itself, not a link to one.'
+  if (s.kind === 'slow') return 'The disk this file is on did not answer, so Beacon could not look at it. Try again when the disk is back.'
   if (s.kind === 'missing' || !s.real) return 'Beacon cannot find this file any more.'
   if (s.kind === 'directory') return /\.app\/?$/i.test(s.path) ? 'This is an application, not a file.' : 'This is a folder. Beacon adds files, one by one.'
   if (s.kind !== 'file') return 'This is not an ordinary file.'
@@ -144,6 +227,15 @@ export function offerProblem(s: OfferStat): string {
   if (s.homeRel !== null) {
     const rel = s.homeRel.split('/').filter(Boolean).map(fold)
     if (rel[0] === 'library' && !(rel.length >= 4 && LIBRARY_WORK.includes(rel[1]))) return "This file is in your Library, where apps keep their own data. Beacon does not add files from there."
+    if (rel[0] === 'snap' && rel.length >= 2) return `This file is in "snap", where apps keep their own data. Beacon does not take files from there when they are handed over. ${PAPERCLIP}`
+  }
+  // No dot anywhere, and still not a person's work: a system folder, someone's Library on any
+  // disk, an app's data folder. Refused here only; the paperclip is the person's own choice.
+  const place = sensitivePlace(s.real, s.homeRel !== null)
+  if (place) {
+    const where = safeName(place.where).replace(/"/g, '')
+    if (place.what === 'system') return `This file is in "${place.where.startsWith('/') ? '/' : ''}${where}", a system folder. Beacon does not take files from there when they are handed over. ${PAPERCLIP}`
+    return `This file is in ${place.what === 'library' ? 'a Library' : `"${where}"`}, where apps keep their own data. Beacon does not take files from there when they are handed over. ${PAPERCLIP}`
   }
   if (s.size > CHAT_UPLOAD_SAFE_BYTES) return `This file is ${mb(s.size)}, more than the ${Math.round(CHAT_UPLOAD_SAFE_BYTES / (1024 * 1024))} MB Prometheus accepts.`
   if (s.size === 0) return 'This file is empty.'
