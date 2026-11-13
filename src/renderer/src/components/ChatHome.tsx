@@ -10,6 +10,8 @@ import { stageFiles, type PendingFile } from '../attachments-io'
 import { useDeviceRole } from './OwnerOnlyNote'
 import { useInstances } from '../instances-store'
 import { composerPlaceholder } from '@shared/instance-rows'
+import { starters } from '@shared/saved-prompts'
+import { useSavedPrompts } from '../saved-prompts-store'
 
 // Chat home / landing: the new-conversation entry shown when no conversation is open.
 //
@@ -44,7 +46,8 @@ export function ChatHome({
   onDictateToggle,
   dictated,
   onDictationConsumed,
-  voiceNotice = ''
+  voiceNotice = '',
+  onManagePrompts
 }: {
   onSubmit: (start: HomeStart) => void
   dockPane?: PanelPane | null
@@ -64,9 +67,15 @@ export function ChatHome({
   /** The voice line MainView owns (a refused check, a denied mic, hands-free state). Shown here as
    *  in a conversation: a Voice click on Home that fails has to say so on Home. */
   voiceNotice?: string
+  /** Opens the saved-prompts dialog; with text, straight on a new prompt holding it. Absent → no
+   *  starter row (a window that has nowhere to show the dialog). */
+  onManagePrompts?: (draft?: string) => void
 }) {
   const [draft, setDraft] = useState('')
   const instances = useInstances()
+  // Starters: the person's saved prompts, then the built-in ones they kept. Six at most here; the
+  // rest are in the dialog and under `/` in the message box.
+  const promptList = starters(useSavedPrompts())
   const [mode, setMode] = useState<ChatMode>('agent')
   const [files, setFiles] = useState<PendingFile[]>([])
   const [attachNote, setAttachNote] = useState('')
@@ -296,6 +305,27 @@ export function ChatHome({
           </div>
           <input ref={fileInputRef} type="file" multiple onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
         </footer>
+        {onManagePrompts ? (
+          <div className="chat-home-starters" aria-label="Starters">
+            {promptList.slice(0, 6).map((s) => (
+              <button
+                key={s.id}
+                className="starter-chip"
+                title={s.text.trim()}
+                onClick={() => {
+                  // Into the box, never sent: the person reads it, finishes it, and sends it.
+                  setDraft((d) => appendComposerInsert(d, s.text))
+                  setTimeout(() => ref.current?.focus(), 0)
+                }}
+              >
+                {s.title}
+              </button>
+            ))}
+            <button className="starter-chip starter-chip-quiet" onClick={() => onManagePrompts(draft.trim() ? draft : undefined)}>
+              {draft.trim() ? 'Save as a prompt…' : promptList.length > 6 ? `All ${promptList.length} prompts…` : 'Edit prompts…'}
+            </button>
+          </div>
+        ) : null}
         {voiceOn ? <p className="chat-home-sub">Voice mode is on — speak, or type below.</p> : null}
       </div>
     </div>

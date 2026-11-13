@@ -67,6 +67,8 @@ import { destructiveSlash, parseLocalSlash, resolveModel, resolveSkin, slashBoun
 import { coerceTheme, THEME_LABEL, THEMES } from '@shared/theme'
 import { jumpHasNew, jumpLabel, shouldStick, showJumpPill } from '@shared/jump-latest'
 import { setTheme } from '../theme/apply-theme'
+import { slashCatalogWith } from '@shared/saved-prompts'
+import { useSavedPrompts } from '../saved-prompts-store'
 import { applyAtChoice, atKey, atMatches, atQuery, chipFromToken, chipsNote, fileQueryParts, referencesFromChips, slashWithReferences, MAX_REFERENCES, type AtCandidate, type ReferenceChip } from '@shared/at-references'
 import type { FileEntry, FileListDTO } from '@shared/daemon-api'
 import { screenAccessHint, screenshotFilename } from '@shared/capture'
@@ -548,6 +550,7 @@ export function ChatShell({
   // popup without eating the typed text; it re-arms as soon as the draft changes).
   const [slashHighlight, setSlashHighlight] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
+  const savedPrompts = useSavedPrompts()
   // @-references (Prometheus PR 382, the Beacon half): chips the daemon resolves against the
   // session workspace. The popup opens on an `@token` under the caret; file candidates come from
   // GET /api/files for the token's directory (Beacon is remote — it can only NAME files the daemon
@@ -1647,7 +1650,9 @@ export function ChatShell({
   const slashQ = slashQuery(draft)
   // At most SIX rows (match spec, step 17). The list opens OVER the composer, so a taller one
   // covers the message being answered — and past six the ranking is doing the work anyway.
-  const slashList = slashQ !== null && !slashDismissed ? slashMatches(slashQ).slice(0, 6) : []
+  // Saved prompts and starters ride in the same list, after the commands: `/plan` finds "Plan my
+  // day" and choosing it puts the prompt's text in the box (slashCompletion). Nothing is sent.
+  const slashList = slashQ !== null && !slashDismissed ? slashMatches(slashQ, slashCatalogWith(savedPrompts)).slice(0, 6) : []
   const atTok = atChips.length < MAX_REFERENCES && !atDismissed && slashQ === null ? atQuery(draft, atCaret) : null
   const atList: AtCandidate[] = atTok ? atMatches(atTok.query, atEntries.dir === fileQueryParts(atTok.query).dir ? atEntries.entries : []) : []
   const atVisible = atTok !== null && atList.length > 0
@@ -2530,6 +2535,7 @@ export function ChatShell({
                     operator should see `/reset` clears context BEFORE choosing it. Mutually
                     exclusive with the Telegram tag by construction — a destructive command runs on
                     web (P9.2), a web:false one is refused there, so a command is never both. */}
+                {c.prompt !== undefined ? <span className="slash-prompt-tag">prompt</span> : null}
                 {c.destructive ? <span className="slash-destructive-tag">clears context</span> : null}
                 {!c.web ? <span className="slash-tel-tag">Telegram</span> : null}
               </button>

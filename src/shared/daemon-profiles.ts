@@ -4,6 +4,7 @@
 //
 // No Node/Electron imports (same rule as the rest of src/shared).
 
+import { SAVED_PROMPTS_KEY } from './saved-prompts'
 import { CREDENTIAL_KIND_KEY } from './model-setup'
 import { DRAFT_PREFIX } from './drafts'
 import { LAST_SESSION_KEY } from './chat-home'
@@ -64,6 +65,7 @@ export const BEACON_SETTING_KEYS: readonly string[] = [
   ONBOARDING_BROWSING_KEY,
   ONBOARDING_KNOWN_KEY,
   ONBOARDING_LAN_ASKED_KEY,
+  SAVED_PROMPTS_KEY, // saved prompts are the person's, whichever Prometheus they are talking to
   'daemons:layout', // src/main/cache/daemon-folders.ts LAYOUT_KEY: app.db's own marker that the folders are in place
   'daemons:active' // src/main/cache/daemon-folders.ts ACTIVE_KEY: which Prometheus Beacon connects to at launch
 ]

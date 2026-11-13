@@ -35,6 +35,11 @@ export interface SlashCommand {
    * clearing the web session's context.
    */
   destructive?: boolean
+  /**
+   * Set → this row is a saved prompt or starter (@shared/saved-prompts), not a command. Choosing
+   * it replaces the draft with this text and sends nothing; the name never reaches the daemon.
+   */
+  prompt?: string
 }
 
 /**
@@ -142,9 +147,10 @@ export function slashMatches(query: string, catalog: SlashCommand[] = SLASH_COMM
   return [...web, ...tel]
 }
 
-/** Inserting a completion: `/name` + trailing space, ready for arguments. */
+/** Inserting a completion: `/name` + trailing space, ready for arguments. A saved prompt
+ *  completes to its own text instead: the draft becomes the prompt, ready to edit and send. */
 export function slashCompletion(cmd: SlashCommand): string {
-  return `/${cmd.name} `
+  return cmd.prompt !== undefined ? cmd.prompt : `/${cmd.name} `
 }
 
 export type SlashKeyAction =
