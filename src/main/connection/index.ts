@@ -38,6 +38,9 @@ import type { ProofControl } from '../identity'
  *   'status' (ConnectionStatus) — state transitions
  *   'stream' (ChatStreamFrame)  — normalized chat deltas, all sessions (filter by sessionId)
  */
+/** How long a Prometheus has to say what it does (its `subscribed` reply) before silence is taken for "nothing new". */
+const APPROVAL_CRITICAL_WAIT_MS = 5000
+
 export class ConnectionManager extends EventEmitter {
   private readonly rest: RestClient
   private readonly socket: GatewaySocket
@@ -95,12 +98,17 @@ export class ConnectionManager extends EventEmitter {
         onGatewayEvent: (ev: GatewayEvent) => {
           // The reply to each subscribe says what THIS daemon does. Read every time, on or off: the
           // Prometheus at an address can be upgraded, or rolled back, between two connections.
-          if (ev.type === 'subscribed') this.setApprovalCritical(advertisesApprovalCritical(ev.payload))
+          if (ev.type === 'subscribed') {
+            this.approvalCriticalSaid = true
+            this.setApprovalCritical(advertisesApprovalCritical(ev.payload))
+          }
           this.emit('gatewayEvent', ev)
         },
         onAuthFailure: () => this.setWsAuth('unauthorized'),
         // A redial is a new connect: whoever answers now proves who it is first, and REST waits for the same answer.
         beforeRedial: async () => {
+          this.cancelApprovalCriticalWait()
+          this.approvalCriticalSaid = false // whoever answers the next dial says for itself
           this.cleared = null
           const clearance = this.clearance()
           const ask = this.asking
@@ -143,6 +151,10 @@ export class ConnectionManager extends EventEmitter {
 
   start(): void {
     this.halted = false
+    // A new attempt (the first, a manual reconnect, a wake): any wait left from the connection
+    // before it is over, whatever state the status still shows.
+    this.cancelApprovalCriticalWait()
+    this.approvalCriticalSaid = false
     if (this.started) this.cleared = null // a reconnect asks again: the Prometheus answering may not be the one that answered last
     this.started = true
     const clearance = this.clearance()
@@ -156,6 +168,7 @@ export class ConnectionManager extends EventEmitter {
 
   stop(): void {
     this.halted = true
+    this.cancelApprovalCriticalWait()
     this.socket.stop()
   }
 
@@ -236,6 +249,8 @@ export class ConnectionManager extends EventEmitter {
    *  state changes (a dropped socket is still the same Prometheus) until the next reply says otherwise. */
   private approvalCritical: boolean | null = null // null: it has not said yet
   private approvalCriticalWait: NodeJS.Timeout | null = null
+  /** A `subscribed` reply has arrived on the connection now being made or in use. */
+  private approvalCriticalSaid = false
   private setApprovalCritical(next: boolean): void {
     if (this.approvalCriticalWait) clearTimeout(this.approvalCriticalWait)
     this.approvalCriticalWait = null
@@ -244,14 +259,27 @@ export class ConnectionManager extends EventEmitter {
     this.status = { ...this.status, approvalCritical: next }
     this.emit('status', this.status)
   }
-  /** Connected, and it has never said: give its `subscribed` reply a few seconds, then take silence
-   *  for "no". A Prometheus old enough not to reply at all must not be left in doubt for good. */
+  /**
+   * CONNECTED, and this Prometheus has never said what it does: give its `subscribed` reply a few
+   * seconds, then take silence for "no", so one too old to reply at all is not left in doubt for
+   * good. Deliberately narrow, because a wrong "no" hands back one-tap approval:
+   * - only while the socket is connected. Time spent dialling, waiting on the network after a
+   *   wake, or backing off is not the daemon's silence; leaving 'connected' cancels the wait.
+   * - only from "never said". Silence never replaces an answer: a "yes" is withdrawn only by a
+   *   reply that does not list the capability.
+   * So with the socket down and REST up, an older Prometheus stays "not said" and its requests are
+   * answered on their cards until the socket comes up. That is the safe side of the doubt.
+   */
   private awaitApprovalCritical(): void {
-    if (this.approvalCritical !== null || this.approvalCriticalWait) return
+    if (this.approvalCritical !== null || this.approvalCriticalSaid || this.approvalCriticalWait) return
     this.approvalCriticalWait = setTimeout(() => {
       this.approvalCriticalWait = null
-      if (this.approvalCritical === null) this.setApprovalCritical(false)
-    }, 5000)
+      if (!this.halted && this.status.state === 'connected' && this.approvalCritical === null && !this.approvalCriticalSaid) this.setApprovalCritical(false)
+    }, APPROVAL_CRITICAL_WAIT_MS)
+  }
+  private cancelApprovalCriticalWait(): void {
+    if (this.approvalCriticalWait) clearTimeout(this.approvalCriticalWait)
+    this.approvalCriticalWait = null
   }
 
   private setWsAuth(next: 'ok' | 'unauthorized'): void {
@@ -404,6 +432,7 @@ export class ConnectionManager extends EventEmitter {
     if (state === 'connected') this.wrongKey = null
     if (state === 'connected') this.askRole()
     if (state === 'connected') this.awaitApprovalCritical()
+    else this.cancelApprovalCriticalWait() // not connected: whatever silence follows is not the daemon's
     this.status = {
       state,
       gateway: this.status.gateway,

@@ -441,7 +441,7 @@ export function MissionControl({
                       original defect looked. */}
                   {/* A request Prometheus marked critical is approved on its full card and nowhere
                       else: this row shows a tool name, which is not enough to say yes to one. */}
-                  {approvalCardOnly?.(a.requestId) ? (
+                  {(approvalCardOnly?.(a.requestId) ?? true) ? (
                     <button style={{ ...actionBtn, padding: '3px 9px' }} data-testid="approval-row-show" onClick={() => onShowApproval?.(a.requestId)}>
                       Answer on the card
                     </button>

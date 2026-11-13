@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, useRef } from 'react'
 import type { ApprovalDecision, ApprovalRequest } from '@shared/ipc'
 import { approvalKey, isTypingTarget } from '@shared/approval-keys'
 import { COLLAPSE_AFTER, homeCardView } from '@shared/home-approval'
@@ -57,6 +57,12 @@ export function HomeApprovalCard({
   const canApprove = view.canApprove && !cannotApprove
   // Focus is on this card, so `A`/`D` answer it; the key hints are shown only then.
   const [keysLive, setKeysLive] = useState(false)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  // No blur is fired when the focused element is REMOVED: focus drops to the page and the hints
+  // would go on saying the keys work. Checked after each render, as on the generic card.
+  useEffect(() => {
+    if (keysLive && !cardRef.current?.contains(document.activeElement)) setKeysLive(false)
+  })
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -85,6 +91,7 @@ export function HomeApprovalCard({
   return (
     <div
       style={approvalCardStyle}
+      ref={cardRef}
       className="approval-card"
       role="group"
       aria-label={`Home approval request: ${view.title}`}

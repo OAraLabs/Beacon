@@ -186,7 +186,7 @@ export function TodayHome({
                     {/* Only the action that grants nothing lasting, named as such. Anything that
                         outlives this one call is read and chosen on the full approval card. */}
                     {/* A request Prometheus marked critical is approved on its full card and nowhere else. */}
-                    {approvalCardOnly?.(item.approval.requestId) ? (
+                    {(approvalCardOnly?.(item.approval.requestId) ?? true) ? (
                       <button className="today-btn" data-testid="approval-row-show" aria-label={`Answer on the card: ${item.approval.toolName}`} onClick={() => onShowApproval?.(item.approval.requestId)}>
                         Answer on the card
                       </button>

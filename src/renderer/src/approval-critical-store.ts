@@ -16,8 +16,12 @@ export function useApprovalCriticalAdvertised(): boolean | undefined {
     const set = (s: { approvalCritical?: boolean } | null | undefined): void => {
       if (live) setAdvertised(typeof s?.approvalCritical === 'boolean' ? s.approvalCritical : undefined)
     }
-    void b.connection.status().then(set).catch(() => undefined)
-    const off = b.connection.onStatus(set)
+    let told = false // a status event has arrived: the first read, if it lands later, is older news
+    void b.connection.status().then((s) => (told ? undefined : set(s))).catch(() => undefined)
+    const off = b.connection.onStatus((s) => {
+      told = true
+      set(s)
+    })
     return () => {
       live = false
       off()
