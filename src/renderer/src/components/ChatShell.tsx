@@ -19,6 +19,7 @@ import { finalizeRow, orderForRender } from '@shared/message-order'
 import { ModelSwitcher } from './ModelSwitcher'
 import { hostDisplayName } from '@shared/daemon-api'
 import { WorkFolderChip } from './WorkFolderChip'
+import { otherComputerName } from '@shared/work-folder'
 import { speakable, speechText } from '@shared/speech-text'
 import { initialWatermark, nextAnnouncement, spokenAnnouncement } from '@shared/live-announce'
 import { ProfilePicker } from './ProfilePicker'
@@ -1856,9 +1857,10 @@ export function ChatShell({
             />
           )}
           {/* The folder this conversation is working in, always shown where the conversation is
-              (@shared/work-folder). Not for an approved device: the workspace routes are the
-              owner's, and nothing is asked that would be refused. */}
-          {limited ? null : <WorkFolderChip sessionId={sessionId} where={hostDisplayName(status.gateway) ?? ''} refreshKey={turnsEnded} />}
+              (@shared/work-folder). Not for an approved device, and not before main has said
+              which this is: the workspace routes are the owner's, and nothing is asked that
+              would be refused. */}
+          {limited || !roleHeard ? null : <WorkFolderChip sessionId={sessionId} where={otherComputerName(hostDisplayName(status.gateway))} refreshKey={turnsEnded} />}
           {/* One chip for state, host and distance — shared with Mission's banner. */}
           <HostChip />
           <button

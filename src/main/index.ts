@@ -1,8 +1,8 @@
 import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeImage, nativeTheme, powerMonitor, screen, session, shell,
   dialog
 } from 'electron'
-import { createHash } from 'crypto'
-import { existsSync, mkdirSync } from 'fs'
+import { createHash, randomUUID } from 'crypto'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'fs'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import { refusedSwitches } from '@shared/release-gate'
 import { buildFlavor, debuggingAllowedHere } from './build-flavor'
@@ -94,7 +94,7 @@ import { registerIntegrationsHandlers } from './integrations-ipc'
 import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
 import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
-import { isThisComputer, type FolderPick, type FolderWhere } from '@shared/work-folder'
+import { folderProblem, hereVerdict, isThisComputer, type FolderPick, type FolderWhere } from '@shared/work-folder'
 import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
 import { registerBrowserPane } from './browser-pane'
 import { openPopout } from './popout-window'
@@ -2167,19 +2167,73 @@ app.whenReady().then(() => {
         notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments))
     }
   })
-  // A conversation's working folder (@shared/work-folder). MAIN decides whether Prometheus is on
-  // this computer, from the connection it holds; a page cannot ask for a picker by claiming so.
-  // The picker's answer is a path the person chose in the system's own dialog: that choice is the
-  // consent to name it. Setting it is the page's PUT to Prometheus, after its own confirmation.
-  const prometheusIsHere = (): boolean => isThisComputer(repo?.getDefaultGatewayProfile()?.apiBase)
-  handleFromShell(IPC.WORK_FOLDER_WHERE, async (): Promise<FolderWhere> => ({ here: prometheusIsHere(), home: app.getPath('home') }))
+  // A conversation's working folder (@shared/work-folder). MAIN decides whether Prometheus shares
+  // this computer's disk, and PROVES it rather than reading it off the address (a tunnel and a
+  // container are loopback too): it makes a folder with a random name and asks Prometheus to
+  // accept it for a throwaway session id, which Prometheus only does for a folder it can see. The
+  // binding is taken back and the folder removed whatever the answer. Proved once per address for
+  // as long as Beacon runs; an answer that proves nothing is asked again next time.
+  const hereProof = new Map<string, 'here' | 'tunnel'>()
+  const proveHere = async (): Promise<FolderWhere['verdict']> => {
+    const apiBase = repo?.getDefaultGatewayProfile()?.apiBase
+    if (!apiBase || !isThisComputer(apiBase)) return 'elsewhere'
+    const known = hereProof.get(apiBase)
+    if (known) return known
+    const conn = connection
+    if (!conn) return 'unknown'
+    let marker: string
+    try {
+      marker = mkdtempSync(join(realpathSync(tmpdir()), 'beacon-here-'))
+    } catch {
+      return 'unknown'
+    }
+    const route = `/api/sessions/${encodeURIComponent(`beacon:folder-check-${randomUUID()}`)}/workspace`
+    let verdict: ReturnType<typeof hereVerdict>
+    try {
+      const r = (await conn.writeDaemon(route, { path: marker }, 'PUT')) as { workspace?: unknown } | null
+      verdict = hereVerdict({ ok: true, sent: marker, answered: r?.workspace })
+    } catch (err) {
+      verdict = hereVerdict({ ok: false, message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      await conn.writeDaemon(route, undefined, 'DELETE').catch(() => undefined)
+      rmSync(marker, { recursive: true, force: true })
+    }
+    if (verdict === 'unknown') return 'unknown'
+    const kept = verdict === 'here' ? 'here' : 'tunnel'
+    hereProof.set(apiBase, kept)
+    return kept
+  }
+  const realHome = (): string => {
+    try {
+      return realpathSync(app.getPath('home'))
+    } catch {
+      return app.getPath('home')
+    }
+  }
+  handleFromShell(IPC.WORK_FOLDER_WHERE, async (): Promise<FolderWhere> => {
+    const verdict = await proveHere()
+    return { here: verdict === 'here', verdict, home: realHome() }
+  })
+  // The picker's answer is a folder the person chose in the system's own dialog; that choice is
+  // the consent to NAME it. What is named is its real path (links followed, as Prometheus will
+  // follow them), and it is checked here, in main, before the page ever sees it: a link called
+  // "notes" that leads to the home folder is refused as the home folder. Setting it is the page's
+  // PUT to Prometheus, after its own confirmation of that same real path.
   handleFromShell(IPC.WORK_FOLDER_PICK, async (e): Promise<FolderPick> => {
-    if (!prometheusIsHere()) return { kind: 'not-here' }
+    if ((await proveHere()) !== 'here') return { kind: 'not-here' }
     const win = BrowserWindow.fromWebContents(e.sender)
-    const opts: Electron.OpenDialogOptions = { title: 'Choose a folder for your assistant to work in', buttonLabel: 'Choose', properties: ['openDirectory', 'createDirectory'] }
+    const words = 'Choose a folder for your assistant to work in'
+    const opts: Electron.OpenDialogOptions = { title: words, message: words, buttonLabel: 'Choose', properties: ['openDirectory', 'createDirectory'] }
     const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     if (res.canceled || res.filePaths.length === 0) return { kind: 'cancelled' }
-    return { kind: 'picked', path: res.filePaths[0] }
+    let real: string
+    try {
+      real = realpathSync(res.filePaths[0])
+    } catch {
+      return { kind: 'refused', words: 'Beacon cannot open that folder. Choose another.' }
+    }
+    const problem = folderProblem(real, realHome())
+    return problem ? { kind: 'refused', words: problem } : { kind: 'picked', path: real }
   })
   // Only the quick-capture window may hold itself up or take a shot through itself.
   onFromShell(IPC.CAPTURE_HOLD, (e, on: unknown) => {

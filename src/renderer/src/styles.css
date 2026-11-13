@@ -6213,6 +6213,18 @@ div.ctx-footer {
 }
 .work-folder-chip.is-bound {
   color: var(--ink);
+  border-color: var(--c-line-bright);
+}
+.work-folder-chip.is-unknown {
+  color: var(--c-warn-text);
+  border-style: dashed;
+}
+.work-folder-does {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--c-text);
 }
 .work-folder-chip:hover {
   color: var(--ink);
@@ -6247,11 +6259,16 @@ div.ctx-footer {
 /* A narrow pane: the chip keeps its icon and its tooltip, and gives the name's room back, the way
    the host chip steps aside at the same width. */
 @container (max-width: 620px) {
-  .work-folder-name {
-    display: none;
-  }
+  /* The name stays, shorter: which folder a conversation works in is the one thing this chip is
+     for, and an icon alone would make "a folder" and "no folder" look the same. */
   .work-folder-chip {
+    max-width: 120px;
     padding: 0 7px;
+  }
+}
+@container (max-width: 300px) {
+  .work-folder-chip {
+    max-width: 84px;
   }
 }
 .work-folder-title {

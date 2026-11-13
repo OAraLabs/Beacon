@@ -14,6 +14,13 @@
 // on another computer the chip still shows the folder (it is a folder THERE, and says so), and the
 // picker is not offered.
 //
+// "ON THIS COMPUTER" IS PROVED, NOT ASSUMED. A loopback address is only where Beacon reaches
+// Prometheus: an SSH tunnel, a container's forwarded port and a VM all look the same, and a path
+// like ~/Documents exists on both ends of most of them. So main proves a shared disk before the
+// picker is ever offered: it makes a folder with a random name, asks Prometheus to accept that
+// folder for a throwaway session id (Prometheus refuses a folder it cannot see), and takes the
+// answer back (`hereVerdict`). Only "Prometheus saw the folder I just made" counts.
+//
 // WHAT CHOOSING ONE GRANTS. The agent can read, change and delete files in that folder in that
 // conversation. That is the point, and it is said in those words before anything is set. A folder
 // that is really "everything" (the whole home folder, the disk, a system folder, the folders that
@@ -34,9 +41,22 @@ export function isThisComputer(apiBase: string | null | undefined): boolean {
   }
 }
 
-const clean = (p: string): string => {
-  const t = p.trim().replace(/\\/g, '/')
-  return t.length > 1 ? t.replace(/\/+$/, '') : t
+/** A path without its trailing slashes. Nothing else is changed: a backslash is an ordinary
+ *  character in a POSIX name, and rewriting it would check a different folder than the one meant. */
+const clean = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p)
+
+/**
+ * What Prometheus's answer to the marker folder proves (see the header).
+ *   'here'      it accepted the marker and named the same folder back: one disk.
+ *   'elsewhere' it could not see the marker: Beacon reaches it through this computer (a tunnel,
+ *               a container, a VM), but they do not share folders.
+ *   'unknown'   anything else (refused for another reason, no answer): nothing is proved, and the
+ *               picker is not offered on a guess.
+ * `sent` and `answered` are the marker's real path and the `workspace` Prometheus returned.
+ */
+export function hereVerdict(r: { ok: true; sent: string; answered: unknown } | { ok: false; message: string }): 'here' | 'elsewhere' | 'unknown' {
+  if (r.ok) return typeof r.answered === 'string' && clean(r.answered) === clean(r.sent) ? 'here' : 'unknown'
+  return /^HTTP 400\b/.test(r.message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')) && /not an existing directory/i.test(r.message) ? 'elsewhere' : 'unknown'
 }
 
 /** A path as a person reads it: the home folder as `~`. */
@@ -54,39 +74,70 @@ export function folderName(path: string): string {
   return last || p || '/'
 }
 
-/** Top-level folders of a disk that are the system's, not a person's work. */
-const SYSTEM_DIRS = ['/system', '/library', '/applications', '/usr', '/bin', '/sbin', '/etc', '/var', '/private', '/opt', '/dev', '/proc', '/sys', '/boot', '/root', '/users', '/home', '/volumes', '/tmp', '/windows', '/program files']
+/** Top-level folders that are the system's, not a person's work: refused with everything in them. */
+const SYSTEM_DIRS = ['/system', '/library', '/applications', '/usr', '/bin', '/sbin', '/etc', '/var', '/private', '/dev', '/proc', '/sys', '/boot', '/root', '/lib', '/lib32', '/lib64', '/snap', '/nix', '/cores', '/run']
+/** Where disks and other people's folders are mounted. The folder itself and each thing directly in
+ *  it (a whole disk, a whole person) are refused; a folder further down is someone's work. */
+const MOUNT_DIRS = ['/volumes', '/media', '/mnt', '/users', '/home']
+/** Cloud folders macOS keeps under ~/Library. Their roots are refused; a folder inside one is work. */
+const CLOUD_ROOTS = ['library/cloudstorage', 'library/mobile documents']
 
 /**
- * Why this folder can't be the working folder, in words, or '' when it can. Refused: the disk, the
- * home folder itself, a system folder, a folder directly under a system folder's root listing of
- * people (`/Users`, `/home`), and the hidden and Library folders at the top of home, which hold
- * keys and every app's settings. `home` is this computer's home folder.
+ * Why this folder can't be the working folder, in words, or '' when it can.
+ *
+ * `path` must be the REAL path (links followed): main resolves it before asking, because
+ * Prometheus resolves it too, and a link named "notes" that leads to the home folder is the home
+ * folder. `home` is this computer's real home folder.
+ *
+ * Refused: the disk; any top-level folder itself; a system folder and everything in it; a whole
+ * mounted disk or a whole person's folder (this person's home included); and, at the top of home,
+ * the hidden folders and Library, which hold keys and every app's settings, except a folder inside
+ * a cloud-storage root.
  */
 export function folderProblem(path: string, home: string | null | undefined): string {
+  if (typeof path !== 'string' || !path.startsWith('/')) return 'That is not a folder Beacon can use.'
+  if (path !== path.trim()) return 'That folder\'s name starts or ends with a space, which Prometheus would drop. Rename it, or choose another.'
   const p = clean(path)
-  if (!p || !p.startsWith('/')) return 'That is not a folder Beacon can use.'
+  const parts = p.split('/').slice(1)
+  if (p === '/') return 'That is the whole disk. Choose one folder to work in.'
+  if (parts.some((s) => s === '' || s === '.' || s === '..')) return 'That is not a plain path to a folder.'
   const h = home ? clean(home) : ''
   const lower = p.toLowerCase()
-  if (p === '/') return 'That is the whole disk. Choose one folder to work in.'
+  const inHome = h !== '' && p.startsWith(`${h}/`)
   if (h && p === h) return 'That is your whole home folder. Choose one folder inside it to work in.'
   if (h && h.startsWith(`${p}/`)) return 'That folder contains your home folder. Choose one folder inside your home folder.'
-  if (SYSTEM_DIRS.some((d) => lower === d || (lower.startsWith(`${d}/`) && !(h && (p === h || p.startsWith(`${h}/`)))))) {
-    return 'That is a system folder. Choose a folder of your own to work in.'
-  }
-  if (h && p.startsWith(`${h}/`)) {
-    const top = p.slice(h.length + 1).split('/')[0]
+  if (inHome) {
+    const rel = p.slice(h.length + 1)
+    const relLower = rel.toLowerCase()
+    const top = rel.split('/')[0]
     if (top.startsWith('.')) return `"${top}" holds settings and keys. Choose a folder with your work in it.`
-    if (top.toLowerCase() === 'library') return 'The Library folder holds every app\'s settings. Choose a folder with your work in it.'
+    if (top.toLowerCase() === 'library') {
+      // ~/Library/CloudStorage/<provider>/<folder…> and ~/Library/Mobile Documents/<app>/<folder…>
+      const cloud = CLOUD_ROOTS.find((c) => relLower.startsWith(`${c}/`))
+      const below = cloud ? rel.slice(cloud.length + 1).split('/').length : 0
+      if (below >= 2) return ''
+      return cloud ? 'That is a whole cloud-storage folder. Choose one folder inside it.' : "The Library folder holds every app's settings. Choose a folder with your work in it."
+    }
+    return ''
   }
+  if (SYSTEM_DIRS.some((d) => lower === d || lower.startsWith(`${d}/`))) return 'That is a system folder. Choose a folder of your own to work in.'
+  const mount = MOUNT_DIRS.find((d) => lower === d || lower.startsWith(`${d}/`))
+  if (mount) {
+    if (parts.length <= 2) return mount === '/users' || mount === '/home' ? "That is a whole person's folder, or the folder that holds them. Choose one folder of your own." : 'That is a whole disk. Choose one folder on it.'
+    // Another person's home on this computer. (/Users/Shared is the one that is everybody's.)
+    if ((mount === '/users' || mount === '/home') && parts[1].toLowerCase() !== 'shared') return "That is in another person's folder. Choose a folder of your own."
+    return ''
+  }
+  if (parts.length === 1) return 'That is a top-level folder of the disk. Choose one folder inside it.'
   return ''
 }
 
 /** What the chip in a conversation's header says. */
 export interface FolderChip {
-  /** 'bound': working in a folder. 'none': no folder. 'hidden': nothing can be said (the daemon
-   *  predates the route, the read failed, or it has not answered yet), so nothing is drawn. */
-  state: 'bound' | 'none' | 'hidden'
+  /** 'bound': working in a folder. 'none': no folder. 'unknown': Beacon could not check just now
+   *  (and says so, rather than showing a guess or nothing). 'hidden': there is nothing to check:
+   *  this Prometheus has no such thing, or has not been asked yet. */
+  state: 'bound' | 'none' | 'unknown' | 'hidden'
   text: string
   /** The full line for the tooltip and the screen reader. */
   title: string
@@ -94,37 +145,71 @@ export interface FolderChip {
   path: string | null
 }
 
-/** `where` is "this computer", or the other computer's name. */
-export function folderChip(ws: SessionWorkspaceDTO | null | undefined, home: string | null | undefined, here: boolean, where: string): FolderChip {
-  if (ws === undefined || ws === null) return { state: 'hidden', text: '', title: '', path: null }
-  const bound = ws.source === 'session' ? (ws.workspace ?? ws.path ?? ws.cwd ?? null) : null
-  const place = here ? 'on this computer' : where ? `on ${where}` : 'on the Prometheus computer'
-  if (!bound || !String(bound).trim()) {
-    return { state: 'none', text: 'No folder', title: 'This conversation is not working in a folder of yours.', path: null }
-  }
-  const path = clean(String(bound))
-  const shown = here ? folderDisplay(path, home) : path
-  return { state: 'bound', text: folderName(path), title: `Your assistant is working in ${shown}, ${place}.`, path }
+/** What the last read of a conversation's folder came to. */
+export type FolderRead =
+  | { kind: 'asking' } // not answered yet
+  | { kind: 'absent' } // this Prometheus has no such route, or this Beacon may not read it
+  | { kind: 'failed'; last: SessionWorkspaceDTO | null } // could not be read just now; `last` is what was known before
+  | { kind: 'ok'; ws: SessionWorkspaceDTO }
+
+/** A read's failure, sorted: a 404 (no such route), or a 401/403 (not this Beacon's to read), means
+ *  there is nothing to show; anything else is "could not check just now". */
+export function readFailureKind(message: string): 'absent' | 'failed' {
+  const status = /^HTTP (\d{3})\b/.exec((message ?? '').replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ''))?.[1]
+  return status === '404' || status === '401' || status === '403' ? 'absent' : 'failed'
 }
 
-/** What is asked before a folder is set. Says what is granted, where, and from when. */
-export function folderConfirm(path: string, home: string | null | undefined): { title: string; body: string; action: string } {
+const boundPath = (ws: SessionWorkspaceDTO | null | undefined): string | null => {
+  if (!ws || typeof ws !== 'object' || ws.source !== 'session') return null
+  const b = ws.workspace ?? ws.path ?? ws.cwd
+  return typeof b === 'string' && b.trim() ? clean(b) : null
+}
+
+/** `where` is the other computer's name, or '' when it has none worth showing. */
+export function folderChip(read: FolderRead, home: string | null | undefined, here: boolean, where: string): FolderChip {
+  if (read.kind === 'asking' || read.kind === 'absent') return { state: 'hidden', text: '', title: '', path: null }
+  const ws = read.kind === 'ok' ? read.ws : read.last
+  // An answer that is not the shape Prometheus gives is not "no folder": nothing true can be said.
+  if (read.kind === 'ok' && (!ws || typeof ws !== 'object' || Array.isArray(ws) || typeof ws.source !== 'string')) return { state: 'hidden', text: '', title: '', path: null }
+  const place = here ? 'on this computer' : where ? `on ${where}` : 'on the Prometheus computer'
+  const path = boundPath(ws)
+  if (read.kind === 'failed') {
+    const was = path ? ` It was last working in ${here ? folderDisplay(path, home) : path}, ${place}.` : ''
+    return { state: 'unknown', text: path ? `${folderName(path)}?` : 'Folder?', title: `Beacon could not check which folder this conversation is working in just now.${was}`, path }
+  }
+  if (!path) return { state: 'none', text: 'No folder', title: 'This conversation is not working in a folder of yours.', path: null }
+  return { state: 'bound', text: folderName(path), title: `Your assistant is working in ${here ? folderDisplay(path, home) : path}, ${place}.`, path }
+}
+
+/** What is asked before a folder is set: everything setting it does, as Prometheus does it. */
+export function folderConfirm(path: string, home: string | null | undefined): { title: string; body: string; does: string[]; after: string; action: string } {
   return {
     title: `Let your assistant work in ${folderDisplay(path, home)}?`,
-    body: 'In this conversation it will be able to read, change and delete files in that folder, starting with its next reply. Nothing outside the folder is opened to it by this, and no other conversation is changed.',
+    body: 'In this conversation, from its next reply, your assistant will:',
+    does: [
+      'change and delete files in this folder without asking you each time',
+      'run commands there',
+      'follow instruction files it finds there (PROMETHEUS.md, CLAUDE.md, AGENTS.md), so only choose a folder whose contents you trust',
+      'keep a copy of the folder\'s files each turn, so a change can be undone'
+    ],
+    after: 'This becomes the one place this conversation writes without asking. Nothing outside the folder is opened to it by this, and no other conversation is changed.',
     action: 'Use this folder'
   }
 }
 
-/** After a set that Prometheus answered. `resolved` is the path Prometheus says it bound (it
- *  follows links, so it can differ from what was chosen, and then both are shown). */
-export function folderSetWords(chosen: string, resolved: string | null | undefined, home: string | null | undefined): { ok: boolean; words: string } {
-  const r = (resolved ?? '').trim()
-  if (!r) return { ok: false, words: 'Prometheus did not set the folder. Nothing has changed.' }
-  const same = clean(r) === clean(chosen)
+/** After a set that Prometheus answered. `confirmed` is the real path the person said yes to;
+ *  `resolved` is the folder Prometheus says it bound. They must be the same folder: if they are
+ *  not, the person did not agree to what was set, and the caller takes it back (`ok: false`). */
+export function folderSetWords(confirmed: string, resolved: string | null | undefined, home: string | null | undefined): { ok: boolean; mismatch: boolean; words: string } {
+  const r = typeof resolved === 'string' ? resolved.trim() : ''
+  if (!r) return { ok: false, mismatch: false, words: 'Prometheus did not set the folder. Nothing has changed.' }
+  if (clean(r) !== clean(confirmed)) {
+    return { ok: false, mismatch: true, words: `Prometheus took that to mean a different folder (${folderDisplay(r, home)}), which is not the one you agreed to, so Beacon has taken it back. This conversation has no folder.` }
+  }
   return {
     ok: true,
-    words: `Your assistant now works in ${folderDisplay(r, home)}${same ? '' : ` (the folder you chose leads there)`}, from its next reply. If it says it cannot open the folder, your computer may need to allow Prometheus to use it: on a Mac, System Settings → Privacy & Security → Files and Folders.`
+    mismatch: false,
+    words: `Your assistant now works in ${folderDisplay(r, home)}, from its next reply. If it says it cannot open the folder, your computer may need to allow Prometheus to use it: on a Mac, System Settings → Privacy & Security → Files and Folders.`
   }
 }
 
@@ -148,16 +233,31 @@ export function folderFailure(message: string): string {
   return 'Beacon could not reach Prometheus to set the folder. Nothing has changed. Try again.'
 }
 
-/** What the popover says when the picker is not offered: Prometheus is on another computer. */
-export function elsewhereWords(where: string): string {
-  return `Prometheus runs on ${where || 'another computer'}, so the folder is one on that computer, and Beacon cannot show you its folders from here. To set one, type /workspace and the folder's path there as a message in this conversation.`
+/** The other computer's name as the chip may use it. The connection's display name is "Local" for
+ *  any private address, which would read as THIS computer for a Prometheus that is not on it; that
+ *  one is dropped, and the chip then says "the Prometheus computer". */
+export function otherComputerName(display: string | null | undefined): string {
+  const d = (display ?? '').trim()
+  return d.toLowerCase() === 'local' ? '' : d
 }
 
-/** The picker's answer (main → the page). */
-export type FolderPick = { kind: 'picked'; path: string } | { kind: 'cancelled' } | { kind: 'not-here' }
+/** What the popover says when the picker is not offered. */
+export function elsewhereWords(where: string, verdict: FolderWhere['verdict'] = 'elsewhere'): string {
+  const how = "To set one, type /workspace and the folder's path there as a message in this conversation."
+  if (verdict === 'tunnel') return `Beacon reaches Prometheus through this computer, but the two do not share its folders (a tunnel, a container or a virtual machine), so the folder is one on Prometheus's side and Beacon cannot show you those. ${how}`
+  if (verdict === 'unknown') return `Beacon could not check that Prometheus shares this computer's folders, so it will not offer to pick one here. ${how}`
+  return `Prometheus runs on ${where || 'another computer'}, so the folder is one on that computer, and Beacon cannot show you its folders from here. ${how}`
+}
 
-/** Where Prometheus is, and this computer's home folder for showing paths (main → the page). */
+/** The picker's answer (main → the page). `path` is the REAL path of what was chosen, already
+ *  through `folderProblem` in main. */
+export type FolderPick = { kind: 'picked'; path: string } | { kind: 'refused'; words: string } | { kind: 'cancelled' } | { kind: 'not-here' }
+
+/** Where Prometheus is (main → the page). `here` is true only when a shared disk was proved. */
 export interface FolderWhere {
   here: boolean
+  /** 'here' proved; 'elsewhere' not loopback; 'tunnel' loopback but no shared disk; 'unknown' could not be checked. */
+  verdict: 'here' | 'elsewhere' | 'tunnel' | 'unknown'
+  /** This computer's real home folder, for showing paths. */
   home: string
 }
