@@ -1,3 +1,4 @@
+import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { notEncrypted } from '@shared/plain-lan'
 import { DEVICES_PATH, roleFromDevices, type DeviceRole } from '@shared/device-role'
 import { EventEmitter } from 'node:events'
@@ -335,6 +336,10 @@ export class ConnectionManager extends EventEmitter {
 
   /** Scoped generic write (POST/PUT/DELETE) of an /api/ path — the write counterpart to getDaemon. */
   writeDaemon(path: string, body?: unknown, method?: DaemonWriteMethod): Promise<unknown> {
+    // NOT tracked for the tool-server routes, for the reason the desktop door gives above: their
+    // 401 means "this needs the main key", a per-route answer about what a device key may do. Fed
+    // to setRestAuth it would show "token rejected" across Beacon because one write was refused.
+    if (path.startsWith(MCP_SERVERS_PATH)) return this.rest.writeDaemon(path, body, method)
     return this.trackAuth(this.rest.writeDaemon(path, body, method))
   }
 

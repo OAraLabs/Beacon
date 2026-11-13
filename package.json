@@ -155,6 +155,7 @@
     "smoke:context-meter": "node scripts/context-meter-smoke.mjs",
     "smoke:drafts": "node scripts/drafts-smoke.mjs",
     "probe:drafts": "node scripts/drafts-app-probe.mjs",
+    "probe:connectors": "node scripts/connectors-app-probe.mjs",
     "probe:saved-prompts": "node scripts/saved-prompts-app-probe.mjs",
     "probe:quick-capture": "node scripts/quick-capture-app-probe.mjs",
     "probe:ui-mode": "node scripts/ui-mode-app-probe.mjs",

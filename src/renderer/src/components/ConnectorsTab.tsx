@@ -1,13 +1,23 @@
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import {
   addServerProblem,
+  DEFAULT_TOKEN_HEADER,
   healthLabel,
+  keyKnowledge,
+  MAIN_KEY_NOTE,
+  offersWrites,
   MCP_SERVERS_PATH,
   parseMcpServers,
   toggleTool,
   toolAllowed,
-  type McpServer
+  urlServerBody,
+  urlServerProblem,
+  writeFailure,
+  type KeyKnowledge,
+  type McpServer,
+  type UrlTransport
 } from '@shared/connectors'
+import { DEVICES_PATH } from '@shared/device-role'
 
 // Config → Connectors — the management UI over the daemon's MCP client,
 // modeled on the Models tab: server cards with PROBED health, an add form, and per-tool
@@ -56,7 +66,7 @@ const HEALTH_COLOR: Record<McpServer['health'], string> = {
   unknown: 'var(--c-warn)'
 }
 
-function ServerCard({ s, onNote, note, reload }: { s: McpServer; onNote: (id: string, n: string) => void; note?: string; reload: () => void }) {
+function ServerCard({ s, onNote, note, reload, canWrite }: { s: McpServer; onNote: (id: string, n: string) => void; note?: string; reload: () => void; canWrite: boolean }) {
   const [open, setOpen] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const write = async (method: 'PATCH' | 'DELETE', body?: unknown): Promise<void> => {
@@ -71,9 +81,12 @@ function ServerCard({ s, onNote, note, reload }: { s: McpServer; onNote: (id: st
       onNote(s.id, r?.error ? `failed: ${r.error}` : r?.applies && r.applies !== 'live' ? `applies: ${r.applies}` : '')
       reload()
     } catch (e) {
-      onNote(s.id, `failed: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`)
+      onNote(s.id, writeFailure(e instanceof Error ? e.message : String(e), body).words)
     }
   }
+  // Read-only when the server is defined in prometheus.yaml, or when this Beacon does not hold the
+  // main key (the note above the list says why): nothing that would be refused is offered.
+  const locked = !!s.readOnly || !canWrite
   return (
     <div style={card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -91,7 +104,7 @@ function ServerCard({ s, onNote, note, reload }: { s: McpServer; onNote: (id: st
           </span>
         ) : null}
         <span style={{ flex: 1 }} />
-        {s.readOnly ? null : (
+        {locked ? null : (
           <>
             <button style={btn()} onClick={() => void write('PATCH', { enabled: !s.enabled })}>
               {s.enabled ? 'Disable' : 'Enable'}
@@ -114,6 +127,11 @@ function ServerCard({ s, onNote, note, reload }: { s: McpServer; onNote: (id: st
       <div style={{ fontSize: 11, color: s.health === 'failed' ? 'var(--c-err)' : 'var(--c-text-dim)', margin: '4px 0 0 18px' }}>
         {healthLabel(s)}
       </div>
+      {s.headerNames.length > 0 ? (
+        <div style={{ fontSize: 11, color: 'var(--c-text-dim)', margin: '4px 0 0 18px' }}>
+          Signs in with a token Prometheus keeps ({s.headerNames.join(', ')}). It is never shown here.
+        </div>
+      ) : null}
       {s.tools.length > 0 ? (
         <div style={{ margin: '6px 0 0 18px' }}>
           <button style={{ ...btn(), border: 'none', background: 'transparent', color: 'var(--c-arc)', padding: 0 }} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -122,14 +140,14 @@ function ServerCard({ s, onNote, note, reload }: { s: McpServer; onNote: (id: st
           {open ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
               {s.tools.map((t) => (
-                <label key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12, color: 'var(--c-text)', cursor: s.readOnly ? 'default' : 'pointer' }}>
+                <label key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12, color: 'var(--c-text)', cursor: locked ? 'default' : 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={toolAllowed(s.allowedTools, t.name)}
-                    disabled={!!s.readOnly}
+                    disabled={locked}
                     onChange={() => void write('PATCH', { allowed_tools: toggleTool(s.allowedTools, s.tools, t.name) })}
                     aria-label={`Allow tool ${t.name}`}
-                    title={s.readOnly ? 'yaml-defined server — edit allowed_tools in prometheus.yaml' : undefined}
+                    title={s.readOnly ? 'yaml-defined server — edit allowed_tools in prometheus.yaml' : locked ? MAIN_KEY_NOTE.title : undefined}
                   />
                   <span style={{ fontFamily: MONO }}>{t.name}</span>
                   {t.readOnlyHint === false ? (
@@ -158,36 +176,72 @@ function ServerCard({ s, onNote, note, reload }: { s: McpServer; onNote: (id: st
   )
 }
 
-function AddServerForm({ reload }: { reload: () => void }) {
+type AddKind = 'url' | 'command'
+
+/** Add a server: one at an address (with the token it signs in with), or a command that runs on
+ *  the Prometheus computer. The token is held only in this form's state, sent once in the POST,
+ *  and dropped when the POST answers (@shared/connectors, "WHERE THE TOKEN GOES"). */
+function AddServerForm({ reload, onNotice }: { reload: () => void; onNotice: (words: string) => void }) {
   const [openForm, setOpenForm] = useState(false)
+  const [kind, setKind] = useState<AddKind>('url')
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
+  const [url, setUrl] = useState('')
+  const [transport, setTransport] = useState<UrlTransport>('streamable-http')
+  const [token, setToken] = useState('')
+  const [headerName, setHeaderName] = useState<string>(DEFAULT_TOKEN_HEADER)
+  const [otherHeader, setOtherHeader] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const close = (): void => {
+    setToken('')
+    setNote('')
+    setOpenForm(false)
+  }
   const submit = async (): Promise<void> => {
-    const problem = addServerProblem({ name, transport: 'stdio', command })
+    if (busy) return
+    const form = { name, url, transport, token, headerName: otherHeader ? headerName : DEFAULT_TOKEN_HEADER }
+    const problem = kind === 'url' ? urlServerProblem(form) : addServerProblem({ name, transport: 'stdio', command })
     if (problem) {
       setNote(problem)
       return
     }
-    setNote('adding…')
+    setBusy(true)
+    setNote('Adding… Prometheus connects to the server before it answers, which can take a little while.')
+    // The store's shape (Prometheus PR 342): a command is split the way the daemon spawns it, and
+    // runs ON THE PROMETHEUS COMPUTER, which the form says out loud; an address carries its
+    // transport and, when there is a token, the one header that signs in.
+    const parts = command.trim().split(/\s+/)
+    const body = kind === 'url' ? urlServerBody(form) : { name: name.trim(), command: parts[0], args: parts.slice(1) }
+    const hadToken = kind === 'url' && !!token.trim()
     try {
-      // PR 342's store shape: command + args split, the way the daemon spawns it. The command runs
-      // ON THE DAEMON HOST, which the placeholder says out loud. (stdio is the only transport the
-      // daemon implements — PR 315's accepted limit — so there is no transport picker to offer.)
-      const parts = command.trim().split(/\s+/)
-      const body = { name: name.trim(), command: parts[0], args: parts.slice(1) }
       const r = (await window.beacon?.daemon.write(MCP_SERVERS_PATH, body, 'POST')) as { error?: string; applies?: string } | null
+      // Sent. Whatever the answer, the token has done its one job here.
+      setToken('')
       if (r?.error) {
-        setNote(`failed: ${r.error}`)
+        setNote(writeFailure(`HTTP 200: POST ${MCP_SERVERS_PATH} — ${r.error}`, body).words)
         return
       }
       setName('')
       setCommand('')
+      setUrl('')
       setNote('')
       setOpenForm(false)
       reload()
     } catch (e) {
-      setNote(`failed: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`)
+      setToken('')
+      const f = writeFailure(e instanceof Error ? e.message : String(e), body)
+      if (f.kind === 'no-answer') {
+        // It may have been added all the same: show the list as Prometheus has it now, and do not
+        // send anyone to type the token again for a server that is already there. (The reload
+        // remounts this tab, so the words go to the tab, which outlives it.)
+        onNotice(f.words)
+        reload()
+        return
+      }
+      setNote(`${f.words}${hadToken && f.kind === 'refused' ? ' Enter the token again to retry.' : ''}`)
+    } finally {
+      setBusy(false)
     }
   }
   if (!openForm)
@@ -196,36 +250,110 @@ function AddServerForm({ reload }: { reload: () => void }) {
         ＋ Add server
       </button>
     )
+  const pick = (k: AddKind): CSSProperties => ({ ...btn(), background: kind === k ? 'var(--c-arc-soft)' : 'var(--c-raise)', color: kind === k ? 'var(--c-arc)' : 'var(--c-text)' })
+  const hint: CSSProperties = { fontSize: 11, color: 'var(--c-text-dim)', lineHeight: 1.4 }
   return (
-    <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6 }} role="group" aria-label="Where the server is">
+        <button style={pick('url')} aria-pressed={kind === 'url'} onClick={() => { setKind('url'); setNote('') }}>
+          At an address
+        </button>
+        <button style={pick('command')} aria-pressed={kind === 'command'} onClick={() => { setKind('command'); setToken(''); setNote('') }}>
+          A command on the Prometheus computer
+        </button>
+      </div>
       <input style={{ ...input, width: 200 }} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} aria-label="Server name" />
-      <input
-        style={input}
-        placeholder="Command (runs on the DAEMON host, e.g. uvx mcp-server-time)"
-        value={command}
-        onChange={(e) => setCommand(e.target.value)}
-        aria-label="Command"
-        spellCheck={false}
-      />
+      {kind === 'command' ? (
+        <input
+          style={input}
+          placeholder="Command (runs on the Prometheus computer, e.g. uvx mcp-server-time)"
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          aria-label="Command"
+          spellCheck={false}
+        />
+      ) : (
+        <>
+          <input style={input} placeholder="https://example.com/mcp (an address Prometheus can reach)" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Server address" spellCheck={false} autoCapitalize="off" />
+          <label style={{ ...hint, display: 'flex', alignItems: 'center', gap: 6 }}>
+            How it talks
+            <select style={{ ...input, padding: '3px 6px' }} value={transport} onChange={(e) => setTransport(e.target.value as UrlTransport)} aria-label="How it talks">
+              <option value="streamable-http">Streamable HTTP (most servers)</option>
+              <option value="sse">SSE (older servers)</option>
+            </select>
+          </label>
+          <input
+            style={input}
+            type="password"
+            placeholder="Token, if the server needs one"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            aria-label="Token"
+            aria-describedby="connector-token-hint"
+            autoComplete="new-password"
+            spellCheck={false}
+          />
+          <div id="connector-token-hint" style={hint}>
+            The token goes to Prometheus, which keeps it and uses it to sign in to this server. Beacon does not keep it and cannot show it again. To change it later, remove the server and add it again (its allowed-tools choices start over).
+          </div>
+          <label style={{ ...hint, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={otherHeader} onChange={(e) => setOtherHeader(e.target.checked)} />
+            The server asks for the token in a header other than Authorization
+          </label>
+          {otherHeader ? (
+            <input style={{ ...input, width: 220 }} placeholder="Header name, e.g. X-API-Key" value={headerName} onChange={(e) => setHeaderName(e.target.value)} aria-label="Header name" spellCheck={false} />
+          ) : null}
+        </>
+      )}
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <button style={btn()} onClick={() => void submit()}>
+        <button style={{ ...btn(), cursor: busy ? 'not-allowed' : 'pointer', color: busy ? 'var(--c-text-faint)' : 'var(--c-text)' }} disabled={busy} onClick={() => void submit()}>
           Add
         </button>
-        <button style={{ ...btn(), color: 'var(--c-text-dim)' }} onClick={() => setOpenForm(false)}>
+        <button style={{ ...btn(), color: 'var(--c-text-dim)' }} onClick={close}>
           Cancel
         </button>
-        {note ? (
-          <span style={{ fontSize: 11, color: 'var(--c-text-dim)' }} role="status">
-            {note}
-          </span>
-        ) : null}
+      </div>
+      {/* Always mounted, so a screen reader hears the text arrive. */}
+      <div style={{ fontSize: 11, color: 'var(--c-text-dim)', lineHeight: 1.4 }} role="status">
+        {note}
       </div>
     </div>
   )
 }
 
+const KEY_REMEMBER_MS = 5_000
+let lastKey: { value: KeyKnowledge; at: number } = { value: 'asking', at: 0 }
+/** Words for the tab to show after the reload that follows a write with no answer. */
+let pendingNotice = ''
+
 export function ConnectorsTab({ initial, reload }: { initial: unknown; reload: () => void }) {
   const [notes, setNotes] = useState<Record<string, string>>({})
+  // Which key this Beacon holds (GET /api/devices is allowed to every key). Until the answer comes
+  // no write control is offered (@shared/connectors keyKnowledge). A write reloads this tab, which
+  // remounts it: the last answer is kept for a few seconds so the controls do not blink away and a
+  // click cannot land in the gap.
+  const [key, setKey] = useState<KeyKnowledge>(() => (Date.now() - lastKey.at < KEY_REMEMBER_MS ? lastKey.value : 'asking'))
+  const [notice, setNotice] = useState(() => {
+    const words = pendingNotice
+    pendingNotice = ''
+    return words
+  })
+  useEffect(() => {
+    let alive = true
+    const got = (k: KeyKnowledge): void => {
+      lastKey = { value: k, at: Date.now() }
+      if (alive) setKey(k)
+    }
+    const b = window.beacon
+    if (!b) return got('unknown')
+    void b.daemon.get(DEVICES_PATH).then(
+      (d) => got(keyKnowledge({ state: 'answered', devices: d })),
+      () => got(keyKnowledge({ state: 'failed' }))
+    )
+    return () => {
+      alive = false
+    }
+  }, [])
   // ConfigPanel hands null when the GET failed — for connectors that is TODAY'S daemon, so the
   // missing endpoint is a first-class state naming the issue, never a blank pane.
   if (initial === null || initial === undefined)
@@ -241,6 +369,7 @@ export function ConnectorsTab({ initial, reload }: { initial: unknown; reload: (
     )
   const servers = parseMcpServers(initial)
   const onNote = (id: string, n: string): void => setNotes((prev) => ({ ...prev, [id]: n }))
+  const canWrite = offersWrites(key)
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--c-text-dim)', marginBottom: 10, maxWidth: 620 }}>
@@ -248,10 +377,30 @@ export function ConnectorsTab({ initial, reload }: { initial: unknown; reload: (
         checkboxes are the daemon’s <span style={{ fontFamily: MONO }}>allowed_tools</span> allowlist — an unchecked tool is never even registered.
       </div>
       {servers.length === 0 ? <div style={{ fontSize: 13, color: 'var(--c-text-dim)', marginBottom: 10 }}>No servers configured yet.</div> : null}
+      {notice ? (
+        <div style={{ fontSize: 12, color: 'var(--c-warn-text)', marginBottom: 10, maxWidth: 620 }} role="status">
+          {notice}
+        </div>
+      ) : null}
+      {key === 'device' ? (
+        <div style={{ ...card, maxWidth: 620 }} role="note" aria-label={MAIN_KEY_NOTE.title}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)', marginBottom: 4 }}>{MAIN_KEY_NOTE.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--c-text-dim)', lineHeight: 1.5 }}>{MAIN_KEY_NOTE.body}</div>
+          <div style={{ fontSize: 12, color: 'var(--c-text-dim)', lineHeight: 1.5, marginTop: 6 }}>{MAIN_KEY_NOTE.how}</div>
+        </div>
+      ) : null}
       {servers.map((s) => (
-        <ServerCard key={s.id} s={s} onNote={onNote} note={notes[s.id]} reload={reload} />
+        <ServerCard key={s.id} s={s} onNote={onNote} note={notes[s.id]} reload={reload} canWrite={canWrite} />
       ))}
-      <AddServerForm reload={reload} />
+      {canWrite ? (
+        <AddServerForm
+          reload={reload}
+          onNotice={(words) => {
+            pendingNotice = words
+            setNotice(words)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
