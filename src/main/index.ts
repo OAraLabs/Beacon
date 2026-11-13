@@ -91,7 +91,8 @@ import { PairingWatcher } from './pairing/watcher'
 import { registerIntegrationsHandlers } from './integrations-ipc'
 import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
-import { registerScreenshotHandlers } from './screenshot-ipc'
+import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
+import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
 import { registerBrowserPane } from './browser-pane'
 import { openPopout } from './popout-window'
 import { killAllTerminals, registerTerminalHandlers } from './terminal-ipc'
@@ -1229,6 +1230,10 @@ function buildAppMenu(): void {
     accelerator: 'CmdOrCtrl+,',
     click: openSettings
   }
+  // Quick capture from the menu as well as its global key, which another app may hold. No
+  // accelerator here: the global shortcut already answers that chord, and a second handler on the
+  // same keys would open the box and close it again.
+  const captureItem: Electron.MenuItemConstructorOptions = { id: 'quick-capture', label: 'Quick Capture', click: toggleCaptureWindow }
   const isMac = process.platform === 'darwin'
   // The About panel (role 'about') shows the name, version and Info.plist's copyright line. The credits
   // say where the license and the open-source notices are: the panel cannot link to a file.
@@ -1242,6 +1247,7 @@ function buildAppMenu(): void {
               { role: 'about' },
               { type: 'separator' },
               settingsItem,
+              captureItem,
               { type: 'separator' },
               { role: 'hide' },
               { role: 'hideOthers' },
@@ -1251,7 +1257,7 @@ function buildAppMenu(): void {
             ]
           }
         ] as Electron.MenuItemConstructorOptions[])
-      : ([{ label: 'File', submenu: [settingsItem, { type: 'separator' }, { role: 'quit' }] }] as Electron.MenuItemConstructorOptions[])),
+      : ([{ label: 'File', submenu: [settingsItem, captureItem, { type: 'separator' }, { role: 'quit' }] }] as Electron.MenuItemConstructorOptions[])),
     { role: 'editMenu' },
     // Electron's own viewMenu role, spelled out so Toggle Developer Tools (⌥⌘I) exists only where
     // debugging is allowed: a release has no such item, and its windows refuse DevTools anyway
@@ -1507,8 +1513,16 @@ function createCaptureWindow(): void {
       win.hide()
     }
   })
-  win.on('blur', () => win.hide())
+  // Hides when it loses focus, unless it asked to be held: its own file picker and its own
+  // screenshot both take focus away on purpose (@shared/quick-capture). Focus coming back, or the
+  // window going away, ends the hold.
+  win.on('blur', () => {
+    if (hidesOnBlur(captureHeld())) win.hide()
+  })
+  win.on('focus', () => holdCapture('focus'))
+  win.on('hide', () => holdCapture('hide'))
   win.on('closed', () => {
+    holdCapture('closed')
     if (captureWindow === win) captureWindow = null
   })
   // Quick-capture is a composer in its own window — the menu matters most here, where there is
@@ -1517,7 +1531,36 @@ function createCaptureWindow(): void {
   void loadShellPage(win, 'capture')
 }
 
+let captureHoldTimer: NodeJS.Timeout | null = null
+function captureHeld(): boolean {
+  return captureHoldTimer !== null
+}
+/** Something happened to the hold (@shared/quick-capture decides what it does). A hold ends by
+ *  itself after CAPTURE_HOLD_MAX_MS, and a window that is still unfocused then hides, so a hold
+ *  nothing released cannot leave the box on screen. */
+function holdCapture(ev: HoldEvent): void {
+  const held = holdAfter(captureHeld(), ev)
+  if (captureHoldTimer) clearTimeout(captureHoldTimer)
+  captureHoldTimer = null
+  if (!held) return
+  captureHoldTimer = setTimeout(() => {
+    holdCapture('timeout')
+    const win = captureWindow
+    if (win && !win.isDestroyed() && hidesOnHoldTimeout(win.isVisible(), win.isFocused())) win.hide()
+  }, CAPTURE_HOLD_MAX_MS)
+}
+/** True while CAPTURE_SHOT has the window hidden for a grab. */
+let captureShooting = false
+/** Whether an IPC sender is the quick-capture window, and that window is alive. */
+function fromCaptureWindow(sender: Electron.WebContents): boolean {
+  const win = captureWindow
+  const alive = !!win && !win.isDestroyed()
+  return isCaptureSender(sender.id, win ? { id: alive ? win.webContents.id : -1, destroyed: !alive } : null)
+}
+
 function toggleCaptureWindow(): void {
+  // Not during a screenshot: showing the box now would put it in the picture.
+  if (!toggleAllowed(captureShooting)) return
   if (!captureWindow || captureWindow.isDestroyed()) createCaptureWindow()
   const win = captureWindow!
   if (win.isVisible()) {
@@ -2069,7 +2112,7 @@ app.whenReady().then(() => {
   })
   registerVoiceHandlers()
   registerHandsFreeHandlers()
-  registerScreenshotHandlers()
+  registerScreenshotHandlers((sender) => (captureWindow && fromCaptureWindow(sender) ? captureWindow.getMediaSourceId() : null))
   // Browser pane: WebContentsViews hosted in main, driven by the user only (@shared/browser-pane).
   registerBrowserPane({
     getMainWindow: () => mainWindow,
@@ -2119,6 +2162,33 @@ app.whenReady().then(() => {
       // already-coerced map, and it is the same function both daemon mappers use.
       if (a && typeof a.requestId === 'string')
         notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments))
+    }
+  })
+  // Only the quick-capture window may hold itself up or take a shot through itself.
+  onFromShell(IPC.CAPTURE_HOLD, (e, on: unknown) => {
+    if (fromCaptureWindow(e.sender)) holdCapture(on === true ? 'ask-on' : 'ask-off')
+  })
+  handleFromShell(IPC.CAPTURE_SHOT, async (e, sourceId: unknown) => {
+    const win = captureWindow
+    if (!win || !fromCaptureWindow(e.sender)) return { ok: false, error: 'only the quick-capture window can ask for this' }
+    if (captureShooting) return { ok: false, error: 'a capture is already being taken' }
+    // Out of the picture first, and a beat for the compositor to drop it: a shot of the screen
+    // with the box still on it is the one thing this must not produce. The toggle is a no-op
+    // until the grab is done, for the same reason.
+    captureShooting = true
+    win.hide()
+    await new Promise((r) => setTimeout(r, 250))
+    try {
+      return await grabSource(sourceId)
+    } finally {
+      captureShooting = false
+      if (!win.isDestroyed()) {
+        win.show()
+        win.focus()
+        // Some window managers refuse focus to an app that is not in front. A box that is up
+        // without focus never blurs, so nothing would ever hide it: put it on the hold's clock.
+        if (!win.isFocused()) holdCapture('shot-returned-unfocused')
+      }
     }
   })
   onFromShell(IPC.CAPTURE_OPEN_MAIN, (_e, sessionId: string) => {

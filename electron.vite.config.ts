@@ -198,6 +198,7 @@ export default defineConfig({
           'real-history-smoke': resolve('src/main/real-history-smoke.ts'),
           'slash-smoke': resolve('src/main/slash-smoke.ts'),
           'saved-prompts-smoke': resolve('src/main/saved-prompts-smoke.ts'),
+          'quick-capture-smoke': resolve('src/main/quick-capture-smoke.ts'),
           'at-references-smoke': resolve('src/main/at-references-smoke.ts'),
           'updater-smoke': resolve('src/main/updater-smoke.ts'),
           'screenshot-smoke': resolve('src/main/screenshot-smoke.ts'),

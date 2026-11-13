@@ -10,7 +10,7 @@ import {
   utf8ByteLength
 } from '@shared/attachments'
 import { usePreview } from '../preview-store'
-import { stageFiles, type PendingFile } from '../attachments-io'
+import { sendUploads, stageFiles, type PendingFile } from '../attachments-io'
 import { MessageBody } from './MessageRenderer'
 import { Icon } from './Icon'
 import { ToolTimeline } from './ToolTimeline'
@@ -1272,17 +1272,7 @@ export function ChatShell({
     if (text) parts.push({ type: 'text', text })
     setMessages((prev) => [...prev, { key: clientMsgId, rowId: null, ordinal: null, role: 'user', content: parts }])
     // One chat_upload per file; the text rides as caption on the LAST (matches the web client).
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i]
-      const ok = await b.chat.upload({
-        sessionId,
-        filename: f.name,
-        contentBase64: f.base64,
-        mimeType: f.mimeType,
-        caption: i === files.length - 1 ? text : ''
-      })
-      if (!ok) throw new Error('not connected')
-    }
+    await sendUploads((req) => b.chat.upload(req), sessionId, files, text)
   }
 
   /** The Stop button (P9.1): POST /api/chat/interrupt for THIS session. The daemon broadcasts

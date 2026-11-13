@@ -75,6 +75,8 @@ export const IPC = {
   WINDOW_RELOAD: 'window:reload',
   APPROVALS_NEW: 'approvals:new', // renderer -> main (send): NEW pending requests (from poll) → main decides notification. Main is the ONE notification authority (push frames feed the same path) — one dedupe set, one request gets one notification.
   CAPTURE_OPEN_MAIN: 'capture:open-main', // renderer -> main (send): quick-capture → open main on a session
+  CAPTURE_HOLD: 'capture:hold', // renderer -> main (send): keep the quick-capture window up while its file picker is open
+  CAPTURE_SHOT: 'capture:shot', // renderer -> main: hide the quick-capture window, grab one source, show it again
   EVENTS_RECENT: 'events:recent', // renderer -> main: GET /api/events/recent (activity-feed backfill)
   ARTIFACTS_LIST: 'artifacts:list', // renderer -> main: GET /api/artifacts (outbox manifest — chip matching)
   ARTIFACT_DOWNLOAD: 'artifacts:download', // renderer -> main: fetch by content id, save to ~/Downloads, reveal
@@ -1088,6 +1090,13 @@ export interface BeaconBridge {
   capture: {
     /** Quick-capture (Slice 10): hide the mini window and open the main window on a session. */
     openMain(sessionId: string): void
+    /** Keep the window up while it does not have focus (its file picker is open); false gives the
+     *  hold back. Main also drops it when the window is focused or hidden, and after two minutes
+     *  (@shared/quick-capture). */
+    hold(on: boolean): void
+    /** A screenshot taken FROM the quick-capture window: main hides the window first, so it is not in
+     *  the picture, grabs the source, and brings the window back. */
+    shot(sourceId: string): Promise<import('./capture').CaptureGrabResult>
   }
   loop: {
     /** The registered local projects (the board's sidebar). */
