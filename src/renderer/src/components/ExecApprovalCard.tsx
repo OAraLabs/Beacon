@@ -152,6 +152,9 @@ const noGrantNote: CSSProperties = {
 // opacity-dimmed glyph is invisible to lint:contrast. Same call as the Send button's ⏎.
 /** The line under the request that says what the keys do. One line, fixed height, whatever it says. */
 const keysHint: CSSProperties = { fontSize: 11.5, lineHeight: '16px', height: 16, color: 'var(--c-text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+/** Said on a critical request's card; held (unseen) on every other card so the card never changes size when that flips. */
+const CRITICAL_NOTE = 'This request can be approved only here, with the button.'
+const criticalNote: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: 'var(--c-text-dim)' }
 // The remembered-grant option's styling moved to .approval-scope-btn in
 // styles.css: inline styles cannot express :hover / :focus-visible / :active,
 // and those states ARE the affordance that was missing.
@@ -353,11 +356,19 @@ export function ExecApprovalCard({
               ? 'Click this card, or Tab to it, to deny with D.'
               : 'Click this card, or Tab to it, to answer with A or D.'}
         </div>
+        {/* ALWAYS here, with the same words, so the card is the same size whether or not the request is critical. What Prometheus
+            advertises can change under a mouse that is already down (a reconnect that answers differently), and a note that appeared
+            or went moved the Approve button between press and release. When the request is not critical the words are still laid
+            out, invisible and hidden from a screen reader, so the space is held at any width. */}
         {critical ? (
-          <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--c-text-dim)' }} data-testid="approval-critical-note">
-            This request can be approved only here, with the button.
+          <div style={criticalNote} data-testid="approval-critical-note">
+            {CRITICAL_NOTE}
           </div>
-        ) : null}
+        ) : (
+          <div style={{ ...criticalNote, visibility: 'hidden' }} aria-hidden="true" data-testid="approval-critical-reserved">
+            {CRITICAL_NOTE}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 8 }}>
           {cannotApprove ? null : (
