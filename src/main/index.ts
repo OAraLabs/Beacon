@@ -10,7 +10,7 @@ import { dirname, isAbsolute, join, resolve } from 'path'
 import { refusedSwitches } from '@shared/release-gate'
 import { buildFlavor, debuggingAllowedHere } from './build-flavor'
 import { IPC } from '@shared/ipc'
-import { approvalActionTarget, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
+import { answeredInApp, approvalActionTarget, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
 import { coerceArguments, type ApprovalArguments } from '@shared/approval-arguments'
 import { describeLoginItem, type LoginItemPlatform } from '@shared/login-item'
 import { isLegalDoc, legalDocPath, type LegalDocResult } from '@shared/legal-docs'
@@ -1953,7 +1953,9 @@ function notifyApproval(
   requestId: string,
   toolName: string,
   description: string,
-  args?: ApprovalArguments
+  args?: ApprovalArguments,
+  /** What the daemon said (ApprovalRequest.critical). */
+  critical?: boolean
 ): void {
   if (notifiedApprovalIds.has(requestId)) return
   notifiedApprovalIds.add(requestId)
@@ -1966,7 +1968,9 @@ function notifyApproval(
   // to give up the blocked-agent alert, which is the whole point of per-kind control.
   if (!notifyAllowed(notifyPrefs, 'approval')) return
 
-  const plan = notificationPlan(toolName, description, args)
+  // A critical request offers no answer here; it is answered in Beacon. Judged against what the
+  // Prometheus that ASKED advertises, not whichever one is connected now.
+  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy?.getStatus().approvalCritical))
   const actions =
     process.platform === 'darwin' && plan.offersActions
       ? ([
@@ -1999,7 +2003,7 @@ function handleApprovalFrame(raisedBy: ConnectionManager, ev: { type?: string; p
   const p = ev.payload ?? {}
   if (ev.type === 'approval_pending') {
     const a = rawToApproval(p as RawApprovalPush)
-    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments)
+    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments, a.critical)
   } else if (ev.type === 'approval_resolved') {
     const rid = typeof p.request_id === 'string' ? p.request_id : null
     if (rid) notifiedApprovalIds.delete(rid)
@@ -2320,7 +2324,7 @@ app.whenReady().then(() => {
       // shaped like an ApprovalRequest rather than known to be one. Idempotent on an
       // already-coerced map, and it is the same function both daemon mappers use.
       if (a && typeof a.requestId === 'string')
-        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments))
+        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments), a.critical === true ? true : a.critical === false ? false : undefined)
     }
   })
   // A conversation's working folder (@shared/work-folder). MAIN decides whether Prometheus shares

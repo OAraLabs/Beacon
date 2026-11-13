@@ -66,11 +66,15 @@ export interface SidePanelProps {
    */
   pendingApprovalIds?: ReadonlySet<string>
   onResolveApproval?: (requestId: string, decision: ApprovalDecision) => void
+  /** Whether a request may be approved only from its full card (Prometheus marked it critical). */
+  approvalCardOnly?: (requestId: string) => boolean
+  /** Put focus on the approval cards, with this request's in view. */
+  onShowApproval?: (requestId: string) => void
   /** What the conversation area beside the dock must keep (split panes: every pane's minimum). */
   conversationMin?: number
 }
 
-export function SidePanel({ pane, width, onWidth, onClose, onSendToChat, onOpenSession, sessionId, view, pendingApprovalIds, onResolveApproval, conversationMin }: SidePanelProps): ReactElement {
+export function SidePanel({ pane, width, onWidth, onClose, onSendToChat, onOpenSession, sessionId, view, pendingApprovalIds, onResolveApproval, approvalCardOnly, onShowApproval, conversationMin }: SidePanelProps): ReactElement {
   const dividerRef = useRef<HTMLDivElement | null>(null)
   const [room, setRoom] = useState<number>(Number.POSITIVE_INFINITY)
   const [dragging, setDragging] = useState(false)
@@ -212,6 +216,8 @@ export function SidePanel({ pane, width, onWidth, onClose, onSendToChat, onOpenS
               view={view}
               pendingApprovalIds={pendingApprovalIds}
               onResolveApproval={onResolveApproval}
+              approvalCardOnly={approvalCardOnly}
+              onShowApproval={onShowApproval}
             />
           ) : null}
         </div>

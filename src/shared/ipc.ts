@@ -290,6 +290,10 @@ export interface ConnectionStatus {
   identity?: IdentityNotice
   /** This connection goes plain to the home network (saved before Beacon refused that): src/shared/plain-lan.ts. */
   notEncrypted?: boolean
+  /** Whether this Prometheus said, in its latest `subscribed` reply, that every approval request carries `critical`
+   *  (@shared/approval-push). `false`: it said what it does and that is not among it (an older Prometheus). Absent: it has not
+   *  said yet, which lasts a few seconds at most after connecting. */
+  approvalCritical?: boolean
   /** Owner of this Prometheus, or an approved device that may only chat (src/shared/device-role.ts), from GET /api/devices after each
    *  connect, and remembered for this address and key from the last answer. Absent until known; Beacon then shows everything. */
   role?: import('./device-role').DeviceRole
@@ -742,6 +746,13 @@ export interface ApprovalRequest {
    * for an owner and only when the daemon sent a usable one; absent means the generic card.
    */
   home?: import('./home-approval').HomeApproval
+  /**
+   * What the daemon said about answering this from a notification: `true` means it must be
+   * answered in the app; `false` means it need not be; undefined means the daemon did not say (an
+   * older Prometheus). Main decides what a notification offers with `answeredInApp`
+   * (@shared/approval-push). Beacon never sets or guesses this.
+   */
+  critical?: boolean
 }
 
 /**
