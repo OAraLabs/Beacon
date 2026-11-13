@@ -301,6 +301,36 @@ try {
   await until(() => ev(`!!${CARD('k-click')}`), (v) => v === false, 5000)
   await settle()
 
+  // ── what Prometheus advertises changes while the mouse is already down on Approve ──────────
+  // A request that does not say, from a Prometheus that says nothing, is an ordinary one; a reconnect that now advertises the flag
+  // makes the same card critical (and its note appear). Neither the card nor the button may move or resize, or the click misses.
+  daemon.advertises = false
+  const subsF = daemon.subscribes
+  for (const ws of daemon.sockets) ws.terminate()
+  await until(async () => daemon.subscribes, (v) => v > subsF, 20000)
+  await until(() => ev(`window.beacon.connection.status().then((s) => s.approvalCritical)`), (v) => v === false, 5000)
+  push({ request_id: 'k-flip', description: 'Show the disk usage again' }, { stays: true })
+  await until(() => ev(`!!${CARD('k-flip')}`), (v) => v === true)
+  await settle()
+  await ev(`(document.activeElement?.blur?.(), true)`)
+  const FBTN = `[...${CARD('k-flip')}.querySelectorAll('button')].find((b) => /^Approve once/.test(b.textContent))`
+  check((await ev(`${CARD('k-flip')}.dataset.critical`)) === 'no' && (await ev(`!!${CARD('k-flip')}.querySelector('[data-testid="approval-critical-note"]')`)) === false && (await ev(`${CARD('k-flip')}.innerText.includes('approved only here')`)) === false, 'an unmarked request from a Prometheus that says it marks nothing is ordinary, and its card shows no critical note')
+  const flipCard = await box(CARD('k-flip'))
+  const flipBtn = await box(FBTN)
+  const flipAt = await ev(`(() => { const q = (${FBTN}).getBoundingClientRect(); return { x: q.left + q.width / 2, y: q.top + q.height / 2 } })()`)
+  await app.page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: flipAt.x, y: flipAt.y, button: 'left', clickCount: 1 })
+  await sleep(250)
+  daemon.advertises = true
+  const subsG = daemon.subscribes
+  for (const ws of daemon.sockets) ws.terminate()
+  await until(async () => daemon.subscribes, (v) => v > subsG, 20000)
+  check((await until(() => ev(`${CARD('k-flip')}?.dataset.critical ?? null`), (v) => v === 'yes', 6000)) === 'yes' && (await ev(`!!${CARD('k-flip')}.querySelector('[data-testid="approval-critical-note"]')`)) === true, 'with the mouse still down, the reconnect that advertises the flag makes the card critical and its note appears')
+  check((await box(CARD('k-flip'))) === flipCard && (await box(FBTN)) === flipBtn, 'and neither the card nor the Approve button moved or resized when it did', `${flipBtn} -> ${await box(FBTN)}; card ${flipCard} -> ${await box(CARD('k-flip'))}`)
+  await app.page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: flipAt.x, y: flipAt.y, button: 'left', clickCount: 1 })
+  check((await until(async () => answers('k-flip'), (v) => v.length > 0, 4000)).join() === 'approve', 'so the click still lands: Approve, from the card, is accepted for a request that became critical', answers('k-flip').join())
+  await until(() => ev(`!!${CARD('k-flip')}`), (v) => v === false, 5000)
+  await settle()
+
   // ── main refuses too: an approve of a critical request that is not from the card's button ───
   push({ request_id: 'k-guard', description: 'git push --force', critical: true }, { stays: true })
   await until(() => ev(`!!${CARD('k-guard')}`), (v) => v === true)
@@ -352,7 +382,7 @@ try {
   await ev(`(() => { [...${CARD('k-silent')}.querySelectorAll('button')].find((b) => /^Deny/.test(b.textContent)).click(); return true })()`)
   await until(() => ev(`!!${CARD('k-silent')}`), (v) => v === false, 5000)
   await settle()
-  check(daemon.resolved.length === 13, 'thirteen answers in all, each one made on purpose', daemon.resolved.join(' '))
+  check(daemon.resolved.length === 14, 'fourteen answers in all, each one made on purpose', daemon.resolved.join(' '))
 
   const answeredInWindow = daemon.resolved.length
 
