@@ -800,5 +800,411 @@
         }
       ]
     }
+  },
+  "ACTIVITY_PAGE_1": {
+    "entries": [
+      {
+        "id": "a-01",
+        "at": 1790000000,
+        "device": {
+          "id": "dev-hall-light",
+          "name": "Hall light",
+          "room": "Hall"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "turn_on",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "on, 60%",
+        "resulting": "off",
+        "result": "unconfirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": null
+      },
+      {
+        "id": "a-02",
+        "at": 1789999400,
+        "device": {
+          "id": "dev-front-door-lock",
+          "name": "Front door lock",
+          "room": "Hall"
+        },
+        "tier": "critical",
+        "tool": "ha_control_sensitive",
+        "action": "unlock",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "unlocked",
+        "resulting": null,
+        "result": "refused",
+        "approval": "not_asked",
+        "refusal_reason": "Front door lock is a Critical device, and Critical devices cannot be controlled from Prometheus.",
+        "batch_id": null
+      },
+      {
+        "id": "a-03",
+        "at": 1789998800,
+        "device": {
+          "id": "dev-garage-light",
+          "name": "Garage light",
+          "room": "Garage"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "schedule",
+          "label": "Evening routine"
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "auto_allowed",
+        "refusal_reason": null,
+        "batch_id": null
+      },
+      {
+        "id": "a-04",
+        "at": 1789998200,
+        "device": {
+          "id": "dev-evening-scene",
+          "name": "Evening scene",
+          "room": "Living room"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_on",
+        "initiator": {
+          "kind": "background_task",
+          "label": null
+        },
+        "requested": "activated",
+        "resulting": null,
+        "result": "refused",
+        "approval": "not_asked",
+        "refusal_reason": "Scheduled and background runs never use the sensitive tool.",
+        "batch_id": null
+      },
+      {
+        "id": "a-05",
+        "at": 1789996400,
+        "device": {
+          "id": "dev-hall-light",
+          "name": "Hall light",
+          "room": "Hall"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-06",
+        "at": 1789996399,
+        "device": {
+          "id": "dev-landing-light",
+          "name": "Landing light",
+          "room": "Hall"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-07",
+        "at": 1789996398,
+        "device": {
+          "id": "dev-stair-light",
+          "name": "Stair light",
+          "room": "Hall"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-08",
+        "at": 1789996397,
+        "device": {
+          "id": "dev-porch-light",
+          "name": "Porch light",
+          "room": "Garden"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-09",
+        "at": 1789996396,
+        "device": {
+          "id": "dev-study-lamp",
+          "name": "Study lamp",
+          "room": "Study"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-10",
+        "at": 1789996395,
+        "device": {
+          "id": "dev-bedroom-lamp",
+          "name": "Bedroom lamp",
+          "room": "Bedroom"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-11",
+        "at": 1789996394,
+        "device": {
+          "id": "dev-bathroom-light",
+          "name": "Bathroom light",
+          "room": "Bathroom"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": null,
+        "result": "failed",
+        "approval": "approved_once",
+        "refusal_reason": "Home Assistant did not answer for this one",
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-12",
+        "at": 1789996393,
+        "device": {
+          "id": "dev-garden-light",
+          "name": "Garden light",
+          "room": "Garden"
+        },
+        "tier": "sensitive",
+        "tool": "ha_control_sensitive",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": "b-01"
+      },
+      {
+        "id": "a-13",
+        "at": 1789913500,
+        "device": {
+          "id": "dev-living-lamp",
+          "name": "Living room lamp",
+          "room": "Living room"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "turn_on",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "on",
+        "resulting": "on",
+        "result": "confirmed",
+        "approval": "approved_always",
+        "refusal_reason": null,
+        "batch_id": null
+      },
+      {
+        "id": "a-14",
+        "at": 1789912700,
+        "device": {
+          "id": "dev-kitchen-plug",
+          "name": "Kitchen plug",
+          "room": "Kitchen"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": null,
+        "result": "refused",
+        "approval": "denied",
+        "refusal_reason": "You denied this request.",
+        "batch_id": null
+      },
+      {
+        "id": "a-15",
+        "at": 1789740800,
+        "device": {
+          "id": "dev-thermostat",
+          "name": "Thermostat",
+          "room": "Living room"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "set_temperature",
+        "initiator": {
+          "kind": "schedule",
+          "label": "Morning routine"
+        },
+        "requested": "21 °C",
+        "resulting": "21 °C",
+        "result": "confirmed",
+        "approval": "auto_allowed",
+        "refusal_reason": null,
+        "batch_id": null
+      }
+    ],
+    "next_before": "cursor-2"
+  },
+  "ACTIVITY_PAGE_2": {
+    "entries": [
+      {
+        "id": "a-16",
+        "at": 1789568000,
+        "device": {
+          "id": "dev-bedroom-lamp",
+          "name": "Bedroom lamp",
+          "room": "Bedroom"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "turn_off",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "off",
+        "resulting": "off",
+        "result": "confirmed",
+        "approval": "approved_once",
+        "refusal_reason": null,
+        "batch_id": null
+      },
+      {
+        "id": "a-17",
+        "at": 1789481600,
+        "device": {
+          "id": "dev-hall-light",
+          "name": "Hall light",
+          "room": "Hall"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "turn_on",
+        "initiator": {
+          "kind": "chat",
+          "label": null
+        },
+        "requested": "on",
+        "resulting": null,
+        "result": "refused",
+        "approval": "expired",
+        "refusal_reason": "The approval expired before anyone answered.",
+        "batch_id": null
+      },
+      {
+        "id": "a-18",
+        "at": 1789395200,
+        "device": {
+          "id": "dev-garage-light",
+          "name": "Garage light",
+          "room": "Garage"
+        },
+        "tier": "ordinary",
+        "tool": "ha_control_ordinary",
+        "action": "turn_on",
+        "initiator": {
+          "kind": "unknown",
+          "label": null
+        },
+        "requested": "on",
+        "resulting": "on",
+        "result": "confirmed",
+        "approval": "not_asked",
+        "refusal_reason": null,
+        "batch_id": null
+      }
+    ],
+    "next_before": null
   }
 }
