@@ -14,6 +14,7 @@
  * Run: npm run build && npm run probe:home-approval   (macOS; needs a free REST port)
  */
 import { createServer } from 'node:http'
+import { WebSocketServer } from 'ws'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -45,6 +46,7 @@ let pending = []
 const answered = [] // { id, verb: 'approve'|'deny', body }
 const approvedAt = new Map()
 let listServed = 0
+let capable = false // whether this fake Prometheus advertises home/1 on GET /api/status
 
 const gateway = createServer((req, res) => {
   res.setHeader('content-type', 'application/json')
@@ -59,6 +61,7 @@ const gateway = createServer((req, res) => {
       if (act[2] === 'approve') approvedAt.set(act[1], Date.now())
       return res.end('{}')
     }
+    if (url === '/api/status') return res.end(JSON.stringify({ state: 'idle', model: 'stub-model', capabilities: capable ? ['home/1'] : [] }))
     if (url.startsWith('/api/approvals') && req.method === 'GET') {
       listServed += 1
       const now = Math.floor(Date.now() / 1000)
@@ -83,7 +86,17 @@ await new Promise((r) => gateway.listen(PORT, '127.0.0.1', r))
 
 process.env.BEACON_GATEWAY_HOST = '127.0.0.1'
 process.env.BEACON_GATEWAY_API_PORT = String(PORT)
-process.env.BEACON_GATEWAY_WS_PORT = '59999' // dead on purpose: this probe is the REST path
+// A live socket, so the probe can push the daemon's frames (an approval answered somewhere else arrives as one).
+const sockets = new Set()
+const wsHttp = createServer()
+new WebSocketServer({ server: wsHttp }).on('connection', (ws) => {
+  sockets.add(ws)
+  ws.on('close', () => sockets.delete(ws))
+  ws.send(JSON.stringify({ type: 'connected' }))
+})
+await new Promise((r) => wsHttp.listen(0, '127.0.0.1', r))
+const pushFrame = (frame) => sockets.forEach((ws) => ws.send(JSON.stringify(frame)))
+process.env.BEACON_GATEWAY_WS_PORT = String(wsHttp.address().port)
 process.env.BEACON_CDP_ARGS = `${process.env.BEACON_CDP_ARGS ?? ''} --user-data-dir=${join(shots, 'profile')}`.trim()
 
 const { evaluate, sleep, send, mainLog } = await import('./cdp-harness.mjs')
@@ -141,6 +154,16 @@ const click = (sel) => `(() => { const el = document.querySelector(${JSON.string
 
 await send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false })
 
+// ── 0. Home shows only when the Prometheus advertises it ─────────────────────
+console.log('\n=== 0. the capability gate ===')
+capable = false
+pending = [ORDINARY_LIGHT]
+const generic = await until(`(() => { const b = document.querySelector('.approval-btn-approve'); return b ? { home: !!document.querySelector('[data-testid="home-approval"]'), text: document.body.innerText.includes('Turn on Hall light') } : null })()`)
+check(!!generic && generic.home === false && generic.text === true, 'a Home approval on a Prometheus that does not advertise Home is the generic card, with its description')
+capable = true
+const lit = await until(`(() => { const c = document.querySelector('[data-testid="home-approval"]'); return c ? c.dataset.request : null })()`, 15000)
+check(lit === 'home-ordinary', 'when the Prometheus starts advertising Home, the same approval becomes the Home card')
+
 // ── A. Ordinary: the common case ─────────────────────────────────────────────
 console.log('\n=== A. one Ordinary light ===')
 pending = [ORDINARY_LIGHT]
@@ -168,6 +191,7 @@ await shot('ordinary')
 await evaluate(click('[data-testid="home-approval"] .approval-btn-approve'))
 await sleep(600)
 check(answered.length === 1 && answered[0].verb === 'approve' && answered[0].body.includes('"once"'), 'Approve once posts scope "once"', JSON.stringify(answered))
+check((await evaluate(`document.querySelectorAll('[data-testid="home-answered"]').length`)) === 0, 'a card answered here never becomes "answered elsewhere"')
 const waiting = await until(`document.querySelector('[data-testid="home-result"]') ? document.querySelector('[data-testid="home-result"]').innerText : null`, 4000)
 check(!!waiting && /Waiting for Home Assistant/.test(waiting), 'the card becomes a result card that says it is waiting, not done', waiting ?? '')
 const warn = await until(`(() => { const l = document.querySelector('[data-testid="home-result-line"]'); return l ? { glyph: l.dataset.glyph, text: l.innerText.replace(/\\s+/g, ' ') } : null })()`, 12000)
@@ -236,7 +260,32 @@ pending = [GENERIC]
 const g = await until(`(() => { const b = document.querySelector('.approval-btn-approve'); return b && !document.querySelector('[data-testid="home-approval"]') ? document.body.innerText.includes('write_file') : null })()`)
 check(g === true, 'a non-Home approval still gets the generic card')
 
-const MIN_CHECKS = 39
+// ── F. answered somewhere else ───────────────────────────────────────────────
+console.log('\n=== F. answered somewhere else ===')
+// The earlier scenarios swapped one pending approval for another, which is exactly an answer from elsewhere: those cards are here too.
+await evaluate(`document.querySelectorAll('[data-testid="home-answered"] button[aria-label="Dismiss"]').forEach((b) => b.click()); true`)
+const away = { ...ORDINARY_LIGHT, request_id: 'home-away' }
+pending = [away]
+await until(snap('home-away'))
+pending = []
+pushFrame({ type: 'approval_resolved', payload: { request_id: 'home-away', resolution: 'approved', answered_on: 'Telegram' } })
+const ans = await until(`(() => { const c = document.querySelector('[data-testid="home-answered"][data-request="home-away"]'); return c ? { title: c.querySelector('[data-testid="home-answered-title"]').innerText, text: c.innerText.replace(/\\s+/g, ' '), buttons: [...c.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.innerText.trim()), live: !!document.querySelector('[data-testid="home-approval"]') } : null })()`, 8000)
+check(!!ans && ans.title === 'Answered on Telegram' && /It was approved\./.test(ans.text), 'a card answered on Telegram says "Answered on Telegram" and what the answer was', JSON.stringify(ans))
+check(!!ans && ans.buttons.join() === 'Dismiss' && ans.live === false, 'and its buttons are gone: only Dismiss is left, and no live Home card remains')
+await evaluate(`document.querySelector('[data-testid="home-answered"][data-request="home-away"] button[aria-label="Dismiss"]')?.click(); true`)
+check(!!(await until(`!document.querySelector('[data-testid="home-answered"][data-request="home-away"]')`, 3000)), 'Dismiss clears it')
+await sleep(7000) // two polls: a poll that was in flight must not bring a second card back
+check((await evaluate(`!document.querySelector('[data-testid="home-answered"][data-request="home-away"]')`)) === true, 'and it stays cleared')
+const gone = { ...ORDINARY_LIGHT, request_id: 'home-gone' }
+pending = [gone]
+await until(snap('home-gone'))
+pending = [] // no frame this time: the poll notices first
+const noframe = await until(`(() => { const c = document.querySelector('[data-testid="home-answered"][data-request="home-gone"]'); return c ? c.querySelector('[data-testid="home-answered-title"]').innerText : null })()`, 9000)
+check(noframe === 'Answered elsewhere', 'a card that left with no frame to explain it says "Answered elsewhere" and claims nothing more', noframe ?? '')
+await shot('answered')
+await evaluate(`document.querySelectorAll('[data-testid="home-answered"] button[aria-label="Dismiss"]').forEach((b) => b.click()); true`)
+
+const MIN_CHECKS = 47
 if (checks < MIN_CHECKS) {
   console.error(`  FAIL only ${checks} checks ran, expected at least ${MIN_CHECKS}`)
   failures += 1

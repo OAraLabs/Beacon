@@ -19,7 +19,7 @@
 
 import type { ApprovalRequest } from './ipc'
 import { coerceArguments, type ApprovalArguments } from './approval-arguments'
-import { coerceHome } from './home-approval'
+import { coerceHome, isHomeToolName } from './home-approval'
 
 /**
  * The daemon's snake_case pending shape — the SAME dict `serialize_pending()` serves over BOTH
@@ -213,6 +213,12 @@ export function notificationPlan(
   description: string,
   args?: ApprovalArguments
 ): NotificationPlan {
+  // A Home control call is answered on its card, never from a notification: the card shows the tier and each device's change, says a
+  // Critical call can only be denied, and offers a lasting option only when the daemon does. A one-tap Approve shows none of that.
+  if (isHomeToolName(toolName)) {
+    const note = ' — answer it in Beacon'
+    return { body: `${decisionGradeBody(toolName, description, Math.max(0, BODY_BUDGET - note.length))}${note}`, offersActions: false }
+  }
   const count = args ? Object.keys(args).length : 0
   if (count === 0) return { body: decisionGradeBody(toolName, description), offersActions: true }
   // The note is RESERVED out of the budget, never appended past it — a body that

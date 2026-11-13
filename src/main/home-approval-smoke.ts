@@ -42,7 +42,7 @@ import {
 import { readFileSync } from 'node:fs'
 
 /** The count guard (see approval-smoke): a section that stops running must not read as a pass. */
-const MIN_CHECKS = 95
+const MIN_CHECKS = 219
 
 let failures = 0
 let checks = 0
@@ -375,12 +375,13 @@ assert(/aria-expanded/.test(card), 'the "and N more" control says whether it is 
 assert(/HomeApprovalCard/.test(main) && /\.home\b/.test(main), 'MainView mounts the Home card for an approval that has home')
 assert(/useHomeCapability\(\)/.test(main) && /showHomeCard\(/.test(main), 'MainView shows the Home card only as showHomeCard says, from the advertised capability')
 assert(/HomeAnsweredCard/.test(main) && /droppedHomeApprovals\(/.test(main) && /coerceResolved\(/.test(main), 'MainView turns a Home card answered elsewhere into the answered card')
+assert(/answeredShown/.test(main), 'and makes at most one answered card per request, whatever order a frame and a poll arrive in')
 {
   const answered = read('../../src/renderer/src/components/HomeAnsweredCard.tsx')
   assert(!/approval-btn-approve|onResolve|Approve once|Deny/.test(answered), 'the answered card has no way to approve or deny')
   assert(/Dismiss/.test(answered), 'it can be dismissed')
   const store = read('../../src/renderer/src/home-capability-store.ts')
-  assert(/daemon\.get\(STATUS_PATH\)/.test(store) && /hasHomeCapability/.test(store), 'the capability is read from the daemon status, through the bridge')
+  assert(/daemon\s*\.get\(STATUS_PATH\)/.test(store) && /hasHomeCapability/.test(store), 'the capability is read from the daemon status, through the bridge')
   assert(/onStatus/.test(store), 'and read again when the connection changes, so it follows the Prometheus Beacon is on')
 }
 assert(/homeActionPath/.test(read('../../src/renderer/src/components/HomeResultCard.tsx')), 'the result card reads the daemon route through homeActionPath')

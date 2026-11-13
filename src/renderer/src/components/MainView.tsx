@@ -39,6 +39,10 @@ import { ChatShell } from './ChatShell'
 import { ExecApprovalCard } from './ExecApprovalCard'
 import { HomeApprovalCard } from './HomeApprovalCard'
 import { HomeResultCard } from './HomeResultCard'
+import { HomeAnsweredCard } from './HomeAnsweredCard'
+import { useHomeCapability, refreshHomeCapability } from '../home-capability-store'
+import { showHomeCard } from '@shared/home-capability'
+import { coerceResolved, droppedHomeApprovals, type Resolution } from '@shared/home-answered'
 import { cannotApproveLine } from '@shared/approval-refusal'
 import { NavRail } from './NavRail'
 import { StubPanel } from './StubPanel'
@@ -208,9 +212,16 @@ export function MainView() {
   const [cannotApprove, setCannotApprove] = useState<Record<string, string>>({})
   /** Home Assistant approvals that were approved and are waiting on, or showing, the server's re-read. */
   const [homeResults, setHomeResults] = useState<ApprovalRequest[]>([])
+  /** Home cards that were answered somewhere else (a chat app, another computer): shown as "Answered on …" with no buttons. */
+  const [homeAnswered, setHomeAnswered] = useState<{ approval: ApprovalRequest; resolution: Resolution | null; answeredOn: string | null }[]>([])
+  // Does the Prometheus Beacon is on advertise Home? The Home card shows only then; any other approval is the generic card.
+  const homeCapable = useHomeCapability()
   /** The approvals as last rendered, for resolveApproval (a stable callback) to read the request it is answering. */
   const approvalsRef = useRef<ApprovalRequest[]>([])
   approvalsRef.current = approvals
+  /** The capability as last rendered, for resolveApproval (a stable callback) to read. */
+  const homeCapableRef = useRef(false)
+  homeCapableRef.current = homeCapable
   /** The approval ids STILL in the daemon's queue, as a set. The progress pane's desktop log joins
    *  a step's `approvalRequestId` against this to decide whether to render an approve/deny control
    *  inline — a step whose request has been answered keeps its row but has nothing left to act on.
@@ -1407,12 +1418,25 @@ export function MainView() {
   // handler, so one request gets exactly one notification no matter which saw
   // it first. The in-window Notification that used to fire here is retired.
   const seenApprovals = useRef<Set<string>>(new Set())
+  /** requestId → what its resolved frame said (home-answered). */
+  const resolvedInfo = useRef<Map<string, { resolution: Resolution | null; answeredOn: string | null }>>(new Map())
+  /** Requests THIS Beacon answered: their cards go quietly (or become a result), never "answered elsewhere". */
+  const answeredByMe = useRef<Set<string>>(new Set())
+  /** Requests already turned into an answered card (dismissed or not): a poll that was in flight can bring a card back for one poll, and its second leaving must not make a second card. */
+  const answeredShown = useRef<Set<string>>(new Set())
+  /** The list as last seen, to tell a Home card that left unanswered by us. Forgotten when the Prometheus changes, so a switch is not read as answers. */
+  const priorApprovals = useRef<ApprovalRequest[] | null>(null)
   useEffect(() => {
     const b = window.beacon
     if (!b) return
     // PUSH path: frames update the list immediately (upsert by requestId).
     const offGateway = b.events.onGateway((ev: GatewayEvent) => {
       if (ev.type !== 'approval_pending' && ev.type !== 'approval_resolved') return
+      // What a resolved frame says about HOW and WHERE it was answered, kept for the card that is about to leave (home-answered).
+      if (ev.type === 'approval_resolved') {
+        const r = coerceResolved(ev.payload)
+        if (r) resolvedInfo.current.set(r.requestId, r)
+      }
       setApprovals((prev) => applyApprovalFrame(prev, { type: ev.type, payload: ev.payload }))
     })
     return () => {
@@ -1444,6 +1468,31 @@ export function MainView() {
     }
   }, [])
 
+  useEffect(() => {
+    const prev = priorApprovals.current
+    priorApprovals.current = approvals
+    if (!prev) return
+    const gone = droppedHomeApprovals(prev, approvals, answeredByMe.current).filter((g) => !answeredShown.current.has(g.requestId))
+    if (gone.length === 0) return
+    for (const g of gone) answeredShown.current.add(g.requestId)
+    setHomeAnswered((cur) => [
+      ...cur.filter((x) => !gone.some((g) => g.requestId === x.approval.requestId)),
+      ...gone.map((g) => ({ approval: g, resolution: resolvedInfo.current.get(g.requestId)?.resolution ?? null, answeredOn: resolvedInfo.current.get(g.requestId)?.answeredOn ?? null }))
+    ])
+  }, [approvals])
+  useEffect(() => {
+    // Another Prometheus (or any change to the list of them) replaces the whole approvals list: that is not an answer.
+    const b = window.beacon
+    if (!b) return
+    return b.instances.onChanged(() => {
+      priorApprovals.current = null
+    })
+  }, [])
+  // A Home approval that arrives while Home is not advertised: ask again, in case the capability has just appeared.
+  useEffect(() => {
+    if (!homeCapable && approvals.some((a) => a.home)) refreshHomeCapability()
+  }, [approvals, homeCapable])
+
   const resolveApproval = useCallback(async (requestId: string, decision: ApprovalDecision) => {
     // BREADCRUMB 2 — what survived the prop hop from the card.
     trace({
@@ -1455,6 +1504,7 @@ export function MainView() {
     const b = window.beacon
     if (!b) return
     setApprovalErrors((m) => (m[requestId] ? { ...m, [requestId]: '' } : m)) // clear a stale rejection
+    answeredByMe.current.add(requestId)
     const approval = approvalsRef.current.find((a) => a.requestId === requestId)
     // Optimistic remove, except an approve of a worker's request: that one can be refused for who is asking (401 not_a_person),
     // and a card that left and came back with the next poll is the flicker that refusal used to cause. It waits for the answer.
@@ -1471,11 +1521,12 @@ export function MainView() {
       })
       await b.approvals.resolve(requestId, decision)
       if (waits) remove()
-      if (decision.kind === 'approve' && approval?.home) {
+      if (decision.kind === 'approve' && approval && showHomeCard(approval, homeCapableRef.current)) {
         const answered = approval
         setHomeResults((p) => [...p.filter((r) => r.requestId !== requestId), answered])
       }
     } catch (err) {
+      answeredByMe.current.delete(requestId) // it was not answered after all: the card comes back
       // Not this Beacon's to approve: say so once, in place of Approve; the card stays, with Deny.
       const line = approval ? cannotApproveLine(approval, err) : null
       if (line) {
@@ -1627,7 +1678,7 @@ export function MainView() {
   return (
     <GatewayStoreProvider>
       <PreviewProvider>
-      {approvals.length > 0 || homeResults.length > 0 ? (
+      {approvals.length > 0 || homeResults.length > 0 || homeAnswered.length > 0 ? (
         <div
           style={{
             position: 'fixed',
@@ -1642,7 +1693,7 @@ export function MainView() {
           }}
         >
           {approvals.map((a, i) =>
-            a.home ? (
+            showHomeCard(a, homeCapable) ? (
               <HomeApprovalCard
                 key={a.requestId}
                 approval={a}
@@ -1667,6 +1718,15 @@ export function MainView() {
               />
             )
           )}
+          {homeAnswered.map((x) => (
+            <HomeAnsweredCard
+              key={`answered:${x.approval.requestId}`}
+              approval={x.approval}
+              resolution={x.resolution}
+              answeredOn={x.answeredOn}
+              onDismiss={() => setHomeAnswered((p) => p.filter((y) => y.approval.requestId !== x.approval.requestId))}
+            />
+          ))}
           {homeResults.map((r) => (
             <HomeResultCard key={`result:${r.requestId}`} approval={r} onDismiss={() => setHomeResults((p) => p.filter((x) => x.requestId !== r.requestId))} />
           ))}

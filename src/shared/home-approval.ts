@@ -14,6 +14,7 @@
 // the generic card — which already shows the full description and arguments. Never a half-card.
 
 import { approvalScopes } from './workers'
+import { homeLinkOrNull } from './home-link'
 
 export type HomeTier = 'ordinary' | 'sensitive' | 'critical'
 
@@ -88,7 +89,7 @@ function coerceDevice(raw: unknown): HomeDevice | null {
     relaxed: raw.relaxed === true,
     current: str(raw.current),
     requested: str(raw.requested),
-    openUrl: str(raw.open_url)
+    openUrl: homeLinkOrNull(raw.open_url)
   }
 }
 
