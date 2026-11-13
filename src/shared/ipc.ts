@@ -1090,8 +1090,9 @@ export interface BeaconBridge {
   capture: {
     /** Quick-capture (Slice 10): hide the mini window and open the main window on a session. */
     openMain(sessionId: string): void
-    /** Keep the window up while it does not have focus (its file picker is open). Main drops the hold
-     *  when the window is focused, hidden or toggled again (@shared/quick-capture). */
+    /** Keep the window up while it does not have focus (its file picker is open); false gives the
+     *  hold back. Main also drops it when the window is focused or hidden, and after two minutes
+     *  (@shared/quick-capture). */
     hold(on: boolean): void
     /** A screenshot taken FROM the quick-capture window: main hides the window first, so it is not in
      *  the picture, grabs the source, and brings the window back. */

@@ -92,7 +92,7 @@ import { registerIntegrationsHandlers } from './integrations-ipc'
 import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
 import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
-import { CAPTURE_HOLD_MAX_MS, hidesOnBlur } from '@shared/quick-capture'
+import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
 import { registerBrowserPane } from './browser-pane'
 import { openPopout } from './popout-window'
 import { killAllTerminals, registerTerminalHandlers } from './terminal-ipc'
@@ -1519,10 +1519,10 @@ function createCaptureWindow(): void {
   win.on('blur', () => {
     if (hidesOnBlur(captureHeld())) win.hide()
   })
-  win.on('focus', () => holdCapture(false))
-  win.on('hide', () => holdCapture(false))
+  win.on('focus', () => holdCapture('focus'))
+  win.on('hide', () => holdCapture('hide'))
   win.on('closed', () => {
-    holdCapture(false)
+    holdCapture('closed')
     if (captureWindow === win) captureWindow = null
   })
   // Quick-capture is a composer in its own window — the menu matters most here, where there is
@@ -1535,20 +1535,32 @@ let captureHoldTimer: NodeJS.Timeout | null = null
 function captureHeld(): boolean {
   return captureHoldTimer !== null
 }
-/** Start or end the hold. It ends by itself after CAPTURE_HOLD_MAX_MS, and a window that is still
- *  unfocused then hides, so a hold nothing released cannot leave the box on screen. */
-function holdCapture(on: boolean): void {
+/** Something happened to the hold (@shared/quick-capture decides what it does). A hold ends by
+ *  itself after CAPTURE_HOLD_MAX_MS, and a window that is still unfocused then hides, so a hold
+ *  nothing released cannot leave the box on screen. */
+function holdCapture(ev: HoldEvent): void {
+  const held = holdAfter(captureHeld(), ev)
   if (captureHoldTimer) clearTimeout(captureHoldTimer)
   captureHoldTimer = null
-  if (!on) return
+  if (!held) return
   captureHoldTimer = setTimeout(() => {
-    captureHoldTimer = null
+    holdCapture('timeout')
     const win = captureWindow
-    if (win && !win.isDestroyed() && win.isVisible() && !win.isFocused()) win.hide()
+    if (win && !win.isDestroyed() && hidesOnHoldTimeout(win.isVisible(), win.isFocused())) win.hide()
   }, CAPTURE_HOLD_MAX_MS)
+}
+/** True while CAPTURE_SHOT has the window hidden for a grab. */
+let captureShooting = false
+/** Whether an IPC sender is the quick-capture window, and that window is alive. */
+function fromCaptureWindow(sender: Electron.WebContents): boolean {
+  const win = captureWindow
+  const alive = !!win && !win.isDestroyed()
+  return isCaptureSender(sender.id, win ? { id: alive ? win.webContents.id : -1, destroyed: !alive } : null)
 }
 
 function toggleCaptureWindow(): void {
+  // Not during a screenshot: showing the box now would put it in the picture.
+  if (!toggleAllowed(captureShooting)) return
   if (!captureWindow || captureWindow.isDestroyed()) createCaptureWindow()
   const win = captureWindow!
   if (win.isVisible()) {
@@ -2100,7 +2112,7 @@ app.whenReady().then(() => {
   })
   registerVoiceHandlers()
   registerHandsFreeHandlers()
-  registerScreenshotHandlers((sender) => (captureWindow && !captureWindow.isDestroyed() && sender === captureWindow.webContents ? captureWindow.getMediaSourceId() : null))
+  registerScreenshotHandlers((sender) => (captureWindow && fromCaptureWindow(sender) ? captureWindow.getMediaSourceId() : null))
   // Browser pane: WebContentsViews hosted in main, driven by the user only (@shared/browser-pane).
   registerBrowserPane({
     getMainWindow: () => mainWindow,
@@ -2153,23 +2165,29 @@ app.whenReady().then(() => {
     }
   })
   // Only the quick-capture window may hold itself up or take a shot through itself.
-  const fromCapture = (sender: Electron.WebContents): boolean => !!captureWindow && !captureWindow.isDestroyed() && sender === captureWindow.webContents
   onFromShell(IPC.CAPTURE_HOLD, (e, on: unknown) => {
-    if (fromCapture(e.sender)) holdCapture(on === true)
+    if (fromCaptureWindow(e.sender)) holdCapture(on === true ? 'ask-on' : 'ask-off')
   })
   handleFromShell(IPC.CAPTURE_SHOT, async (e, sourceId: unknown) => {
     const win = captureWindow
-    if (!win || !fromCapture(e.sender)) return { ok: false, error: 'only the quick-capture window can ask for this' }
+    if (!win || !fromCaptureWindow(e.sender)) return { ok: false, error: 'only the quick-capture window can ask for this' }
+    if (captureShooting) return { ok: false, error: 'a capture is already being taken' }
     // Out of the picture first, and a beat for the compositor to drop it: a shot of the screen
-    // with the box still on it is the one thing this must not produce.
+    // with the box still on it is the one thing this must not produce. The toggle is a no-op
+    // until the grab is done, for the same reason.
+    captureShooting = true
     win.hide()
     await new Promise((r) => setTimeout(r, 250))
     try {
       return await grabSource(sourceId)
     } finally {
+      captureShooting = false
       if (!win.isDestroyed()) {
         win.show()
         win.focus()
+        // Some window managers refuse focus to an app that is not in front. A box that is up
+        // without focus never blurs, so nothing would ever hide it: put it on the hold's clock.
+        if (!win.isFocused()) holdCapture('shot-returned-unfocused')
       }
     }
   })

@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { SessionSummary } from '@shared/ipc'
 import { screenAccessHint, screenshotFilename, type CaptureSourcesResult } from '@shared/capture'
-import { CAPTURE_DEFAULT_TARGET, CAPTURE_NEW_TARGET, CAPTURE_TARGET_KEY, captureCanSend, captureTargets, storedCaptureTarget } from '@shared/quick-capture'
+import {
+  CAPTURE_DEFAULT_TARGET,
+  CAPTURE_NEW_TARGET,
+  CAPTURE_TARGET_KEY,
+  captureCanSend,
+  captureTargets,
+  escClosesBox,
+  restoreAfterFailedSend,
+  storedCaptureTarget
+} from '@shared/quick-capture'
 import { BEACON_GATEWAY } from '@shared/session-sources'
-import { sendUploads, stagedScreenshot, stageFiles, type PendingFile } from '../attachments-io'
+import { sendUploads, stagedScreenshot, stageFiles, UploadError, type PendingFile } from '../attachments-io'
 import { Icon } from './Icon'
 
 // Quick Capture (Makeover Slice 10, Track C #4) — the spotlight-style mini composer the
@@ -183,9 +192,28 @@ export function QuickCapture() {
         setReply((r) => r + f.content)
       } else if (f.kind === 'done') {
         setStreaming(false)
+      } else if (f.kind === 'error') {
+        // A turn that died says so here too; without this the caret blinks forever.
+        setStreaming(false)
+        setNote(f.hint ? `${f.message} ${f.hint}` : f.message)
       }
     })
     return off
+  }, [])
+
+  // The file picker's answer gives the hold back, whichever answer it is. Main also drops the
+  // hold when this window is focused again, but a picker that never took focus would leave it
+  // armed, and the box would then sit over the next app clicked for up to two minutes.
+  useEffect(() => {
+    const input = fileInputRef.current
+    if (!input) return
+    const release = (): void => window.beacon?.capture.hold(false)
+    input.addEventListener('cancel', release)
+    input.addEventListener('change', release)
+    return () => {
+      input.removeEventListener('cancel', release)
+      input.removeEventListener('change', release)
+    }
   }, [])
 
   const addFiles = async (list: FileList | File[]): Promise<void> => {
@@ -197,7 +225,8 @@ export function QuickCapture() {
 
   const pickFiles = (): void => {
     // The picker takes focus, and this window hides when it loses focus: ask main to hold it up.
-    // Main drops the hold when focus comes back (a choice or a cancel) and after two minutes.
+    // The hold is given back when the picker answers (the effect above), when focus returns, and
+    // after two minutes whatever happens.
     window.beacon?.capture.hold(true)
     fileInputRef.current?.click()
   }
@@ -255,7 +284,7 @@ export function QuickCapture() {
         const res = (await b.daemon.write('/api/sessions', { gateway: BEACON_GATEWAY }, 'POST').catch(() => null)) as { session_id?: string } | null
         if (!res?.session_id) {
           // Nothing was cleared: the text and the files are still here to send again.
-          setNote('Could not start a new conversation. Check the connection and try again.')
+          setNote('Could not start a new conversation. Open Beacon to see whether it is connected, then try again.')
           return
         }
         sessionId = res.session_id
@@ -271,13 +300,21 @@ export function QuickCapture() {
       void b.settings.set(CAPTURE_TARGET_KEY, sessionId).catch(() => undefined)
       try {
         if (staged.length > 0) await sendUploads((req) => b.chat.upload(req), sessionId, staged, text)
-        else await b.chat.send({ sessionId, message: text, clientMsgId: crypto.randomUUID() })
+        else {
+          // chat.send does not throw for "not connected" or a refused send: it says so in its answer.
+          const res = await b.chat.send({ sessionId, message: text, clientMsgId: crypto.randomUUID() })
+          if (res.status === 'not-connected') throw new Error('not connected')
+          if (res.error) throw new Error(res.error)
+        }
       } catch (err) {
-        // Put back what did not go, so a dropped connection does not cost the capture.
+        // Put back what did NOT go: files already sent are not offered again (a retry would send
+        // them twice), and whatever was typed or attached while this was going out is kept.
+        const sent = err instanceof UploadError ? err.sent : 0
         setStreaming(false)
-        setDraft(text)
-        setFiles(staged)
-        setNote(`Not sent: ${err instanceof Error ? err.message : String(err)}`)
+        setDraft((cur) => restoreAfterFailedSend(text, staged, sent, { draft: cur, files: [] }).draft)
+        setFiles((cur) => restoreAfterFailedSend(text, staged, sent, { draft: '', files: cur }).files)
+        const why = err instanceof Error ? err.message : String(err)
+        setNote(sent > 0 ? `${sent} of ${staged.length} files went, then: ${why}. The rest are back in the box.` : `Not sent: ${why}`)
       }
     } finally {
       setSending(false)
@@ -286,12 +323,16 @@ export function QuickCapture() {
 
   const onKey = (e: React.KeyboardEvent): void => {
     if (e.key === 'Enter' && !e.shiftKey && e.target === inputRef.current) {
+      // Not while an input method is composing, and only the first press of a held key.
+      if (e.nativeEvent.isComposing) return
       e.preventDefault()
-      void send()
+      if (!e.repeat) void send()
     } else if (e.key === 'Escape') {
       e.preventDefault()
       // Esc backs out of the screenshot picker first, then closes the box.
       if (picker) return setPicker(null)
+      // Closing destroys this window, and a send is a loop running in it: wait for it.
+      if (!escClosesBox(sending)) return setNote('Still sending. Esc closes the box once it has gone.')
       // Destroys this window (a renderer window.close() never reaches main's cancelable 'close';
       // measured on Electron 33 — scripts/electron-close-semantics-probe.js). Right for a transient
       // box: the next toggle recreates it with a fresh, empty field.
@@ -327,7 +368,7 @@ export function QuickCapture() {
       </div>
 
       {files.length > 0 ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} aria-label="Attached">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} role="group" aria-label="Attached">
           {files.map((f, i) => (
             <span style={chip} key={`${f.name}:${i}`} title={f.name}>
               {f.isImage ? <img src={f.dataUrl} alt="" style={{ maxHeight: 22, maxWidth: 36, borderRadius: 3, display: 'block' }} /> : <Icon name="paperclip" size={11} />}
@@ -344,14 +385,13 @@ export function QuickCapture() {
         </div>
       ) : null}
 
-      {note ? (
-        <div style={noteStyle} role="status">
-          {note}
-        </div>
-      ) : null}
+      {/* Always mounted, so a screen reader hears the text arrive. */}
+      <div style={note ? noteStyle : { display: 'none' }} role="status">
+        {note}
+      </div>
 
       {picker ? (
-        <div style={pickerBox} role="dialog" aria-label="Capture a screenshot">
+        <div style={pickerBox} role="group" aria-label="Capture a screenshot">
           {!picker.sources ? (
             <div style={{ fontSize: 12, color: 'var(--c-text-dim)' }}>Listing screens…</div>
           ) : hint ? (

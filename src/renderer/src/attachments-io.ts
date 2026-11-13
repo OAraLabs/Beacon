@@ -65,20 +65,37 @@ export async function stageFiles(files: FileList | File[]): Promise<{ ok: Pendin
 
 /**
  * Send staged files: one chat_upload per file, the text riding as the caption on the LAST one
- * (what the web client does, and what the daemon expects). Throws 'not connected' if a frame could
- * not be dispatched. One loop for every composer, quick capture included.
+ * (what the web client does, and what the daemon expects). Throws an UploadError if a frame could
+ * not be dispatched; its `sent` says how many files had already gone, so a caller that puts the
+ * rest back does not send those twice. One loop for every composer, quick capture included.
  */
+export class UploadError extends Error {
+  constructor(
+    message: string,
+    readonly sent: number
+  ) {
+    super(message)
+    this.name = 'UploadError'
+  }
+}
+
 export async function sendUploads(upload: (req: ChatUploadRequest) => Promise<boolean>, sessionId: string, files: PendingFile[], text: string): Promise<void> {
   for (let i = 0; i < files.length; i++) {
     const f = files[i]
-    const ok = await upload({
-      sessionId,
-      filename: f.name,
-      contentBase64: f.base64,
-      mimeType: f.mimeType,
-      caption: i === files.length - 1 ? text : ''
-    })
-    if (!ok) throw new Error('not connected')
+    let ok: boolean
+    try {
+      ok = await upload({
+        sessionId,
+        filename: f.name,
+        contentBase64: f.base64,
+        mimeType: f.mimeType,
+        caption: i === files.length - 1 ? text : ''
+      })
+    } catch (err) {
+      // The same words the rejection carried, plus how far the batch got.
+      throw new UploadError(err instanceof Error ? err.message : String(err), i)
+    }
+    if (!ok) throw new UploadError('not connected', i)
   }
 }
 
