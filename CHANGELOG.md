@@ -6,7 +6,7 @@ later update themselves.
 
 ## Unreleased
 
-## 0.5.0 (draft: the date is set when it is published)
+## 0.5.0 (2026-11-13)
 
 Beacon 0.5.0 is for everyday use as well as for running an assistant: a Today home, saved prompts, files and screenshots in quick capture, tool servers at an address, and a folder to work in. Adding a phone is now a scan and an approval, Beacon keeps several Prometheus side by side, and approvals are harder to answer by accident.
 
