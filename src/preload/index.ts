@@ -242,7 +242,9 @@ const api: BeaconBridge = {
     openLoginItems: () => ipcRenderer.invoke(IPC.PATHA_OPEN_LOGIN_ITEMS)
   },
   capture: {
-    openMain: (sessionId: string) => ipcRenderer.send(IPC.CAPTURE_OPEN_MAIN, sessionId)
+    openMain: (sessionId: string) => ipcRenderer.send(IPC.CAPTURE_OPEN_MAIN, sessionId),
+    hold: (on: boolean) => ipcRenderer.send(IPC.CAPTURE_HOLD, on),
+    shot: (sourceId: string) => ipcRenderer.invoke(IPC.CAPTURE_SHOT, sourceId)
   },
   screenshot: {
     sources: () => ipcRenderer.invoke(IPC.SCREENSHOT_SOURCES),
