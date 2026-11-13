@@ -1,4 +1,6 @@
-import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeImage, nativeTheme, powerMonitor, screen, session, shell } from 'electron'
+import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeImage, nativeTheme, powerMonitor, screen, session, shell,
+  dialog
+} from 'electron'
 import { createHash } from 'crypto'
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, isAbsolute, join, resolve } from 'path'
@@ -92,6 +94,7 @@ import { registerIntegrationsHandlers } from './integrations-ipc'
 import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
 import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
+import { isThisComputer, type FolderPick, type FolderWhere } from '@shared/work-folder'
 import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
 import { registerBrowserPane } from './browser-pane'
 import { openPopout } from './popout-window'
@@ -2163,6 +2166,20 @@ app.whenReady().then(() => {
       if (a && typeof a.requestId === 'string')
         notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments))
     }
+  })
+  // A conversation's working folder (@shared/work-folder). MAIN decides whether Prometheus is on
+  // this computer, from the connection it holds; a page cannot ask for a picker by claiming so.
+  // The picker's answer is a path the person chose in the system's own dialog: that choice is the
+  // consent to name it. Setting it is the page's PUT to Prometheus, after its own confirmation.
+  const prometheusIsHere = (): boolean => isThisComputer(repo?.getDefaultGatewayProfile()?.apiBase)
+  handleFromShell(IPC.WORK_FOLDER_WHERE, async (): Promise<FolderWhere> => ({ here: prometheusIsHere(), home: app.getPath('home') }))
+  handleFromShell(IPC.WORK_FOLDER_PICK, async (e): Promise<FolderPick> => {
+    if (!prometheusIsHere()) return { kind: 'not-here' }
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const opts: Electron.OpenDialogOptions = { title: 'Choose a folder for your assistant to work in', buttonLabel: 'Choose', properties: ['openDirectory', 'createDirectory'] }
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (res.canceled || res.filePaths.length === 0) return { kind: 'cancelled' }
+    return { kind: 'picked', path: res.filePaths[0] }
   })
   // Only the quick-capture window may hold itself up or take a shot through itself.
   onFromShell(IPC.CAPTURE_HOLD, (e, on: unknown) => {

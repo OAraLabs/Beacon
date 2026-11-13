@@ -197,6 +197,7 @@ export default defineConfig({
           'order-smoke': resolve('src/main/order-smoke.ts'),
           'real-history-smoke': resolve('src/main/real-history-smoke.ts'),
           'slash-smoke': resolve('src/main/slash-smoke.ts'),
+          'work-folder-smoke': resolve('src/main/work-folder-smoke.ts'),
           'saved-prompts-smoke': resolve('src/main/saved-prompts-smoke.ts'),
           'quick-capture-smoke': resolve('src/main/quick-capture-smoke.ts'),
           'ui-mode-smoke': resolve('src/main/ui-mode-smoke.ts'),
