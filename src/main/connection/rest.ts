@@ -1,3 +1,4 @@
+import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { originOf, sameOrigin } from '@shared/key-origin'
 import { pinnedFromWire } from '@shared/session-pins'
 import { isTrustedFromWire } from '@shared/provenance'
@@ -479,7 +480,9 @@ export class RestClient {
       method,
       headers: this.headers(hasBody ? { 'Content-Type': 'application/json' } : undefined),
       ...(hasBody ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(8_000)
+      // Defining a tool server makes Prometheus CONNECT to it before it answers, and it gives that
+      // up to 30 seconds. Giving up at 8 would report a failure for a server that was then added.
+      signal: AbortSignal.timeout(path.startsWith(MCP_SERVERS_PATH) ? 40_000 : 8_000)
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${method} ${path} — ${await safeText(res)}`)
     if (res.status === 204) return null

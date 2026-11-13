@@ -33,7 +33,7 @@ const TOKEN = `tok_probe_${Math.random().toString(36).slice(2)}${Math.random().t
 const json = (res, code, body) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(body))
 
 // ── the stand-in Prometheus ───────────────────────────────────────────────────────────────────
-const daemon = { mainKey: true, servers: [], posts: [], refuseNext: null }
+const daemon = { mainKey: true, servers: [], posts: [], refuseNext: null, devicesDelayMs: 0, dropNext: false }
 const listed = (s) => ({ name: s.name, source: 'store', enabled: true, url: s.url, transport: s.transport, header_names: Object.keys(s.headers ?? {}).sort(), health: { state: 'connected', transport: 'http', detail: '' }, tools: [{ tool_name: 'search', description: 'Search notes', read_only_hint: true }] })
 const rest = createServer((req, res) => {
   let body = ''
@@ -43,7 +43,7 @@ const rest = createServer((req, res) => {
     if (url === '/api/hello') return json(res, 200, { v: '0.9.20', name: 'Stand-in', agent: 'Atlas', fp: 'e'.repeat(16), pair: 'approve', tls: false })
     if (url === '/api/status') return json(res, 200, { state: 'idle', provider: 'anthropic', model: 'stub-model' })
     // The main key is no device (no row of its own); a device key has one, here an owner's.
-    if (url === '/api/devices') return json(res, 200, daemon.mainKey ? [{ id: 'd1', name: 'Phone', owner: false }] : [{ id: 'd0', name: 'This Beacon', owner: true, is_self: true }])
+    if (url === '/api/devices') return void setTimeout(() => json(res, 200, daemon.mainKey ? [{ id: 'd1', name: 'Phone', owner: false }] : [{ id: 'd0', name: 'This Beacon', owner: true, is_self: true }]), daemon.devicesDelayMs)
     if (url === '/api/mcp/servers' && req.method === 'GET') return json(res, 200, { wired: true, servers: daemon.servers.map(listed) })
     if (url === '/api/mcp/servers' && req.method === 'POST') {
       daemon.posts.push(body)
@@ -54,6 +54,12 @@ const rest = createServer((req, res) => {
         return json(res, 400, { error: r(JSON.parse(body)) })
       }
       daemon.servers.push(JSON.parse(body))
+      // A Prometheus that stored the server and then never answered (it is still connecting to it
+      // when Beacon stops waiting): the socket just goes away.
+      if (daemon.dropNext) {
+        daemon.dropNext = false
+        return void req.socket.destroy()
+      }
       return json(res, 200, { ok: true, applies: 'live' })
     }
     json(res, 200, [])
@@ -130,6 +136,7 @@ try {
   check(/did not accept that: header 'Authorization' value ••• was not accepted/.test(refusal), "a refusal that quotes the token shows ••• in its place", refusal)
   check(!refusal.includes(TOKEN), 'the token is not in the message')
   check((await ev(`${field('Token')}?.value`)) === '', 'the token field was emptied when the answer came')
+  check((await ev(`document.documentElement.outerHTML.includes(${JSON.stringify(TOKEN)})`)) === false, 'and the token is nowhere in the page while the form is still open')
   check((await ev(`!!${field('Server address')}`)) === true, 'the form stays open to try again')
 
   // The real add.
@@ -151,18 +158,42 @@ try {
   if (logged) console.log("[probe] where: " + app.log.join("").split("\n").filter((l) => l.includes(TOKEN)).map((l) => l.replaceAll(TOKEN, "<token>").slice(0, 260)).join("\n[probe] where: "))
   check(!logged, "nor in the app's own output")
 
+  // ── no answer: the server was stored, the reply never came ──────────────────────────────────
+  await click('＋ Add server')
+  await until(() => ev(`!!${field('Server address')}`), (v) => v === true)
+  await type('Server name', 'slow')
+  await type('Server address', 'https://slow.example.com/mcp')
+  await type('Token', TOKEN)
+  daemon.dropNext = true
+  await click('Add')
+  const after = await until(text, (v) => /did not answer in time/.test(v), 8000)
+  check(/Prometheus did not answer in time\. It may still be connecting to the server/.test(after), 'a write with no answer says so, and does not call it a refusal', after.slice(0, 160))
+  check(!/Enter the token again/.test(after), 'and does not ask for the token again')
+  check((await until(text, (v) => /slow/.test(v) && /slow\.example\.com/.test(v))).includes('slow.example.com'), 'the list was read again, and shows the server Prometheus did store')
+  check((await ev(`document.documentElement.outerHTML.includes(${JSON.stringify(TOKEN)})`)) === false, 'the token is not in the page after that either')
+
   // ── a device key: the note, and nothing that would be refused ───────────────────────────────
+  // The answer to "which key is this" is held back, to look at the moment before it comes.
   daemon.mainKey = false
+  daemon.devicesDelayMs = 2500
+  await sleep(5200) // past the few seconds the tab remembers its last answer
   await openTab()
-  const note = await until(text, (v) => /needs the main key/.test(v))
+  await until(text, (v) => /notes/.test(v))
+  check((await ev(`!!${button('＋ Add server')} || !!${button('Remove')} || !!${button('Disable')}`)) === false, 'before the answer comes, no write control is on screen: a click cannot land in the gap')
+  check(!(await text()).includes('needs the main key'), 'and nothing is claimed yet either')
+  const note = await until(text, (v) => /needs the main key/.test(v), 8000)
   check(/Adding or changing tool servers needs the main key/.test(note) && /Settings → Connection → Advanced/.test(note), 'with a device key, Connectors says plainly that changes need the main key, and where to enter it')
   check(!/global token|HTTP 401/.test(note), "in Beacon's words, not the daemon's")
   check((await ev(`!!${button('＋ Add server')}`)) === false, 'Add server is not offered')
   check((await ev(`!!${button('Remove')} || !!${button('Disable')}`)) === false, 'nor Disable or Remove on the card')
   check(/notes/.test(note) && /connected · 1 tool/.test(note), 'the list itself is still shown')
-  const before = daemon.posts.length
-  await sleep(300)
-  check(daemon.posts.length === before, 'and nothing was sent that Prometheus would refuse')
+  // Were such a write sent anyway, its refusal is about that route, not about this Beacon's key:
+  // it must not turn the whole app to "key refused".
+  const refusedWrite = await ev(`window.beacon.daemon.write('/api/mcp/servers', { name: 'x', command: 'true' }, 'POST').then(() => 'accepted', (e) => String(e.message))`)
+  check(/HTTP 401/.test(refusedWrite), 'the control: Prometheus does refuse a device key that write', refusedWrite.slice(0, 120))
+  await sleep(400)
+  const auth = await ev(`window.beacon.connection.status().then((s) => s.restAuth)`)
+  check(auth !== 'unauthorized', "and that refusal does not mark this Beacon's key as rejected across the app", String(auth))
 } finally {
   await app?.quit().catch(() => undefined)
   for (const s of [rest, wsHttp]) s.close()
