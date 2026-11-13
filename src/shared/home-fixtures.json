@@ -1,0 +1,804 @@
+{
+  "BULK_EIGHT": {
+    "request_id": "home-bulk",
+    "tool_name": "mcp__home__ha_control_sensitive",
+    "description": "Turn off 8 lights",
+    "created_at": 1790000000,
+    "extents": {},
+    "arguments": {
+      "action": "turn_off"
+    },
+    "home": {
+      "tier": "sensitive",
+      "tier_reason": "More than 3 devices",
+      "devices": [
+        {
+          "id": "dev-hall-light",
+          "name": "Hall light",
+          "room": "Hall",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "on",
+          "requested": "off",
+          "open_url": null
+        },
+        {
+          "id": "dev-landing-light",
+          "name": "Landing light",
+          "room": "Hall",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "on",
+          "requested": "off",
+          "open_url": null
+        },
+        {
+          "id": "dev-stair-light",
+          "name": "Stair light",
+          "room": "Hall",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "on",
+          "requested": "off",
+          "open_url": null
+        },
+        {
+          "id": "dev-porch-light",
+          "name": "Porch light",
+          "room": "Garden",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "on",
+          "requested": "off",
+          "open_url": null
+        },
+        {
+          "id": "dev-study-lamp",
+          "name": "Study lamp",
+          "room": "Study",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "off",
+          "requested": "off",
+          "open_url": null
+        },
+        {
+          "id": "dev-bedroom-lamp",
+          "name": "Bedroom lamp",
+          "room": "Bedroom",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "on",
+          "requested": "off",
+          "open_url": null
+        },
+        {
+          "id": "dev-bathroom-light",
+          "name": "Bathroom light",
+          "room": "Bathroom",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": null,
+          "requested": "off",
+          "open_url": null
+        },
+        {
+          "id": "dev-garden-light",
+          "name": "Garden light",
+          "room": "Garden",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "on",
+          "requested": "off",
+          "open_url": null
+        }
+      ]
+    }
+  },
+  "CRITICAL_LOCK": {
+    "request_id": "home-critical",
+    "tool_name": "mcp__home__ha_control_sensitive",
+    "description": "Unlock Front door lock",
+    "created_at": 1790000000,
+    "extents": {
+      "always": "ha_control_sensitive on exactly Front door lock — permanently, until revoked"
+    },
+    "arguments": {
+      "action": "unlock",
+      "entity_id": "lock.front"
+    },
+    "home": {
+      "tier": "critical",
+      "tier_reason": null,
+      "devices": [
+        {
+          "id": "dev-front-door-lock",
+          "name": "Front door lock",
+          "room": "Hall",
+          "tier": "critical",
+          "relaxed": false,
+          "current": "locked",
+          "requested": "unlocked",
+          "open_url": null
+        }
+      ]
+    }
+  },
+  "DEVICES_LIST": {
+    "updated_at": 1790000000,
+    "devices": [
+      {
+        "id": "dev-hall-light",
+        "name": "Hall light",
+        "room": "Hall",
+        "kind": "Light",
+        "state": "on",
+        "tier": "ordinary",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-hall-light"
+      },
+      {
+        "id": "dev-landing-light",
+        "name": "Landing light",
+        "room": "Hall",
+        "kind": "Light",
+        "state": "off",
+        "tier": "ordinary",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-landing-light"
+      },
+      {
+        "id": "dev-front-door-lock",
+        "name": "Front door lock",
+        "room": "Hall",
+        "kind": "Lock",
+        "state": "locked",
+        "tier": "critical",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-front-door-lock"
+      },
+      {
+        "id": "dev-living-lamp",
+        "name": "Living room lamp",
+        "room": "Living room",
+        "kind": "Light",
+        "state": "off",
+        "tier": "ordinary",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-living-lamp"
+      },
+      {
+        "id": "dev-evening-scene",
+        "name": "Evening scene",
+        "room": "Living room",
+        "kind": "Scene",
+        "state": "idle",
+        "tier": "sensitive",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-evening-scene"
+      },
+      {
+        "id": "dev-movie-scene",
+        "name": "Movie scene",
+        "room": "Living room",
+        "kind": "Scene",
+        "state": "idle",
+        "tier": "sensitive",
+        "tier_source": "override",
+        "relaxed": true,
+        "open_url": "https://home.example.test/device/dev-movie-scene"
+      },
+      {
+        "id": "dev-thermostat",
+        "name": "Thermostat",
+        "room": "Living room",
+        "kind": "Thermostat",
+        "state": "19 °C",
+        "tier": "ordinary",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-thermostat"
+      },
+      {
+        "id": "dev-kitchen-plug",
+        "name": "Kitchen plug",
+        "room": "Kitchen",
+        "kind": "Plug",
+        "state": "on",
+        "tier": "ordinary",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-kitchen-plug"
+      },
+      {
+        "id": "dev-kitchen-blind",
+        "name": "Kitchen blind",
+        "room": "Kitchen",
+        "kind": "Blind",
+        "state": "open",
+        "tier": "critical",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-kitchen-blind"
+      },
+      {
+        "id": "dev-garage-door",
+        "name": "Garage door",
+        "room": "Garage",
+        "kind": "Garage door",
+        "state": "closed",
+        "tier": "critical",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-garage-door"
+      },
+      {
+        "id": "dev-garage-light",
+        "name": "Garage light",
+        "room": "Garage",
+        "kind": "Light",
+        "state": "off",
+        "tier": "ordinary",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-garage-light"
+      },
+      {
+        "id": "dev-bedroom-lamp",
+        "name": "Bedroom lamp",
+        "room": "Bedroom",
+        "kind": "Light",
+        "state": "on",
+        "tier": "ordinary",
+        "tier_source": "rule",
+        "relaxed": false,
+        "open_url": "https://home.example.test/device/dev-bedroom-lamp"
+      },
+      {
+        "id": "dev-spare-switch",
+        "name": "Spare switch",
+        "room": null,
+        "kind": "Switch",
+        "state": null,
+        "tier": "sensitive",
+        "tier_source": "unclassified",
+        "relaxed": false,
+        "open_url": null
+      }
+    ]
+  },
+  "GRANTS_LIST": [
+    {
+      "kind": "tool",
+      "value": "",
+      "tool": "mcp__home__ha_control_ordinary",
+      "scope": "persistent",
+      "id": "grant-hall",
+      "created_at": 1789900000,
+      "request_id": "home-ordinary",
+      "describes": "ha_control_ordinary on exactly Hall light — permanently, until revoked",
+      "home": {
+        "tier": "ordinary",
+        "devices": [
+          {
+            "id": "dev-hall-light",
+            "name": "Hall light",
+            "room": "Hall"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "tool",
+      "value": "",
+      "tool": "mcp__home__ha_control_ordinary",
+      "scope": "until_restart",
+      "id": "grant-ordinary-all",
+      "created_at": 1789950000,
+      "request_id": "home-ordinary-2",
+      "describes": "ha_control_ordinary on any Ordinary device — until the daemon restarts",
+      "home": {
+        "tier": "ordinary",
+        "devices": "all_in_tier"
+      }
+    },
+    {
+      "kind": "tool",
+      "value": "",
+      "tool": "mcp__home__ha_control_sensitive",
+      "scope": "persistent",
+      "id": "grant-movie",
+      "created_at": 1789960000,
+      "request_id": "home-sensitive-2",
+      "describes": "ha_control_sensitive on exactly Movie scene — permanently, until revoked",
+      "home": {
+        "tier": "sensitive",
+        "devices": [
+          {
+            "id": "dev-movie-scene",
+            "name": "Movie scene",
+            "room": "Living room"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "tool",
+      "value": "",
+      "tool": "mcp__home__ha_control_ordinary",
+      "scope": "persistent",
+      "id": "grant-old",
+      "created_at": 1789000000,
+      "request_id": "home-old",
+      "describes": "ha_control_ordinary on exactly Garage light — permanently, until revoked"
+    },
+    {
+      "kind": "path_prefix",
+      "value": "/home/demo/notes.txt",
+      "tool": "write_file",
+      "scope": "persistent",
+      "id": "grant-file",
+      "created_at": 1789000000,
+      "request_id": "file-1",
+      "describes": "write_file on exactly /home/demo/notes.txt — permanently, until revoked"
+    }
+  ],
+  "HOME_APPROVAL_WIRE": {
+    "ORDINARY_LIGHT": {
+      "request_id": "home-ordinary",
+      "tool_name": "mcp__home__ha_control_ordinary",
+      "description": "Turn on Hall light (60%)",
+      "created_at": 1790000000,
+      "expires_at": 1790001800,
+      "extents": {
+        "until-restart": "ha_control_ordinary on exactly Hall light — until the daemon restarts",
+        "always": "ha_control_ordinary on exactly Hall light — permanently, until revoked"
+      },
+      "arguments": {
+        "action": "turn_on",
+        "brightness": "60",
+        "entity_id": "light.hall"
+      },
+      "home": {
+        "tier": "ordinary",
+        "tier_reason": null,
+        "devices": [
+          {
+            "id": "dev-hall-light",
+            "name": "Hall light",
+            "room": "Hall",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "off",
+            "requested": "on, 60%",
+            "open_url": null
+          }
+        ]
+      }
+    },
+    "SENSITIVE_SCENE": {
+      "request_id": "home-sensitive",
+      "tool_name": "mcp__home__ha_control_sensitive",
+      "description": "Run Evening scene",
+      "created_at": 1790000000,
+      "extents": {},
+      "arguments": {
+        "action": "turn_on",
+        "entity_id": "scene.evening"
+      },
+      "home": {
+        "tier": "sensitive",
+        "tier_reason": "Scenes always ask",
+        "devices": [
+          {
+            "id": "dev-evening-scene",
+            "name": "Evening scene",
+            "room": "Living room",
+            "tier": "sensitive",
+            "relaxed": false,
+            "current": null,
+            "requested": "activated",
+            "open_url": null
+          }
+        ]
+      }
+    },
+    "SENSITIVE_RELAXED": {
+      "request_id": "home-relaxed",
+      "tool_name": "mcp__home__ha_control_sensitive",
+      "description": "Run Evening scene",
+      "created_at": 1790000000,
+      "extents": {
+        "always": "ha_control_sensitive on exactly Evening scene — permanently, until revoked"
+      },
+      "arguments": {
+        "action": "turn_on",
+        "entity_id": "scene.evening"
+      },
+      "home": {
+        "tier": "sensitive",
+        "tier_reason": "Scenes always ask",
+        "devices": [
+          {
+            "id": "dev-evening-scene",
+            "name": "Evening scene",
+            "room": "Living room",
+            "tier": "sensitive",
+            "relaxed": true,
+            "current": null,
+            "requested": "activated",
+            "open_url": null
+          }
+        ]
+      }
+    },
+    "BULK_EIGHT": {
+      "request_id": "home-bulk",
+      "tool_name": "mcp__home__ha_control_sensitive",
+      "description": "Turn off 8 lights",
+      "created_at": 1790000000,
+      "extents": {},
+      "arguments": {
+        "action": "turn_off"
+      },
+      "home": {
+        "tier": "sensitive",
+        "tier_reason": "More than 3 devices",
+        "devices": [
+          {
+            "id": "dev-hall-light",
+            "name": "Hall light",
+            "room": "Hall",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "on",
+            "requested": "off",
+            "open_url": null
+          },
+          {
+            "id": "dev-landing-light",
+            "name": "Landing light",
+            "room": "Hall",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "on",
+            "requested": "off",
+            "open_url": null
+          },
+          {
+            "id": "dev-stair-light",
+            "name": "Stair light",
+            "room": "Hall",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "on",
+            "requested": "off",
+            "open_url": null
+          },
+          {
+            "id": "dev-porch-light",
+            "name": "Porch light",
+            "room": "Garden",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "on",
+            "requested": "off",
+            "open_url": null
+          },
+          {
+            "id": "dev-study-lamp",
+            "name": "Study lamp",
+            "room": "Study",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "off",
+            "requested": "off",
+            "open_url": null
+          },
+          {
+            "id": "dev-bedroom-lamp",
+            "name": "Bedroom lamp",
+            "room": "Bedroom",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "on",
+            "requested": "off",
+            "open_url": null
+          },
+          {
+            "id": "dev-bathroom-light",
+            "name": "Bathroom light",
+            "room": "Bathroom",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": null,
+            "requested": "off",
+            "open_url": null
+          },
+          {
+            "id": "dev-garden-light",
+            "name": "Garden light",
+            "room": "Garden",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": "on",
+            "requested": "off",
+            "open_url": null
+          }
+        ]
+      }
+    },
+    "CRITICAL_LOCK": {
+      "request_id": "home-critical",
+      "tool_name": "mcp__home__ha_control_sensitive",
+      "description": "Unlock Front door lock",
+      "created_at": 1790000000,
+      "extents": {
+        "always": "ha_control_sensitive on exactly Front door lock — permanently, until revoked"
+      },
+      "arguments": {
+        "action": "unlock",
+        "entity_id": "lock.front"
+      },
+      "home": {
+        "tier": "critical",
+        "tier_reason": null,
+        "devices": [
+          {
+            "id": "dev-front-door-lock",
+            "name": "Front door lock",
+            "room": "Hall",
+            "tier": "critical",
+            "relaxed": false,
+            "current": "locked",
+            "requested": "unlocked",
+            "open_url": null
+          }
+        ]
+      }
+    },
+    "UNKNOWN_CURRENT": {
+      "request_id": "home-unknown",
+      "tool_name": "mcp__home__ha_control_ordinary",
+      "description": "Turn on Hall light (60%)",
+      "created_at": 1790000000,
+      "expires_at": 1790001800,
+      "extents": {
+        "until-restart": "ha_control_ordinary on exactly Hall light — until the daemon restarts",
+        "always": "ha_control_ordinary on exactly Hall light — permanently, until revoked"
+      },
+      "arguments": {
+        "action": "turn_on",
+        "brightness": "60",
+        "entity_id": "light.hall"
+      },
+      "home": {
+        "tier": "ordinary",
+        "tier_reason": null,
+        "devices": [
+          {
+            "id": "dev-living-lamp",
+            "name": "Living room lamp",
+            "room": "Living room",
+            "tier": "ordinary",
+            "relaxed": false,
+            "current": null,
+            "requested": "on",
+            "open_url": null
+          }
+        ]
+      }
+    }
+  },
+  "MADE_UP_NAMES": [
+    "Hall light",
+    "Living room lamp",
+    "Kitchen plug",
+    "Evening scene",
+    "Front door lock",
+    "Landing light",
+    "Stair light",
+    "Porch light",
+    "Study lamp",
+    "Bedroom lamp",
+    "Bathroom light",
+    "Garden light",
+    "Patio light",
+    "Movie scene",
+    "Thermostat",
+    "Kitchen blind",
+    "Garage door",
+    "Garage light",
+    "Spare switch"
+  ],
+  "ORDINARY_LIGHT": {
+    "request_id": "home-ordinary",
+    "tool_name": "mcp__home__ha_control_ordinary",
+    "description": "Turn on Hall light (60%)",
+    "created_at": 1790000000,
+    "expires_at": 1790001800,
+    "extents": {
+      "until-restart": "ha_control_ordinary on exactly Hall light — until the daemon restarts",
+      "always": "ha_control_ordinary on exactly Hall light — permanently, until revoked"
+    },
+    "arguments": {
+      "action": "turn_on",
+      "brightness": "60",
+      "entity_id": "light.hall"
+    },
+    "home": {
+      "tier": "ordinary",
+      "tier_reason": null,
+      "devices": [
+        {
+          "id": "dev-hall-light",
+          "name": "Hall light",
+          "room": "Hall",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": "off",
+          "requested": "on, 60%",
+          "open_url": null
+        }
+      ]
+    }
+  },
+  "RESULT_CONFIRMED": {
+    "request_id": "home-ordinary",
+    "state": "done",
+    "results": [
+      {
+        "device_id": "dev-hall-light",
+        "name": "Hall light",
+        "result": "confirmed",
+        "observed": "on, 60%",
+        "message": "Hall light is on"
+      }
+    ]
+  },
+  "RESULT_FAILED": {
+    "request_id": "home-ordinary",
+    "state": "done",
+    "results": [
+      {
+        "device_id": "dev-hall-light",
+        "name": "Hall light",
+        "result": "failed",
+        "observed": null,
+        "message": "Home Assistant did not answer"
+      }
+    ]
+  },
+  "RESULT_PENDING": {
+    "request_id": "home-ordinary",
+    "state": "pending",
+    "results": []
+  },
+  "RESULT_UNCONFIRMED": {
+    "request_id": "home-ordinary",
+    "state": "done",
+    "results": [
+      {
+        "device_id": "dev-hall-light",
+        "name": "Hall light",
+        "result": "unconfirmed",
+        "observed": "off",
+        "message": "Home Assistant accepted it, but the light still reports off"
+      }
+    ]
+  },
+  "SENSITIVE_RELAXED": {
+    "request_id": "home-relaxed",
+    "tool_name": "mcp__home__ha_control_sensitive",
+    "description": "Run Evening scene",
+    "created_at": 1790000000,
+    "extents": {
+      "always": "ha_control_sensitive on exactly Evening scene — permanently, until revoked"
+    },
+    "arguments": {
+      "action": "turn_on",
+      "entity_id": "scene.evening"
+    },
+    "home": {
+      "tier": "sensitive",
+      "tier_reason": "Scenes always ask",
+      "devices": [
+        {
+          "id": "dev-evening-scene",
+          "name": "Evening scene",
+          "room": "Living room",
+          "tier": "sensitive",
+          "relaxed": true,
+          "current": null,
+          "requested": "activated",
+          "open_url": null
+        }
+      ]
+    }
+  },
+  "SENSITIVE_SCENE": {
+    "request_id": "home-sensitive",
+    "tool_name": "mcp__home__ha_control_sensitive",
+    "description": "Run Evening scene",
+    "created_at": 1790000000,
+    "extents": {},
+    "arguments": {
+      "action": "turn_on",
+      "entity_id": "scene.evening"
+    },
+    "home": {
+      "tier": "sensitive",
+      "tier_reason": "Scenes always ask",
+      "devices": [
+        {
+          "id": "dev-evening-scene",
+          "name": "Evening scene",
+          "room": "Living room",
+          "tier": "sensitive",
+          "relaxed": false,
+          "current": null,
+          "requested": "activated",
+          "open_url": null
+        }
+      ]
+    }
+  },
+  "STATUS_AUTH_FAILED": {
+    "state": "auth_failed",
+    "device_count": null,
+    "detail": "Home Assistant refused the saved access. It needs to be set up again on the Prometheus computer.",
+    "checked_at": 1790000000,
+    "open_url": null
+  },
+  "STATUS_CONNECTED": {
+    "state": "connected",
+    "device_count": 13,
+    "detail": "Connected to Home Assistant",
+    "checked_at": 1790000000,
+    "open_url": "https://home.example.test"
+  },
+  "STATUS_UNREACHABLE": {
+    "state": "unreachable",
+    "device_count": null,
+    "detail": "Home Assistant did not answer (timed out after 8 seconds)",
+    "checked_at": 1790000000,
+    "open_url": "https://home.example.test"
+  },
+  "UNKNOWN_CURRENT": {
+    "request_id": "home-unknown",
+    "tool_name": "mcp__home__ha_control_ordinary",
+    "description": "Turn on Hall light (60%)",
+    "created_at": 1790000000,
+    "expires_at": 1790001800,
+    "extents": {
+      "until-restart": "ha_control_ordinary on exactly Hall light — until the daemon restarts",
+      "always": "ha_control_ordinary on exactly Hall light — permanently, until revoked"
+    },
+    "arguments": {
+      "action": "turn_on",
+      "brightness": "60",
+      "entity_id": "light.hall"
+    },
+    "home": {
+      "tier": "ordinary",
+      "tier_reason": null,
+      "devices": [
+        {
+          "id": "dev-living-lamp",
+          "name": "Living room lamp",
+          "room": "Living room",
+          "tier": "ordinary",
+          "relaxed": false,
+          "current": null,
+          "requested": "on",
+          "open_url": null
+        }
+      ]
+    }
+  }
+}

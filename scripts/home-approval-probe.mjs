@@ -5,7 +5,7 @@
  * home-approval-smoke pins the logic and reads the sources; it cannot prove the JSX renders. This
  * drives Electron over CDP, reads the live DOM and measures it.
  *
- * A FAKE GATEWAY serves made-up fixtures (src/shared/home-fixtures.ts, the same file the smoke
+ * A FAKE GATEWAY serves made-up fixtures (src/shared/home-fixtures.json, the same file the smoke
  * uses) on the REST port, so each payload travels the real path: fetch → rest.ts listApprovals() →
  * rawToApproval → IPC → MainView → HomeApprovalCard. It also plays the part of the daemon's
  * /api/home/actions/{id}: 404 for the first two seconds after an approval (the action has not run
@@ -17,8 +17,8 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import {
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+const {
   BULK_EIGHT,
   CRITICAL_LOCK,
   ORDINARY_LIGHT,
@@ -26,7 +26,7 @@ import {
   RESULT_UNCONFIRMED,
   SENSITIVE_SCENE,
   UNKNOWN_CURRENT
-} from '../src/shared/home-fixtures.ts'
+} = JSON.parse(readFileSync(new URL('../src/shared/home-fixtures.json', import.meta.url), 'utf8'))
 
 const PORT = 8777
 const WIDTH = 1512
