@@ -1,4 +1,4 @@
-import { Fragment, useEffect, type CSSProperties, useState } from 'react'
+import { Fragment, useEffect, type CSSProperties, useState, useRef } from 'react'
 import type { ApprovalRequest, ApprovalDecision } from '@shared/ipc'
 import { disclosureLabel } from '@shared/approval-disclosure'
 import { approvalKey, isTypingTarget } from '@shared/approval-keys'
@@ -222,6 +222,12 @@ export function ExecApprovalCard({
   const countdown = expiresIn(approval.expiresAt)
   // Focus is on this card, so `A`/`D` answer it; the key hints are shown only then.
   const [keysLive, setKeysLive] = useState(false)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  // No blur is fired when the focused element is REMOVED (a button that goes away after a refusal):
+  // focus drops to the page and the hints would go on saying the keys work. Checked after each render.
+  useEffect(() => {
+    if (keysLive && !cardRef.current?.contains(document.activeElement)) setKeysLive(false)
+  })
 
   // `A` approves once, `D` denies — under the narrow conditions in @shared/approval-keys. The
   // listener is on the window because the card has no focus of its own: the user is reading it,
@@ -253,6 +259,7 @@ export function ExecApprovalCard({
   return (
     <div
       style={card}
+      ref={cardRef}
       className="approval-card"
       role="group"
       aria-label={`Approval request: ${approval.toolName}`}

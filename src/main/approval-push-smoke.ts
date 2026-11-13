@@ -56,7 +56,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53 + 39 + 16
+const MIN_CHECKS = 53 + 39 + 21
 
 let failures = 0
 let checks = 0
@@ -315,9 +315,15 @@ console.log('\n=== 6. critical — the daemon says a request is answered in the 
   check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical: the frame path as mapped, the poll path re-checked where it crosses from the page')
   check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\)\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
   const connSrc = readFileSync(new URL('../../src/main/connection/index.ts', import.meta.url), 'utf8')
-  check(/if \(ev\.type === 'subscribed'\) this\.setApprovalCritical\(advertisesApprovalCritical\(ev\.payload\)\)\s*this\.emit\('gatewayEvent', ev\)/.test(connSrc), 'every subscribed reply sets it, on or off, on the connection it came over: a Prometheus rolled back between connections stops being treated as advertising')
+  check(/if \(ev\.type === 'subscribed'\) \{\s*this\.approvalCriticalSaid = true\s*this\.setApprovalCritical\(advertisesApprovalCritical\(ev\.payload\)\)\s*\}\s*this\.emit\('gatewayEvent', ev\)/.test(connSrc), 'every subscribed reply sets it, on or off, on the connection it came over: a Prometheus rolled back between connections stops being treated as advertising')
   check((connSrc.match(/\.\.\.\(this\.approvalCritical !== null \? \{ approvalCritical: this\.approvalCritical \} : \{\}\),/g) ?? []).length === 2, 'kept in the status across a dropped socket and a refusal, until the next reply')
-  check(/private approvalCritical: boolean \| null = null/.test(connSrc) && /if \(state === 'connected'\) this\.awaitApprovalCritical\(\)/.test(connSrc) && /if \(this\.approvalCritical === null\) this\.setApprovalCritical\(false\)\s*\}, 5000\)/.test(connSrc), 'unknown until the Prometheus says; once connected, silence for a few seconds is taken for "no", so one too old to reply is not left in doubt')
+  check(/private approvalCritical: boolean \| null = null/.test(connSrc) && /const APPROVAL_CRITICAL_WAIT_MS = 5000/.test(connSrc), 'unknown until the Prometheus says')
+  const waitFn = connSrc.slice(connSrc.indexOf('private awaitApprovalCritical(): void {'), connSrc.indexOf('private cancelApprovalCriticalWait(): void {'))
+  check(/if \(this\.approvalCritical !== null \|\| this\.approvalCriticalSaid \|\| this\.approvalCriticalWait\) return/.test(waitFn), 'silence is waited out only from "never said": it never replaces an answer, so a yes is withdrawn only by a reply')
+  check(/if \(!this\.halted && this\.status\.state === 'connected' && this\.approvalCritical === null && !this\.approvalCriticalSaid\) this\.setApprovalCritical\(false\)\s*\}, APPROVAL_CRITICAL_WAIT_MS\)/.test(waitFn) && (connSrc.match(/setApprovalCritical\(false\)/g) ?? []).length === 1, 'and is taken for "no" only if, when the wait ends, the socket is still connected and nothing was said')
+  check(/if \(state === 'connected'\) this\.awaitApprovalCritical\(\)\s*else this\.cancelApprovalCriticalWait\(\)/.test(connSrc) && (connSrc.match(/this\.awaitApprovalCritical\(\)/g) ?? []).length === 1, 'the wait starts only at connected, and leaving connected cancels it: time spent dialling or backing off is not the daemon\'s silence')
+  check(/this\.halted = true\s*this\.cancelApprovalCriticalWait\(\)/.test(connSrc) && /private setApprovalCritical\(next: boolean\): void \{\s*if \(this\.approvalCriticalWait\) clearTimeout\(this\.approvalCriticalWait\)/.test(connSrc), 'a reply cancels the wait, and so does stopping the connection')
+  check(/beforeRedial: async \(\) => \{\s*this\.cancelApprovalCriticalWait\(\)\s*this\.approvalCriticalSaid = false/.test(connSrc) && /start\(\): void \{\s*this\.halted = false[\s\S]{0,220}this\.cancelApprovalCriticalWait\(\)\s*this\.approvalCriticalSaid = false/.test(connSrc), 'each new attempt and each new dial ends any wait left from the connection before, and is asked afresh whether it has said')
   check(/handleApprovalFrame\(conn, ev as/.test(mainSrc), 'and the frames reach it with the connection they came over')
   check(/&& plan\.offersActions\s*\? \(\[[\s\S]{0,160}\] as Electron\.NotificationAction\[\]\)\s*: \[\]/.test(mainSrc) && (mainSrc.match(/text: 'Approve'/g) ?? []).length === 1, 'the Approve button exists in one place, behind the plan: a plan with no actions makes a notification with none')
 }
@@ -336,16 +342,16 @@ console.log('\n=== 7. a critical request is approved from its full card and nowh
   for (const [name, idExpr] of [['MissionControl', 'a.requestId'], ['TodayHome', 'item.approval.requestId'], ['ProgressPane', 'r.pendingApprovalId']] as const) {
     const src = comp(name)
     const approves = [...src.matchAll(/kind: 'approve'/g)]
-    const gate = src.indexOf(`approvalCardOnly?.(${idExpr}) ? (`)
+    const gate = src.indexOf(`(approvalCardOnly?.(${idExpr}) ?? true) ? (`)
     const show = src.indexOf('data-testid="approval-row-show"', gate)
     const approve = src.indexOf('data-testid="approval-row-approve"', gate)
-    check(approves.length === 1 && gate > 0 && show > gate && approve > show && (approves[0].index ?? 0) > approve && (approves[0].index ?? 0) - approve < 400, `${name}: its one Approve is offered only when the request is not card-only; otherwise the row leads to the card`)
+    check(approves.length === 1 && gate > 0 && show > gate && approve > show && (approves[0].index ?? 0) > approve && (approves[0].index ?? 0) - approve < 400, `${name}: its one Approve is offered only when the request is not card-only (a surface that was never told the rule offers none); otherwise the row leads to the card`)
     check(/onShowApproval\?\.\(/.test(src.slice(show, approve)) && !/onResolveApproval/.test(src.slice(show, approve)), `${name}: "Answer on the card" answers nothing`)
   }
   const view = comp('MainView')
   check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalCardOnly\}/g) ?? []).length === 3 && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule, made once in the main view, handed to the card and to all three short surfaces')
   const store = readFileSync(new URL('../../src/renderer/src/approval-critical-store.ts', import.meta.url), 'utf8')
-  check(/typeof s\?\.approvalCritical === 'boolean' \? s\.approvalCritical : undefined/.test(store) && /b\.connection\.status\(\)\.then\(set\)/.test(store) && /b\.connection\.onStatus\(set\)/.test(store), 'and the page learns what its Prometheus advertises from the connection status, when it opens and on every change')
+  check(/typeof s\?\.approvalCritical === 'boolean' \? s\.approvalCritical : undefined/.test(store) && /b\.connection\.status\(\)\.then\(\(s\) => \(told \? undefined : set\(s\)\)\)/.test(store) && /told = true\s*set\(s\)/.test(store), 'and the page learns what its Prometheus advertises from the connection status, when it opens and on every change')
   const card = comp('ExecApprovalCard')
   check(/keysLive && !critical \? <span style=\{actionKey\}> A<\/span> : null/.test(card) && /data-testid="approval-critical-note"/.test(card), 'the card of a critical request shows no A, and says it is approved only there')
 }

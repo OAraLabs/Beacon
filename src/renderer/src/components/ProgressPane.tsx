@@ -511,7 +511,7 @@ function ComputerUse({ sessionId, pendingApprovalIds, onResolveApproval, approva
                 {r.pendingApprovalId && onResolveApproval ? (
                   <span style={logApproval}>
                     {/* A desktop prompt Prometheus marked critical is approved on its full card: this line links there. */}
-                    {approvalCardOnly?.(r.pendingApprovalId) ? (
+                    {(approvalCardOnly?.(r.pendingApprovalId) ?? true) ? (
                       <button style={showBtn} data-testid="approval-row-show" onClick={() => onShowApproval?.(r.pendingApprovalId as string)}>Answer on the card</button>
                     ) : (
                       <button style={approveBtn} data-testid="approval-row-approve" onClick={() => onResolveApproval(r.pendingApprovalId as string, { kind: 'approve', scope: 'once' })}>Approve</button>
