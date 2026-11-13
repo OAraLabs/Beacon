@@ -1,6 +1,6 @@
 {
   "name": "beacon-desktop",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "description": "Prometheus Beacon — native desktop client (Electron shell over the Beacon chat UI, talking to the Prometheus daemon as a peer surface).",
   "private": true,
   "author": {
