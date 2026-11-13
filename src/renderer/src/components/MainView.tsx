@@ -58,6 +58,9 @@ import { ComposeRelay } from '../browser/ComposeRelay'
 import { BrowserHostRelay } from '../browser/BrowserHostRelay'
 import { PaneLinkRelay } from '../browser/PaneLinkRelay'
 import type { ComposerInsert } from '@shared/browser-pane'
+import { starters } from '@shared/saved-prompts'
+import { useSavedPrompts } from '../saved-prompts-store'
+import { SavedPromptsDialog } from './SavedPromptsDialog'
 import type { FileEntry, FileListDTO } from '@shared/daemon-api'
 import { SidePanel } from './SidePanel'
 import {
@@ -760,6 +763,15 @@ export function MainView() {
     setComposerInsert({ text, n: ++insertSeq.current })
   }, [])
   const onInsertConsumed = useCallback(() => setComposerInsert(null), [])
+  // Saved prompts (@shared/saved-prompts): the dialog is hosted here so both the Chat home and the
+  // palette can open it. `draft` set → it opens on a new prompt holding that text.
+  const savedPrompts = useSavedPrompts()
+  const [promptsDialog, setPromptsDialog] = useState<{ draft?: string } | null>(null)
+  /** A saved prompt into whichever composer is up, exactly as saved. */
+  const insertSavedPrompt = useCallback((text: string) => {
+    setView('chat')
+    setComposerInsert({ text, n: ++insertSeq.current, exact: true })
+  }, [])
   const [configTab, setConfigTab] = useState<string | null>(null) // palette deep-link (Slice 8)
   const activeRef = useRef(active)
   useEffect(() => {
@@ -1475,6 +1487,12 @@ export function MainView() {
       run: goHome
     },
     {
+      id: 'action:prompts',
+      label: 'Saved prompts…',
+      group: 'action',
+      run: () => setPromptsDialog({})
+    },
+    {
       id: 'action:reconnect',
       label: 'Reconnect to gateway',
       group: 'action',
@@ -1502,7 +1520,17 @@ export function MainView() {
       hint: '?',
       group: 'action',
       run: () => setSheetOpen(true)
-    }
+    },
+    // Saved prompts and starters, AFTER the fixed actions: the palette shows five rows a group, so
+    // rows put first would push Reconnect and Settings out of the list it opens on. Choosing one
+    // opens the chat view with its text in the message box; it is never sent from here.
+    ...starters(savedPrompts).map<PaletteCommand>((s) => ({
+      id: `prompt:${s.id}`,
+      label: `Use prompt: ${s.title}`,
+      hint: s.name ? `/${s.name}` : undefined,
+      group: 'action',
+      run: () => insertSavedPrompt(s.text)
+    }))
   ]
 
   // The voice controls exist only when OAra Voice is configured, or while one is running, so a
@@ -1626,6 +1654,7 @@ export function MainView() {
                   dictated={dictated}
                   onDictationConsumed={() => setDictated(null)}
                   voiceNotice={voiceNotice}
+                  onManagePrompts={(draft) => setPromptsDialog({ draft })}
                 />
               ) : focused && activePopped ? (
                 <div className="popped-placeholder" role="status">
@@ -1850,6 +1879,7 @@ export function MainView() {
         <SearchLayer initialQuery={searchQuery} onClose={() => setSearchQuery(null)} onJump={jumpToHit} />
       ) : null}
       {sheetOpen ? <ShortcutSheet onClose={() => setSheetOpen(false)} /> : null}
+      {promptsDialog ? <SavedPromptsDialog draft={promptsDialog.draft} onUse={insertSavedPrompt} onClose={() => setPromptsDialog(null)} /> : null}
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((prev) => dismissToast(prev, id))} />
       {/* Hands-free, made visible. The Voice segment always started the mic and the VAD; what it
           never did was SHOW you that, so pressing it looked like nothing happened. */}

@@ -62,23 +62,34 @@ function liveProfileHolder() {
  *  ignore a concurrent writer); closed, `immutable=1`, which takes no locks and opens no side files. */
 function backupLiveDbs(dir) {
   const holder = liveProfileHolder()
-  const how = holder ? `-readonly (${holder})` : 'immutable (Beacon is not running)'
   const files = profileDbFiles(LIVE_PROFILE)
   if (files.length === 0) throw new Error(`no Beacon database in ${LIVE_PROFILE}`)
+  // Decided FILE BY FILE. A running Beacon opens app.db and the cache of the Prometheus it is on,
+  // and no other: with two Prometheus kept, the second folder's cache.db has no -shm, and a
+  // `-readonly` open of it fails "unable to open database file" exactly as it does with Beacon
+  // closed. A file with no side files is not open in WAL by anyone, so it is read immutable; its
+  // stamp is checked after, in case Beacon switched to it during the copy.
+  const sides = (f) => ['-wal', '-shm'].some((s) => existsSync(join(LIVE_PROFILE, f + s)))
+  const stamp = (f) => { const st = statSync(join(LIVE_PROFILE, f)); return `${st.mtimeMs}:${st.size}` }
+  const how = []
   for (const f of files) {
     const live = join(LIVE_PROFILE, f)
-    const src = holder ? live : `file:${live.replace(/[%?#]/g, (c) => '%' + c.charCodeAt(0).toString(16))}?mode=ro&immutable=1`
+    const open = holder !== null && sides(f)
+    const before = stamp(f)
+    const src = open ? live : `file:${live.replace(/[%?#]/g, (c) => '%' + c.charCodeAt(0).toString(16))}?mode=ro&immutable=1`
     mkdirSync(dirname(join(dir, f)), { recursive: true })
     try {
-      execFileSync('sqlite3', [...(holder ? ['-readonly'] : []), src, `.backup '${join(dir, f)}'`], { stdio: 'pipe' })
+      execFileSync('sqlite3', [...(open ? ['-readonly'] : []), src, `.backup '${join(dir, f)}'`], { stdio: 'pipe' })
     } catch (e) {
-      throw new Error(`copying ${f} ${how} failed: ${String(e.stderr ?? e.message).trim()}`)
+      throw new Error(`copying ${f} ${open ? '-readonly' : 'immutable'} failed: ${String(e.stderr ?? e.message).trim()}`)
     }
+    // An immutable read is only consistent if nothing wrote during it.
+    if (!open && (sides(f) || stamp(f) !== before)) throw new Error(`${f} came into use during its immutable copy — rerun`)
+    how.push(`${f} ${open ? '-readonly' : 'immutable'}`)
   }
-  // An immutable read is only consistent if nothing wrote during it.
   const after = holder ? null : liveProfileHolder()
   if (after) throw new Error(`the live profile came into use during the immutable copy (${after}) — rerun`)
-  console.log(`[app-driver] ${files.join(', ')} copied ${how}`)
+  console.log(`[app-driver] copied ${how.join(', ')} (${holder ?? 'Beacon is not running'})`)
 }
 
 /** A scratch profile cloned from the live one: the databases (see backupLiveDbs) and window state.

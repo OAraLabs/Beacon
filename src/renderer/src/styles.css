@@ -576,6 +576,18 @@ button {
   padding: 1px 5px;
   white-space: nowrap;
 }
+/* A saved prompt in the slash list: the same quiet tag as Telegram's, since it is a kind, not a
+   warning. */
+.slash-prompt-tag {
+  font-size: 10px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
 .composer.dragging {
   outline: 2px dashed var(--accent);
   outline-offset: -5px;
@@ -5047,6 +5059,43 @@ body.is-resizing-panel {
 .chat-home-composer-v2 .composer-shell {
   border: none;
   background: transparent;
+}
+/* Starters under the new-chat composer: saved prompts, then the built-in ones. Quiet pills, so
+   the composer stays the one thing the screen asks for. */
+.chat-home-starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  max-width: var(--measure, 720px);
+}
+.starter-chip {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 5px 11px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: var(--node);
+  color: var(--ink3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.starter-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink2);
+}
+.starter-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.starter-chip-quiet {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink4);
 }
 
 /* ── Onboarding v0.4.0 (docs/ONBOARDING-v0.4.0.md): Welcome, the question, the tour, the empty home ──
