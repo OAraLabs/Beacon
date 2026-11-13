@@ -39,6 +39,11 @@ const rest = createServer((req, res) => {
   req.on('data', (c) => (body += c))
   req.on('end', () => {
     const url = decodeURIComponent((req.url ?? '').split('?')[0])
+    if (req.method === 'POST' && /^\/api\/approvals\/k-worker\/approve$/.test(url)) {
+      // As the daemon answers a worker's request approved without a person's credential: it stays pending.
+      daemon.refusedWorker = (daemon.refusedWorker ?? 0) + 1
+      return json(res, 401, { error: 'worker requests need a person to approve them', code: 'not_a_person' })
+    }
     if (req.method === 'POST' && /^\/api\/approvals\/[^/]+\/(approve|deny)$/.test(url)) {
       daemon.resolved.push(url)
       // As the daemon does: the request stops being pending, and every client is told.
@@ -122,6 +127,15 @@ try {
     await app.page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r.y, button: 'left', clickCount: 1 })
     return true
   }
+  // An approve within half a second of the stack of cards changing is ignored (APPROVAL_SETTLE_MS),
+  // and the stack can change once more after a push or an answer, when the page's next poll lands
+  // (a poll already on its way can briefly disagree with the frames). So: let one fresh poll land,
+  // then let the half second pass.
+  const settle = async () => {
+    const seen = daemon.polls
+    await until(async () => daemon.polls, (v) => v > seen + 1, 8000)
+    await sleep(700)
+  }
   const answers = (id) => daemon.resolved.filter((u) => u.includes(`/${id}/`)).map((u) => u.split('/').pop())
   // The short rows: Mission's "needs you" list (a profile that already has a Prometheus opens in the full view).
   const ROWBTN = `[...document.querySelectorAll('[data-testid^="approval-row-"]')]`
@@ -146,6 +160,48 @@ try {
   await key('a', 'KeyA', 65)
   check((await until(async () => answers('k-old'), (v) => v.length > 0, 4000)).join() === 'approve', 'and A, with focus on its card, approves it', answers('k-old').join())
   await until(() => ev(`!!${CARD('k-old')}`), (v) => v === false, 5000)
+  await settle()
+  // ── what the person sees when main refuses ─────────────────────────────────────────────────
+  // The one way the window and main can disagree: a frame said critical, then the poll row for the
+  // same request carries no flag. This Prometheus advertises nothing, so the window reads the row
+  // as ordinary and its short row offers Approve; main remembers what the frame said.
+  await settle()
+  const nowS = Date.now() / 1000
+  const row = { request_id: 'k-disagree', tool_name: 'bash', description: 'git push --force origin main', created_at: nowS, expires_at: nowS + 1800, extents: {}, arguments: null }
+  for (const ws of daemon.sockets) ws.send(JSON.stringify({ type: 'approval_pending', timestamp: nowS, payload: { ...row, critical: true } }))
+  daemon.pending.set('k-disagree', row) // the poll's copy: no flag
+  await until(() => ev(`!!${CARD('k-disagree')}`), (v) => v === true)
+  const rowApprove = await until(() => ev(`!!document.querySelector('[data-testid="approval-row-approve"]')`), (v) => v === true, 8000)
+  check(rowApprove === true, 'the window, going by the poll row, offers Approve once on the short row')
+  await settle()
+  await ev(`(() => { document.querySelector('[data-testid="approval-row-approve"]').click(); return true })()`)
+  const shown = await until(() => ev(`${CARD('k-disagree')}?.innerText ?? ''`), (v) => /can be approved only on its card/.test(v), 2500)
+  check(/This request can be approved only on its card in Beacon, with the Approve button\. Nothing was approved\./.test(shown) && answers('k-disagree').length === 0, 'main refuses it, Prometheus is not asked, and the card is back within moments saying why', shown.replace(/\n/g, ' | ').slice(-200))
+  check(!/Error invoking remote method|approval:resolve/.test(shown), 'in plain words, without the plumbing')
+  await settle()
+  await clickAt(`[...${CARD('k-disagree')}.querySelectorAll('button')].find((b) => /^Approve once/.test(b.textContent))`)
+  check((await until(async () => answers('k-disagree'), (v) => v.length > 0, 4000)).join() === 'approve', "and the card's own Approve button approves it", answers('k-disagree').join())
+  await until(() => ev(`!!${CARD('k-disagree')}`), (v) => v === false, 5000)
+  await settle()
+
+  // ── a double-click cannot approve the next card ─────────────────────────────────────────────
+  push({ request_id: 'k-dbl1', description: 'List the downloads folder' }, { stays: true })
+  push({ request_id: 'k-dbl2', description: 'Delete the downloads folder' }, { stays: true })
+  await until(() => ev(`!!${CARD('k-dbl1')} && !!${CARD('k-dbl2')}`), (v) => v === true)
+  await settle()
+  const first = await ev(`(() => { const b = [...${CARD('k-dbl1')}.querySelectorAll('button')].find((x) => /^Approve once/.test(x.textContent)); const q = b.getBoundingClientRect(); return { x: q.left + q.width / 2, y: q.top + q.height / 2 } })()`)
+  for (const n of [1, 2]) {
+    await app.page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: first.x, y: first.y, button: 'left', clickCount: n })
+    await app.page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: first.x, y: first.y, button: 'left', clickCount: n })
+    await sleep(150)
+  }
+  await sleep(800)
+  check(answers('k-dbl1').join() === 'approve' && answers('k-dbl2').length === 0 && (await ev(`!!${CARD('k-dbl2')}`)) === true, 'a double-click on Approve approves the first request only: the card that slid under the pointer is not answered')
+  await settle()
+  await ev(`(() => { [...${CARD('k-dbl2')}.querySelectorAll('button')].find((b) => /^Deny/.test(b.textContent)).click(); return true })()`)
+  await until(() => ev(`!!${CARD('k-dbl2')}`), (v) => v === false, 5000)
+  await settle()
+
   // The Prometheus at this address is upgraded: the next connection gets a reply, and it is believed at once.
   daemon.silent = false
   const subs0 = daemon.subscribes
@@ -170,16 +226,18 @@ try {
   check(onRow === true && answers('k-ord').length === 0, 'nor with focus on a button outside the cards (the Approve on the short row)')
   // The person puts focus on the cards: a click on the card.
   check(await clickAt(`${CARD('k-ord')}.querySelector('div')`), 'clicked the card')
-  check((await until(() => ev(`${CARD('k-ord')}.dataset.keysLive`), (v) => v === 'yes', 2000)) === 'yes' && / A/.test(await ev(`[...${CARD('k-ord')}.querySelectorAll('button')].map((b) => b.textContent).join('|')`)), 'now focus is on the card, and the key hints are shown')
+  check((await until(() => ev(`${CARD('k-ord')}.dataset.keysLive`), (v) => v === 'yes', 2000)) === 'yes' && /A approves once, D denies/.test(await ev(`${CARD('k-ord')}.innerText`)), 'now focus is on the card, and it says what the keys do')
   // A second ordinary request stacks under it. Focus is on the first card.
   push({ request_id: 'k-ord2', description: 'Read the project notes', critical: false }, { stays: true })
   await until(() => ev(`!!${CARD('k-ord2')}`), (v) => v === true)
+  await settle()
   await key('a', 'KeyA', 65, true)
   await sleep(400)
   check(answers('k-ord').length === 0 && answers('k-ord2').length === 0, 'a held A (a repeat) answers nothing')
   await key('a', 'KeyA', 65)
   check((await until(async () => answers('k-ord'), (v) => v.length > 0, 4000)).join() === 'approve', 'and A approves the ordinary request, once', answers('k-ord').join())
   check((await until(() => ev(`!!${CARD('k-ord')}`), (v) => v === false, 5000)) === false, 'its card goes away')
+  await settle()
   // The card under it is now the first, and focus is not on it.
   await key('a', 'KeyA', 65)
   await key('a', 'KeyA', 65)
@@ -190,6 +248,7 @@ try {
   await key('d', 'KeyD', 68)
   check((await until(async () => answers('k-ord2'), (v) => v.length > 0, 4000)).join() === 'deny', 'clicked, it is the one D denies', answers('k-ord2').join())
   await until(() => ev(`!!${CARD('k-ord2')}`), (v) => v === false, 5000)
+  await settle()
 
   push({ request_id: 'k-crit', description: 'git push origin main', critical: true }, { stays: true })
   check((await until(() => ev(`${CARD('k-crit')}?.dataset.critical ?? null`), (v) => v !== null)) === 'yes', 'a critical request brings up its card, marked critical')
@@ -198,7 +257,7 @@ try {
   check(critRow.join() === 'Answer on the card,Deny' && (await ev(`document.querySelectorAll('[data-testid="approval-row-approve"]').length`)) === 0, 'its short row has no Approve: it offers "Answer on the card", and Deny', critRow.join())
   await ev(`(() => { document.querySelector('[data-testid="approval-row-show"]').click(); return true })()`)
   check((await until(() => ev(`${CARD('k-crit')}.dataset.keysLive`), (v) => v === 'yes', 2000)) === 'yes' && (await ev(`document.activeElement === ${CARD('k-crit')}`)) === true && answers('k-crit').length === 0, '"Answer on the card" puts focus on that request\'s card and answers nothing')
-  check(!/ A$/.test(await ev(`[...${CARD('k-crit')}.querySelectorAll('button')].find((b) => /Approve once/.test(b.textContent)).textContent`)), 'the Approve button on a critical card shows no A')
+  check(/D denies\./.test(await ev(`${CARD('k-crit')}.querySelector('[data-testid="approval-keys-hint"]').textContent`)) && !/A approves/.test(await ev(`${CARD('k-crit')}.innerText`)), 'a critical card with focus says D denies, and never that A approves')
   await key('a', 'KeyA', 65)
   await key('A', 'KeyA', 65)
   await sleep(500)
@@ -206,9 +265,11 @@ try {
   await ev(`(() => { [...${CARD('k-crit')}.querySelectorAll('button')].find((b) => /Approve once/.test(b.textContent)).click(); return true })()`)
   check((await until(async () => answers('k-crit'), (v) => v.length > 0, 4000)).join() === 'approve', 'its own button approves it', answers('k-crit').join())
   await until(() => ev(`!!${CARD('k-crit')}`), (v) => v === false, 5000)
+  await settle()
 
   push({ request_id: 'k-crit2', description: 'rm -rf build', critical: true }, { stays: true })
   await until(() => ev(`!!${CARD('k-crit2')}`), (v) => v === true)
+  await settle()
   check((await ev(`${CARD('k-crit2')}.dataset.keysLive`)) === 'no' && (await ev(`!!document.activeElement?.closest('[data-approval-id]')`)) === false, 'a new card appearing does not take the focus: the keys are off until the person goes to it')
   await key('d', 'KeyD', 68)
   await sleep(400)
@@ -218,13 +279,80 @@ try {
   await key('d', 'KeyD', 68)
   check((await until(async () => answers('k-crit2'), (v) => v.length > 0, 4000)).join() === 'deny', 'with focus on the cards, D denies a critical request', answers('k-crit2').join())
   await until(() => ev(`!!${CARD('k-crit2')}`), (v) => v === false, 5000)
+  await settle()
+
+  // ── a real pointer click on Approve, on a card that does not have the focus ───────────────
+  // Mouse-down gives the card the focus; nothing may move before mouse-up, or the click misses.
+  push({ request_id: 'k-click', description: 'Show the disk usage', critical: false }, { stays: true })
+  await until(() => ev(`!!${CARD('k-click')}`), (v) => v === true)
+  await settle()
+  await ev(`(document.activeElement?.blur?.(), true)`)
+  const BTN = `[...${CARD('k-click')}.querySelectorAll('button')].find((b) => /^Approve once/.test(b.textContent))`
+  const box = (expr) => ev(`(() => { const q = (${expr}).getBoundingClientRect(); return [Math.round(q.left), Math.round(q.top), Math.round(q.width), Math.round(q.height)].join() })()`)
+  check((await ev(`${CARD('k-click')}.dataset.keysLive`)) === 'no', 'before the click the card does not have the focus')
+  const cardBefore = await box(CARD('k-click'))
+  const btnBefore = await box(BTN)
+  const at = await ev(`(() => { const q = (${BTN}).getBoundingClientRect(); return { x: q.left + q.width / 2, y: q.top + q.height / 2 } })()`)
+  await app.page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'left', clickCount: 1 })
+  await sleep(250) // long enough for the card to take focus and re-render
+  check((await ev(`${CARD('k-click')}.dataset.keysLive`)) === 'yes' && (await box(BTN)) === btnBefore && (await box(CARD('k-click'))) === cardBefore, 'with the mouse held down on Approve the card has the focus, and neither the card nor the button has moved or resized', `${btnBefore} -> ${await box(BTN)}`)
+  await app.page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'left', clickCount: 1 })
+  check((await until(async () => answers('k-click'), (v) => v.length > 0, 4000)).join() === 'approve', 'so one click on Approve approves it', answers('k-click').join())
+  await until(() => ev(`!!${CARD('k-click')}`), (v) => v === false, 5000)
+  await settle()
+
+  // ── main refuses too: an approve of a critical request that is not from the card's button ───
+  push({ request_id: 'k-guard', description: 'git push --force', critical: true }, { stays: true })
+  await until(() => ev(`!!${CARD('k-guard')}`), (v) => v === true)
+  await settle()
+  const tryResolve = (id, decision, from) => ev(`window.beacon.approvals.resolve(${JSON.stringify(id)}, ${JSON.stringify(decision)}${from === undefined ? '' : `, ${JSON.stringify(from)}`}).then(() => 'went through', (e) => String(e?.message ?? e))`)
+  for (const from of ['row', 'key', 'notification', undefined, 'CARD']) {
+    const r = await tryResolve('k-guard', { kind: 'approve', scope: 'once' }, from)
+    check(/can be approved only on its card/.test(r) && answers('k-guard').length === 0, `an approve of a critical request sent to main as coming from ${JSON.stringify(from) ?? 'nowhere'} is refused, and Prometheus is not asked`, r)
+  }
+  check(/can be approved only on its card/.test(await tryResolve('k-guard', { kind: 'approve', scope: 'always' }, 'row')) && answers('k-guard').length === 0, 'so is a lasting approve')
+  check(/can be approved only on its card/.test(await tryResolve('never-seen', { kind: 'approve', scope: 'once' }, 'row')) && answers('never-seen').length === 0, 'and an approve of a request main has never seen, from this Prometheus')
+  check((await ev(`!!${CARD('k-guard')}`)) === true, 'the request is still pending, its card still up')
+  check((await tryResolve('k-guard', { kind: 'deny' }, 'row')) === 'went through' && answers('k-guard').join() === 'deny', 'a deny from a row goes through')
+  await until(() => ev(`!!${CARD('k-guard')}`), (v) => v === false, 5000)
+  await settle()
+  push({ request_id: 'k-guard2', description: 'git push --force', critical: true }, { stays: true })
+  await until(() => ev(`!!${CARD('k-guard2')}`), (v) => v === true)
+  await settle()
+  check((await tryResolve('k-guard2', { kind: 'approve', scope: 'once' }, 'card')) === 'went through' && answers('k-guard2').join() === 'approve', "an approve marked as from the card's own button goes through (the button itself is driven above)")
+  await until(() => ev(`!!${CARD('k-guard2')}`), (v) => v === false, 5000)
+  await settle()
+
+  // ── the key hints follow focus when the focused button goes away ──────────────────────────
+  // A worker's request this Beacon may not approve: Approve is refused, and the card replaces the
+  // button with a sentence. The button had the focus; no blur fires for an element that is removed.
+  push({ request_id: 'k-worker', description: 'Run the migration', critical: false, worker_task_id: 'task-1', once_only: true }, { stays: true })
+  await until(() => ev(`!!${CARD('k-worker')}`), (v) => v === true)
+  await settle()
+  const APPROVE_BTN = `[...${CARD('k-worker')}.querySelectorAll('button')].find((b) => /^Approve once/.test(b.textContent))`
+  await ev(`(() => { (${APPROVE_BTN}).focus(); return true })()`)
+  check((await until(() => ev(`${CARD('k-worker')}.dataset.keysLive`), (v) => v === 'yes', 2000)) === 'yes', 'with focus on its Approve button the worker card says the keys work')
+  check(await clickAt(APPROVE_BTN), 'clicked Approve on a worker request this Beacon may not approve')
+  check((await until(async () => daemon.refusedWorker ?? 0, (v) => v >= 1, 4000)) >= 1, 'Prometheus refused it')
+  check((await app.mainEval(`1`)) === 1, 'main is answering')
+  check((await until(() => ev(`!!${CARD('k-worker')}.querySelector('[data-testid="approval-cannot-approve"]')`), (v) => v === true, 4000)) === true && (await ev(`!!(${APPROVE_BTN})`)) === false, 'the card says so, and the Approve button (which had the focus) is gone')
+  check((await ev(`!!document.activeElement?.closest('[data-approval-id]')`)) === false, 'focus is no longer on the card')
+  const hintsOff = await until(() => ev(`${CARD('k-worker')}.dataset.keysLive`), (v) => v === 'no', 3000)
+  check(hintsOff === 'no' && /Click this card, or Tab to it/.test(await ev(`${CARD('k-worker')}.innerText`)) && !/D denies\./.test(await ev(`${CARD('k-worker')}.querySelector('[data-testid="approval-keys-hint"]').textContent`)), 'and the card stops saying the keys work, and says again how to use them')
+  await key('d', 'KeyD', 68)
+  await sleep(400)
+  check(answers('k-worker').length === 0, 'D pressed then answers nothing, as the card now says')
+  await ev(`(() => { [...${CARD('k-worker')}.querySelectorAll('button')].find((b) => /^Deny/.test(b.textContent)).click(); return true })()`)
+  await until(() => ev(`!!${CARD('k-worker')}`), (v) => v === false, 5000)
+  await settle()
 
   // A request that does not say, from this Prometheus (it advertises the flag): card-only too.
   push({ request_id: 'k-silent', description: 'A request that does not say either way' }, { stays: true })
   check((await until(() => ev(`${CARD('k-silent')}?.dataset.critical ?? null`), (v) => v !== null)) === 'yes' && (await until(rowButtons, (v) => v.length > 0)).join() === 'Answer on the card,Deny', 'a request that does not say, from a Prometheus that advertises the flag, is card-only as well')
   await ev(`(() => { [...${CARD('k-silent')}.querySelectorAll('button')].find((b) => /^Deny/.test(b.textContent)).click(); return true })()`)
   await until(() => ev(`!!${CARD('k-silent')}`), (v) => v === false, 5000)
-  check(daemon.resolved.length === 6, 'six answers in all, each one made on purpose', daemon.resolved.join(' '))
+  await settle()
+  check(daemon.resolved.length === 13, 'thirteen answers in all, each one made on purpose', daemon.resolved.join(' '))
 
   const answeredInWindow = daemon.resolved.length
 

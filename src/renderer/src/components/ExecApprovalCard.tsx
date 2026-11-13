@@ -1,3 +1,4 @@
+import type { ApprovalSurface } from '@shared/approval-critical'
 import { Fragment, useEffect, type CSSProperties, useState, useRef } from 'react'
 import type { ApprovalRequest, ApprovalDecision } from '@shared/ipc'
 import { disclosureLabel } from '@shared/approval-disclosure'
@@ -149,7 +150,8 @@ const noGrantNote: CSSProperties = {
 // The key glyph, quieter than the label by FACE and SIZE — not by opacity. The match spec draws
 // it at 70%; --on-sang over --sang at 70% composites to ~3.5:1, under the ink floor, and an
 // opacity-dimmed glyph is invisible to lint:contrast. Same call as the Send button's ⏎.
-const actionKey: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10 }
+/** The line under the request that says what the keys do. One line, fixed height, whatever it says. */
+const keysHint: CSSProperties = { fontSize: 11.5, lineHeight: '16px', height: 16, color: 'var(--c-text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
 // The remembered-grant option's styling moved to .approval-scope-btn in
 // styles.css: inline styles cannot express :hover / :focus-visible / :active,
 // and those states ARE the affordance that was missing.
@@ -208,7 +210,8 @@ export function ExecApprovalCard({
   critical?: boolean
   /** The conversation on screen, so a worker's request can say whether it is this one. */
   activeSessionId?: string | null
-  onResolve: (d: ApprovalDecision) => void
+  /** `from`: 'card' for this card's own buttons, 'key' for `A`/`D`. Main refuses an approve of a critical request that is not from 'card'. */
+  onResolve: (d: ApprovalDecision, from: ApprovalSurface) => void
 }) {
   // Payload order — the daemon emits these from approve_verbs(), so preserving insertion order
   // preserves ITS ordering decision instead of imposing one here. None at all for a worker's or
@@ -249,8 +252,8 @@ export function ExecApprovalCard({
       e.preventDefault()
       if (action === 'approve') {
         trace({ point: 'card:click', requestId: approval.requestId, scope: 'once' })
-        onResolve({ kind: 'approve', scope: 'once' })
-      } else onResolve({ kind: 'deny' })
+        onResolve({ kind: 'approve', scope: 'once' }, 'key')
+      } else onResolve({ kind: 'deny' }, 'key')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -263,6 +266,7 @@ export function ExecApprovalCard({
       className="approval-card"
       role="group"
       aria-label={`Approval request: ${approval.toolName}`}
+      aria-describedby={`approval-keys-${approval.requestId}`}
       data-approval-id={approval.requestId}
       data-critical={critical ? 'yes' : 'no'}
       data-keys-live={keysLive ? 'yes' : 'no'}
@@ -337,11 +341,18 @@ export function ExecApprovalCard({
           </div>
         ) : null}
 
-        {keysLive ? null : (
-          <div style={{ fontSize: 11.5, color: 'var(--c-text-faint)' }} data-testid="approval-keys-hint">
-            {critical ? 'Click this card, or Tab to it, to deny with D.' : 'Click this card, or Tab to it, to answer with A or D.'}
-          </div>
-        )}
+        {/* ALWAYS here, always one line: only its words change with focus. A line that came and went
+            moved the buttons under the pointer between mouse-down (which focuses the card) and
+            mouse-up, and the click on Approve missed. Nothing in this card may change size on focus. */}
+        <div style={keysHint} id={`approval-keys-${approval.requestId}`} data-testid="approval-keys-hint">
+          {keysLive
+            ? critical || cannotApprove
+              ? 'D denies.'
+              : 'A approves once, D denies.'
+            : critical || cannotApprove
+              ? 'Click this card, or Tab to it, to deny with D.'
+              : 'Click this card, or Tab to it, to answer with A or D.'}
+        </div>
         {critical ? (
           <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--c-text-dim)' }} data-testid="approval-critical-note">
             This request can be approved only here, with the button.
@@ -354,17 +365,17 @@ export function ExecApprovalCard({
               className="approval-btn approval-btn-approve"
               onClick={() => {
                 trace({ point: 'card:click', requestId: approval.requestId, scope: 'once' })
-                onResolve({ kind: 'approve', scope: 'once' })
+                onResolve({ kind: 'approve', scope: 'once' }, 'card')
               }}
             >
               {/* "once" stays in the LABEL. This button creates no remembered grant, and calling it
                   plain "Approve" beside a disclosure that does would blur exactly the line the
                   disclosure exists to draw. */}
-              Approve once{keysLive && !critical ? <span style={actionKey}> A</span> : null}
+              Approve once
             </button>
           )}
-          <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' })}>
-            Deny{keysLive ? <span style={actionKey}> D</span> : null}
+          <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' }, 'card')}>
+            Deny
           </button>
         </div>
 
@@ -410,7 +421,7 @@ export function ExecApprovalCard({
                       // scope survives intact, so the path is faithful; the failures
                       // were clicks that never landed on a control.
                       trace({ point: 'card:click', requestId: approval.requestId, scope: verb })
-                      onResolve({ kind: 'approve', scope: verb })
+                      onResolve({ kind: 'approve', scope: verb }, 'card')
                     }}
                   >
                     <span style={verbChip}>{verb}</span>
@@ -431,4 +442,4 @@ export function ExecApprovalCard({
 }
 
 // The Home Assistant card (HomeApprovalCard) is the same kind of card, so it takes the same skin.
-export { card as approvalCardStyle, header as approvalHeaderStyle, noGrantNote as approvalNoteStyle, verbChip as approvalVerbChip, actionKey as approvalActionKey }
+export { card as approvalCardStyle, header as approvalHeaderStyle, noGrantNote as approvalNoteStyle, verbChip as approvalVerbChip, keysHint as approvalKeysHint }
