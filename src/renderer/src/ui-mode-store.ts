@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { UI_MODE_KEY, firstUiMode, parseUiMode, type UiMode } from '@shared/ui-mode'
+import { UI_MODE_KEY, decideFirstUiMode as decideFirst, parseUiMode, type UiMode } from '@shared/ui-mode'
 
 // Everyday or full (@shared/ui-mode), for this window: a module singleton so the rail, the pill
 // rows, the palette, Config and Settings all read one value, and MainView's remount on a switch of
@@ -52,21 +52,21 @@ export function setUiMode(next: UiMode): void {
 }
 
 /**
- * Decide the mode ONCE for an install that has none stored, and write it (@shared/ui-mode
- * firstUiMode): a new install starts everyday, anything else keeps everything. Called from App's
- * setup check, before either the setup screens or the app mount. Does nothing once a mode is stored.
+ * The first decision for an install with no mode stored (@shared/ui-mode decideFirstUiMode, which
+ * holds the rule and is tested with each read failing). Called from App's setup check, before
+ * either the setup screens or the app mount. Does nothing once a mode is stored.
  */
 export async function decideFirstUiMode(needsSetup: boolean): Promise<void> {
   const b = window.beacon
   if (!b) return
-  try {
-    const stored = parseUiMode(await b.settings.get(UI_MODE_KEY))
-    if (stored) return set(stored)
-    const conversations = await b.sessions.list().catch(() => [])
-    const first = firstUiMode({ needsSetup, hasConversations: conversations.length > 0 })
-    await b.settings.set(UI_MODE_KEY, first)
-    set(first)
-  } catch {
-    // Unreadable or unwritable: stay on `full` for this launch and decide next time.
-  }
+  const decided = await decideFirst(
+    {
+      getSetting: (k) => b.settings.get(k),
+      setSetting: (k, v) => b.settings.set(k, v),
+      conversations: () => b.sessions.list(),
+      kept: () => b.instances.list()
+    },
+    needsSetup
+  )
+  if (decided) set(decided)
 }

@@ -6114,6 +6114,13 @@ body.is-resizing-panel {
   font-size: 13px;
   color: var(--ink4);
 }
+/* The context meter as a plain reading (everyday mode): same look, nothing to click. */
+div.ctx-footer {
+  cursor: default;
+}
+.today-more {
+  margin-top: 8px;
+}
 .today-list {
   list-style: none;
   margin: 0;

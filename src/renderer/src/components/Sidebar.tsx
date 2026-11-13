@@ -1185,7 +1185,7 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
         </ContextMenu>
       ) : null}
       {/* The footer: the open conversation's context window. Nothing when no conversation is open. */}
-      {active && onOpenStatus ? (
+      {active ? (
         <div className="sidebar-foot">
           <ContextMeter sessionId={active} onOpen={onOpenStatus} variant="footer" />
         </div>

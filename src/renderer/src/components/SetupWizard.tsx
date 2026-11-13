@@ -928,7 +928,7 @@ export function SetupWizard({ currentAddress, resume, onConnected, onStartOver }
               <>
                 <h1>You&apos;re flying</h1>
                 <p className="setup-sub">
-                  Setup is done{data.smokeOk ? ' and the chat loop is proven' : ''}. Mission home has a short
+                  Setup is done{data.smokeOk ? ' and the chat loop is proven' : ''}. Your home screen has a short
                   first-flight checklist waiting:
                 </p>
                 <ul className="wiz-tasks">

@@ -567,8 +567,13 @@ export function MainView() {
   // this mode has put the chosen one away (a remembered view, a card's link, the switch itself):
   // derived, so a hidden view is never drawn even for a frame.
   const uiMode = useUiMode()
-  const [chosenView, setView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
+  const [chosenView, setChosenView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
   const view = viewInMode(chosenView, uiMode)
+  // What is REMEMBERED is the view that was shown, never a put-away one that was asked for: a
+  // later "Show everything" then stays where the person is instead of jumping to it.
+  const uiModeRef = useRef(uiMode)
+  uiModeRef.current = uiMode
+  const setView = useCallback((v: ViewId) => setChosenView(viewInMode(v, uiModeRef.current)), [])
   /** Whether a view has a pill row in THIS mode's navigation (everyday mode's groups are smaller). */
   const usesPillRow = (v: ViewId): boolean => usesPillRowIn(v, navTreeFor(uiMode))
   const shownView = useRef<ViewId | null>(null)
@@ -1497,14 +1502,6 @@ export function MainView() {
       group: 'action',
       run: goHome
     },
-    // The Settings switch, from the keyboard: a view someone remembers and cannot find is one
-    // palette entry away, in words that say what it will do.
-    {
-      id: 'action:ui-mode',
-      label: uiMode === 'everyday' ? 'Show everything (Mission, Coding, Activity…)' : 'Show only the everyday views',
-      group: 'action',
-      run: () => setUiMode(uiMode === 'everyday' ? 'full' : 'everyday')
-    },
     {
       id: 'action:prompts',
       label: 'Saved prompts…',
@@ -1539,6 +1536,15 @@ export function MainView() {
       hint: '?',
       group: 'action',
       run: () => setSheetOpen(true)
+    },
+    // The Settings switch, from the keyboard: a view someone remembers and cannot find is one
+    // palette entry away, in words that say what it will do. After the fixed actions, so the
+    // list the palette opens on is unchanged.
+    {
+      id: 'action:ui-mode',
+      label: uiMode === 'everyday' ? 'Show everything (Mission, Coding, Activity…)' : 'Show only the everyday views',
+      group: 'action',
+      run: () => setUiMode(uiMode === 'everyday' ? 'full' : 'everyday')
     },
     // Saved prompts and starters, AFTER the fixed actions: the palette shows five rows a group, so
     // rows put first would push Reconnect and Settings out of the list it opens on. Choosing one
@@ -1611,7 +1617,9 @@ export function MainView() {
                   onRename={(id, t) => void rename(id, t)}
                   onNew={goHome}
                   onManage={() => setView('sessions')}
-                  onOpenStatus={() => setView('status')}
+                  // Status is put away in everyday mode: the meter is then a reading, not a link (a
+                  // click that left the conversation for Today would explain nothing).
+                  onOpenStatus={viewVisible('status', uiMode) ? () => setView('status') : undefined}
                   width={listShown}
                   onWidth={onListWidth}
                   popped={popped}
@@ -1778,7 +1786,7 @@ export function MainView() {
                   whole reason SubNav sits outside. */}
               <ErrorBoundary
                 key={view}
-                label={`the ${viewLabel(view)} view`}
+                label={`the ${view === 'mission' ? homeLabel(uiMode) : viewLabel(view)} view`}
                 hint="The rest of Beacon still works — switch views from the rail."
               >
               {/* An approved device (not the owner): a view that reads only the owner's routes is the note instead, and never mounts,

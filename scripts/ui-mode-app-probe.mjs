@@ -12,6 +12,8 @@
 // opened (app-driver), so the switch it flips is the copy's.
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { launchApp, scratchProfile, sleep, sql } from './app-driver.mjs'
 
 const SHOTS = process.env.PROBE_SHOT_DIR
@@ -97,7 +99,9 @@ check(heads.length === 3 && heads[0] === 'Needs you' && /^(Since you last looked
 await sleep(1500)
 const settled = await d.ev(`[...document.querySelectorAll('.today .today-card')].map((c) => c.querySelectorAll('.today-row').length + ':' + (c.querySelector('.today-empty')?.textContent ?? ''))`)
 check(settled.every((s) => !s.endsWith(':Reading…')), 'and each section settles on rows or on words for its kind of empty', settled.join(' | '))
-check((await d.ev(`[...document.querySelectorAll('.today .today-row-main, .today .today-row-detail')].some((e) => /\\b(beacon|desktop|telegram|voice):[0-9a-f-]{6,}/.test(e.textContent))`)) === false, 'no row shows a raw conversation id')
+const rowTexts = await d.ev(`[...document.querySelectorAll('.today .today-row-main, .today .today-row-detail')].map((e) => e.textContent)`)
+if (rowTexts.length === 0) console.log('[probe] SKIP  Today has no rows in this profile (it has no key, so nothing can be read), so "no raw ids in rows" cannot be shown here; smoke:ui-mode covers the rule')
+else check(!rowTexts.some((t) => /\b(beacon|desktop|telegram|voice):[0-9a-f-]{6,}/.test(t)), 'no row shows a raw conversation id', `${rowTexts.length} lines`)
 await d.shot('today.png')
 
 check(await d.go('Workspace'), 'opened Workspace again')
@@ -105,8 +109,8 @@ const everydayPills = await d.waitFor(d.pills, (v) => Array.isArray(v) && v.leng
 check(everydayPills.join(' · ') === 'Documents · Artifacts · Wiki · Files', 'it has the four everyday pills', everydayPills.join(' · '))
 check(await d.go('Config'), 'opened Config')
 const tabs = await d.waitFor(() => d.ev(`[...document.querySelectorAll('[data-testid="config-tab-groups"] button')].map((b) => b.textContent.trim())`), (v) => Array.isArray(v) && v.length > 0)
-check(tabs.join(' · ') === 'Models · Connectors · Usage · Memory · Cron · Devices · Skin' || tabs.length === 7, 'Config shows the seven tabs a person sets something in', tabs.join(' · '))
-check(!tabs.includes('Sentinel') && !tabs.includes('Telemetry') && !tabs.includes('Grants'), 'and not Sentinel, Telemetry or Grants')
+check([...tabs].sort().join(' · ') === ['Models', 'Connectors', 'Usage', 'Memory', 'Cron', 'Grants', 'Devices', 'Skin'].sort().join(' · '), 'Config shows exactly the eight tabs a person sets something in', tabs.join(' · '))
+check(!tabs.includes('Sentinel') && !tabs.includes('Telemetry') && !tabs.includes('Profiles') && tabs.includes('Grants'), 'not Sentinel, Telemetry or Profiles; Grants stays, so a lasting grant can be taken back')
 await d.shot('everyday-config.png')
 
 // The palette: no way to a put-away view, and the switch is there in words.
@@ -151,6 +155,37 @@ const restored = await d.waitFor(d.rail, (v) => Array.isArray(v) && v.length ===
 check(restored.join(' · ') === 'Mission · Chats · Coding · Workspace · Activity · Config', 'everything is back, in place', restored.join(' · '))
 check((await d.waitFor(() => d.ev(`!!document.querySelector('.mission-home')`), (v) => v === true)) === true, 'and the home is Mission again')
 await app.quit()
+
+// ── launch 3: a brand-new install starts everyday ────────────────────────────────────────────
+// An empty profile: no database, no connection. The mode is decided before anything mounts, so it
+// is read while the first-run screens are up.
+const USED = ['theme:v1', 'notif:prefs', 'window:close-mode', 'window:tray-hint-shown', 'firstflight:offered', 'firstflight:done', 'firstflight:dismissed', 'onboarding:known-computers']
+const fresh = mkdtempSync(join(tmpdir(), 'beacon-ui-mode-fresh-'))
+try {
+  app = await launchApp({ profile: fresh, acceptDialogs: true, readySelector: '.onb-root, .setup-card, nav[aria-label="Views"]' })
+  d = bind(app)
+  const first = await d.waitFor(() => d.ev(`window.beacon.settings.get('ui:mode:v1')`), (v) => v === 'everyday' || v === 'full', 8000)
+  check(first === 'everyday', 'a brand-new install is written down as "everyday"', q(first))
+  check((await d.ev(`!document.querySelector('nav[aria-label="Views"]')`)) === true, 'while it is still on its first-run screens')
+  // The rule leans on these being absent at a first launch. If Beacon ever starts writing one of
+  // them before the person does anything, every new install would be taken for an old one.
+  const present = await d.ev(`Promise.all(${JSON.stringify(USED)}.map((k) => window.beacon.settings.get(k).then((v) => (v === null ? null : k)))).then((l) => l.filter(Boolean))`)
+  check(Array.isArray(present) && present.length === 0, 'and none of the settings a used Beacon writes exists yet at a first launch', q(present))
+  await app.quit()
+
+  // ── launch 4: the same profile as a long-time user who chose Set up again ────────────────────
+  // No connection and no conversations (exactly what a forgotten Prometheus leaves), no mode stored
+  // (the install predates modes), but a theme the person once picked.
+  sql(fresh, `DELETE FROM settings WHERE key = 'ui:mode:v1'`, 'beacon')
+  sql(fresh, `INSERT OR REPLACE INTO settings (key, value) VALUES ('theme:v1', 'nox')`, 'beacon')
+  app = await launchApp({ profile: fresh, acceptDialogs: true, readySelector: '.onb-root, .setup-card, nav[aria-label="Views"]' })
+  d = bind(app)
+  const used = await d.waitFor(() => d.ev(`window.beacon.settings.get('ui:mode:v1')`), (v) => v === 'everyday' || v === 'full', 8000)
+  check(used === 'full', 'an install with no connection but a setting from before is written down as "full": setting up again never costs anyone their views', q(used))
+  await app.quit()
+} finally {
+  rmSync(fresh, { recursive: true, force: true })
+}
 
 console.log(`[probe] ${failures === 0 ? 'PASS' : 'FAIL'}: ${checks - failures} of ${checks} checks`)
 process.exit(failures === 0 ? 0 : 1)

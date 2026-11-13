@@ -17,6 +17,11 @@
 // Settings, and it changes nothing but what is shown: no data, no connection, no permission.
 
 import { CONFIG_TABS } from './daemon-api'
+import { NOTIFY_PREFS_KEY } from './notification-prefs'
+import { ONBOARDING_KNOWN_KEY } from './onboarding'
+import { FIRST_FLIGHT_DISMISSED_KEY, FIRST_FLIGHT_DONE_KEY, FIRST_FLIGHT_OFFERED_KEY } from './setup-wizard'
+import { THEME_KEY } from './theme'
+import { CLOSE_MODE_KEY, TRAY_HINT_SHOWN_KEY } from './tray-hint'
 import { NAV_TREE, flattenNavTree, type NavEntry, type ViewId } from './views'
 
 export type UiMode = 'everyday' | 'full'
@@ -31,12 +36,56 @@ export function parseUiMode(raw: string | null | undefined): UiMode | null {
 }
 
 /**
- * The mode for an install that has none stored yet. Decided once, then written, so it never
- * changes under anyone. `full` whenever there is any sign the install is not new: it is already
- * connected, or it holds conversations (a person who chose Set up again is not a new install).
+ * Settings a Beacon that has been USED has written, and that survive Set up again (they are
+ * Beacon-wide, so forgetting a Prometheus does not clear them). Any one of them present means this
+ * is not a new install, whatever else is missing. None of them is written at launch, before the
+ * person has done anything; the probe checks that against a fresh profile.
  */
-export function firstUiMode(facts: { needsSetup: boolean; hasConversations: boolean }): UiMode {
-  return facts.needsSetup && !facts.hasConversations ? 'everyday' : 'full'
+export const USED_INSTALL_KEYS: readonly string[] = [
+  THEME_KEY,
+  NOTIFY_PREFS_KEY,
+  CLOSE_MODE_KEY,
+  TRAY_HINT_SHOWN_KEY,
+  FIRST_FLIGHT_OFFERED_KEY,
+  FIRST_FLIGHT_DONE_KEY,
+  FIRST_FLIGHT_DISMISSED_KEY,
+  ONBOARDING_KNOWN_KEY
+]
+
+/** What the first decision reads and writes. Injected, so the smoke can make each read fail. */
+export interface FirstModeIo {
+  getSetting(key: string): Promise<string | null>
+  setSetting(key: string, value: string): Promise<void>
+  /** Conversations in the open cache. Empty once a Prometheus is forgotten, so never the only test. */
+  conversations(): Promise<unknown[]>
+  /** Every Prometheus this Beacon keeps. */
+  kept(): Promise<unknown[]>
+}
+
+/**
+ * Decide the mode ONCE for an install that has none stored, and write it. Returns the mode now in
+ * force, or null when nothing could be decided (a read failed): then nothing is written, Beacon
+ * shows everything for this launch, and the decision is made at the next one.
+ *
+ * NEW means all of: setup is still needed, no Prometheus is kept, no conversation is held, and no
+ * setting a used Beacon writes is present. Anything else is an install that already exists, and
+ * it keeps everything. The mistake this leans away from is the one that cannot be shrugged off:
+ * a person who has used Beacon for months opening it to find their views gone.
+ */
+export async function decideFirstUiMode(io: FirstModeIo, needsSetup: boolean): Promise<UiMode | null> {
+  try {
+    const stored = parseUiMode(await io.getSetting(UI_MODE_KEY))
+    if (stored) return stored
+    let isNew = needsSetup
+    if (isNew) isNew = (await io.kept()).length === 0
+    if (isNew) isNew = (await io.conversations()).length === 0
+    if (isNew) for (const k of USED_INSTALL_KEYS) if ((await io.getSetting(k)) !== null) isNew = false
+    const first: UiMode = isNew ? 'everyday' : 'full'
+    await io.setSetting(UI_MODE_KEY, first)
+    return first
+  } catch {
+    return null
+  }
 }
 
 /** What everyday mode keeps, in rail order. Every id here is in NAV_TREE (the smoke checks). */
@@ -71,7 +120,9 @@ export function homeLabel(mode: UiMode): string {
 
 /** The Config tabs everyday mode keeps: the ones a person sets something in. The rest report on
  *  the daemon's internals and stay one switch away. */
-const EVERYDAY_CONFIG_TABS: readonly string[] = ['models', 'connectors', 'memory', 'cron', 'usage', 'devices', 'skin']
+// Grants stays: the approval card offers lasting grants in every mode, and a grant that can be
+// given has to have a place where it can be seen and taken back.
+const EVERYDAY_CONFIG_TABS: readonly string[] = ['models', 'connectors', 'memory', 'cron', 'usage', 'grants', 'devices', 'skin']
 
 export function configTabVisible(tabId: string, mode: UiMode): boolean {
   return mode === 'full' || EVERYDAY_CONFIG_TABS.includes(tabId)

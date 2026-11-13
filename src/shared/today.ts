@@ -91,6 +91,21 @@ export function todayRows(events: readonly EventRow[], since: number, titles: Re
   return rows.sort((a, z) => z.ts - a.ts).slice(0, max)
 }
 
+/**
+ * Whether the events read might not reach back to `since`: the read returned as many rows as it
+ * asked for, and the oldest of them is still newer than `since`. The list is then honest only if
+ * it says older activity is not shown; "Nothing new" would be a claim it cannot back.
+ */
+export function todayPartial(events: readonly EventRow[], since: number, asked: number): boolean {
+  if (events.length < asked) return false
+  let oldest = Infinity
+  for (const ev of events) {
+    const ts = eventRowTs(ev.timestamp)
+    if (ts > 0 && ts < oldest) oldest = ts
+  }
+  return oldest !== Infinity && oldest > since
+}
+
 /** "5 minutes ago", "3 hours ago", "yesterday", "4 days ago". For the heading and each row. */
 export function agoWords(ts: number, now: number): string {
   const s = Math.max(0, Math.round((now - ts) / 1000))

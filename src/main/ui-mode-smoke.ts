@@ -17,11 +17,11 @@ import { CONFIG_TABS } from '@shared/daemon-api'
 import { classifiedScope } from '@shared/daemon-profiles'
 import { isOwnerOnlyView } from '@shared/device-role'
 import type { EventRow } from '@shared/gateway-events'
-import { TODAY_DEFAULT_SPAN_MS, TODAY_MAX_SPAN_MS, TODAY_SEEN_KEY, agoWords, sinceHeading, todayRows, todaySince } from '@shared/today'
-import { UI_MODE_KEY, configTabInMode, configTabVisible, firstUiMode, homeLabel, navTreeFor, parseUiMode, viewInMode, viewVisible } from '@shared/ui-mode'
+import { TODAY_DEFAULT_SPAN_MS, TODAY_MAX_SPAN_MS, TODAY_SEEN_KEY, agoWords, sinceHeading, todayPartial, todayRows, todaySince } from '@shared/today'
+import { UI_MODE_KEY, USED_INSTALL_KEYS, configTabInMode, configTabVisible, decideFirstUiMode, homeLabel, navTreeFor, parseUiMode, viewInMode, viewVisible } from '@shared/ui-mode'
 import { DEFAULT_VIEW, NAV_TREE, NAV_VIEWS, RAIL_MAX, flattenNavTree, railDestination, subNavForView, usesPillRow, type ViewId } from '@shared/views'
 
-const MIN_CHECKS = 70
+const MIN_CHECKS = 110
 let checks = 0
 let failures = 0
 function check(cond: boolean, name: string, detail = ''): void {
@@ -46,10 +46,59 @@ process.on('exit', () => {
 console.log('1. the stored mode and the first choice')
 check(parseUiMode('everyday') === 'everyday' && parseUiMode('full') === 'full', 'both stored values are read')
 for (const bad of [null, undefined, '', 'simple', 'FULL', '1']) check(parseUiMode(bad as string | null | undefined) === null, `${JSON.stringify(bad)} is not a mode`)
-check(firstUiMode({ needsSetup: true, hasConversations: false }) === 'everyday', 'a new install starts everyday')
-check(firstUiMode({ needsSetup: false, hasConversations: true }) === 'full', 'an install already connected keeps everything')
-check(firstUiMode({ needsSetup: false, hasConversations: false }) === 'full', 'connected with no conversations yet is still not new')
-check(firstUiMode({ needsSetup: true, hasConversations: true }) === 'full', 'setting up again with conversations kept is not new either')
+{
+  // The first decision, with each thing it reads faked: what is stored, what is kept, and a read
+  // that fails. `wrote` is what it put in the settings table, or undefined when it wrote nothing.
+  const run = async (o: { needsSetup: boolean; stored?: Record<string, string>; kept?: number; conversations?: number; fail?: 'get' | 'kept' | 'conversations' | 'set' }): Promise<{ mode: string | null; wrote: string | undefined }> => {
+    const table: Record<string, string> = { ...(o.stored ?? {}) }
+    let wrote: string | undefined
+    const mode = await decideFirstUiMode(
+      {
+        getSetting: async (k) => {
+          if (o.fail === 'get') throw new Error('unreadable')
+          return k in table ? table[k] : null
+        },
+        setSetting: async (k, v) => {
+          if (o.fail === 'set') throw new Error('unwritable')
+          if (k === UI_MODE_KEY) wrote = v
+          table[k] = v
+        },
+        conversations: async () => {
+          if (o.fail === 'conversations') throw new Error('no cache')
+          return Array.from({ length: o.conversations ?? 0 })
+        },
+        kept: async () => {
+          if (o.fail === 'kept') throw new Error('no list')
+          return Array.from({ length: o.kept ?? 0 })
+        }
+      },
+      o.needsSetup
+    )
+    return { mode, wrote }
+  }
+  const eq = (r: { mode: string | null; wrote: string | undefined }, mode: string | null, wrote: string | undefined): boolean => r.mode === mode && r.wrote === wrote
+  void (async () => {
+    check(eq(await run({ needsSetup: true }), 'everyday', 'everyday'), 'a new install (setup needed, nothing kept, nothing held, no settings) starts everyday, and that is written')
+    check(eq(await run({ needsSetup: false, kept: 1, conversations: 40 }), 'full', 'full'), 'an install already connected keeps everything, and that is written')
+    check(eq(await run({ needsSetup: false }), 'full', 'full'), 'connected with nothing else to show for it is still not new')
+    // The case the first version got wrong: Set up again closes the cache, so conversations read
+    // as none. Each of these alone must be enough to say "not new".
+    check(eq(await run({ needsSetup: true, kept: 1 }), 'full', 'full'), 'setting up again while another Prometheus is kept: not new')
+    check(eq(await run({ needsSetup: true, conversations: 3 }), 'full', 'full'), 'setup needed but conversations held: not new')
+    for (const k of USED_INSTALL_KEYS) {
+      check(eq(await run({ needsSetup: true, stored: { [k]: 'x' } }), 'full', 'full'), `setting up again after forgetting the only Prometheus, with "${k}" left from before: not new`)
+    }
+    check(USED_INSTALL_KEYS.length >= 6 && USED_INSTALL_KEYS.every((k) => classifiedScope(k) === 'beacon'), 'every such setting is Beacon-wide, so forgetting a Prometheus cannot clear it')
+    check(eq(await run({ needsSetup: true, stored: { [UI_MODE_KEY]: 'full' } }), 'full', undefined), 'a stored mode is returned and never decided or written again')
+    check(eq(await run({ needsSetup: false, stored: { [UI_MODE_KEY]: 'everyday' }, kept: 2 }), 'everyday', undefined), 'whatever the install looks like now')
+    check(eq(await run({ needsSetup: true, stored: { [UI_MODE_KEY]: 'garbage' } }), 'everyday', 'everyday'), 'an unreadable stored value is decided afresh')
+    for (const fail of ['get', 'kept', 'conversations', 'set'] as const) {
+      const r = await run({ needsSetup: true, fail })
+      check(r.mode === null && r.wrote === undefined, `a failed ${fail} decides nothing and writes nothing (Beacon shows everything this launch, and decides at the next)`)
+    }
+    check(eq(await run({ needsSetup: false, fail: 'kept' }), 'full', 'full'), 'an install that is connected never needs the reads that can fail')
+  })()
+}
 
 console.log('2. the everyday rail')
 {
@@ -86,7 +135,8 @@ console.log('3. what each mode shows, and where a put-away view sends you')
   for (const v of ['mission', 'chat', 'sessions', 'documents', 'config'] as ViewId[]) check(viewInMode(v, 'everyday') === v, `${v} is itself in everyday mode`)
   check(viewVisible('mission', 'everyday') && !isOwnerOnlyView('mission'), 'the everyday home is a view an approved device may open too')
   const kept = CONFIG_TABS.filter((t) => configTabVisible(t.id, 'everyday')).map((t) => t.id)
-  check(kept.join(',') === 'models,connectors,usage,memory,cron,devices,skin', 'everyday Config keeps the tabs a person sets something in', kept.join(','))
+  check(kept.join(',') === 'models,connectors,usage,memory,cron,grants,devices,skin', 'everyday Config keeps the tabs a person sets something in', kept.join(','))
+  check(configTabVisible('grants', 'everyday'), 'Grants is kept: a lasting grant can be given in every mode, so it can be seen and taken back in every mode')
   check(configTabInMode('sentinel', 'everyday') === 'models' && configTabInMode('memory', 'everyday') === 'memory', 'a put-away tab opens the first shown one; a shown tab opens itself')
   check(configTabInMode(null, 'everyday') === 'models' && configTabInMode('made-up', 'full') === CONFIG_TABS[0].id, 'no tab, or an unknown one, opens the first')
 }
@@ -147,6 +197,11 @@ console.log('6. what happened')
   check(todayRows([], T, {}).length === 0 && todayRows(events, T, {}).length === 0, 'nothing new is an empty list')
   const whitespace = todayRows([ev(1, 'turn_completed', T - 1_000, { session_id: 's', summary: 'a\n\n  b' })], T - 5_000, {})
   check(whitespace[0].detail === 'a b', 'line breaks in a summary are flattened')
+  const two = [ev(1, 'turn_completed', T - 1_000, { session_id: 's' }), ev(2, 'turn_completed', T - 2_000, { session_id: 's' })]
+  check(todayPartial(two, T - 60_000, 2) === true, 'as many rows as were asked for, none reaching back to the last look: the list is partial')
+  check(todayPartial(two, T - 1_500, 2) === false, 'the rows do reach back past the last look: complete')
+  check(todayPartial(two, T - 60_000, 200) === false, 'fewer rows than asked for: that is everything there is')
+  check(todayPartial([], T, 200) === false, 'nothing read is not partial')
   const long = todayRows([ev(1, 'task_completed', T - 1_000, { description: 'x'.repeat(300) })], T - 5_000, {})
   check(long[0].text.length < 110 && long[0].text.endsWith('…'), 'a long description is cut')
 }
@@ -167,5 +222,11 @@ console.log('7. keys and call sites')
   check(/await decideFirstUiMode\(s\.needsSetup\)/.test(read('src/renderer/src/App.tsx')), 'the first choice is made in the setup check, before anything mounts')
   const store = read('src/renderer/src/ui-mode-store.ts')
   check(/let mode: UiMode = 'full'/.test(store), 'until the stored mode is read, nothing is put away')
-  check(/if \(stored\) return set\(stored\)/.test(store), 'a stored mode is never decided again')
+  check(/await decideFirst\(/.test(store) && /kept: \(\) => b\.instances\.list\(\)/.test(store), 'the store hands the decision to the tested rule, with the kept list')
+  const today = read('src/renderer/src/components/TodayHome.tsx')
+  check(/if \(!at\.loaded\) return/.test(today) && /if \(cur === at\.instance\)/.test(today), 'Today writes the last look only after reading it, and only into the Prometheus it read it from')
+  check(/addEventListener\('blur', write\)/.test(today) && /addEventListener\('pagehide', write\)/.test(today) && /visibilitychange/.test(today), 'and writes it when the window is left or hidden, not only on leaving the view')
+  check(/const mayReadSchedule = role !== undefined && role !== 'limited' && !refused/.test(today) && /if \(mayReadSchedule\)/.test(today), 'the schedule is not asked for on an approved device, before the role is known, or while refused')
+  check(/onOpenStatus=\{viewVisible\('status', uiMode\) \?/.test(main), 'the context meter links to Status only where Status is shown')
+  check(/setChosenView\(viewInMode\(v, uiModeRef\.current\)\)/.test(main), 'a put-away view is never remembered as the chosen one')
 }
