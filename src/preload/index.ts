@@ -241,6 +241,10 @@ const api: BeaconBridge = {
     },
     openLoginItems: () => ipcRenderer.invoke(IPC.PATHA_OPEN_LOGIN_ITEMS)
   },
+  workFolder: {
+    where: () => ipcRenderer.invoke(IPC.WORK_FOLDER_WHERE),
+    pick: () => ipcRenderer.invoke(IPC.WORK_FOLDER_PICK)
+  },
   capture: {
     openMain: (sessionId: string) => ipcRenderer.send(IPC.CAPTURE_OPEN_MAIN, sessionId),
     hold: (on: boolean) => ipcRenderer.send(IPC.CAPTURE_HOLD, on),

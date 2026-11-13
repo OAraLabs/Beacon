@@ -6189,3 +6189,135 @@ div.ctx-footer {
 .today-btn-quiet {
   color: var(--ink4);
 }
+
+/* ── The working folder chip in a conversation's header (WorkFolderChip.tsx) ───────────────────
+   The header's own chip shape; the folder's name when there is one, quieter when there is none. */
+.work-folder {
+  position: relative;
+  display: inline-flex;
+}
+.work-folder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  max-width: 190px;
+  padding: 0 9px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--line3);
+  color: var(--ink4);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.work-folder-chip.is-bound {
+  color: var(--ink);
+  border-color: var(--c-line-bright);
+}
+.work-folder-chip.is-unknown {
+  color: var(--c-warn-text);
+  border-style: dashed;
+}
+.work-folder-does {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--c-text);
+}
+.work-folder-chip:hover {
+  color: var(--ink);
+}
+.work-folder-chip:focus-visible,
+.work-folder-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.work-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-folder-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-modal);
+  /* Never wider than the conversation pane it belongs to (the pane is the container). */
+  width: min(340px, calc(100cqw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--c-line-bright);
+  border-radius: 10px;
+  background: var(--c-raise);
+  box-shadow: var(--elev-3);
+  text-align: left;
+}
+/* A narrow pane: the chip keeps its icon and its tooltip, and gives the name's room back, the way
+   the host chip steps aside at the same width. */
+@container (max-width: 620px) {
+  /* The name stays, shorter: which folder a conversation works in is the one thing this chip is
+     for, and an icon alone would make "a folder" and "no folder" look the same. */
+  .work-folder-chip {
+    max-width: 120px;
+    padding: 0 7px;
+  }
+}
+@container (max-width: 300px) {
+  .work-folder-chip {
+    max-width: 84px;
+  }
+}
+.work-folder-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.work-folder-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+.work-folder-text,
+.work-folder-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--c-text-dim);
+}
+.work-folder-note:empty {
+  display: none;
+}
+.work-folder-note.is-bad {
+  color: var(--c-err-text);
+}
+.work-folder-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.work-folder-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: 6px;
+  background: var(--c-inset);
+  color: var(--c-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.work-folder-btn.is-primary {
+  border-color: var(--c-arc);
+  background: var(--c-arc);
+  color: var(--c-on-arc);
+}
+.work-folder-btn:disabled {
+  border-color: var(--c-line);
+  background: var(--c-base);
+  color: var(--c-text-faint);
+  cursor: not-allowed;
+}

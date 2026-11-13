@@ -75,6 +75,8 @@ export const IPC = {
   WINDOW_RELOAD: 'window:reload',
   APPROVALS_NEW: 'approvals:new', // renderer -> main (send): NEW pending requests (from poll) → main decides notification. Main is the ONE notification authority (push frames feed the same path) — one dedupe set, one request gets one notification.
   CAPTURE_OPEN_MAIN: 'capture:open-main', // renderer -> main (send): quick-capture → open main on a session
+  WORK_FOLDER_WHERE: 'work-folder:where', // renderer -> main: is Prometheus on this computer, and this computer's home folder
+  WORK_FOLDER_PICK: 'work-folder:pick', // renderer -> main: the system folder picker, offered only when Prometheus is on this computer
   CAPTURE_HOLD: 'capture:hold', // renderer -> main (send): keep the quick-capture window up while its file picker is open
   CAPTURE_SHOT: 'capture:shot', // renderer -> main: hide the quick-capture window, grab one source, show it again
   EVENTS_RECENT: 'events:recent', // renderer -> main: GET /api/events/recent (activity-feed backfill)
@@ -1086,6 +1088,13 @@ export interface BeaconBridge {
     onInstallUpdate(cb: (view: import('./prometheus-app').InstallView) => void): Unsubscribe
     /** Open System Settings at Login Items, where Prometheus is switched on. Resolves whether it was opened. */
     openLoginItems(): Promise<boolean>
+  }
+  /** A conversation's working folder, chosen on this computer (@shared/work-folder). Main decides
+   *  whether Prometheus is here; the page never tells it. */
+  workFolder: {
+    where(): Promise<import('./work-folder').FolderWhere>
+    /** Opens the system folder picker. 'not-here' when Prometheus is on another computer: no picker is shown. */
+    pick(): Promise<import('./work-folder').FolderPick>
   }
   capture: {
     /** Quick-capture (Slice 10): hide the mini window and open the main window on a session. */

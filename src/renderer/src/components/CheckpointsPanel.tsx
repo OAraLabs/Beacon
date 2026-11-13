@@ -1,3 +1,4 @@
+import { WORKSPACE_CHANGED, announceWorkspaceChanged } from './WorkFolderChip'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { SessionSummary } from '@shared/ipc'
 import { asList, daemonErrorSentence } from '@shared/daemon-api'
@@ -246,6 +247,15 @@ export function CheckpointsPanel({ sessions, active }: { sessions: SessionSummar
   const [busy, setBusy] = useState(false)
   const [outcome, setOutcome] = useState<{ text: string; ok: boolean } | null>(null)
   const [nonce, setNonce] = useState(0)
+  // The folder can also be changed from the conversation's header (WorkFolderChip): read again
+  // when it says so for the conversation this panel is showing.
+  useEffect(() => {
+    const onChanged = (e: Event): void => {
+      if ((e as CustomEvent<string>).detail === activeRef.current) setNonce((n) => n + 1)
+    }
+    window.addEventListener(WORKSPACE_CHANGED, onChanged)
+    return () => window.removeEventListener(WORKSPACE_CHANGED, onChanged)
+  }, [])
 
   // ── the bind control ──────────────────────────────────────────────────────────────────────
   // 'picking' -> 'confirming'; there is no path from the Bind button straight to a PUT. Clearing
@@ -407,6 +417,9 @@ export function CheckpointsPanel({ sessions, active }: { sessions: SessionSummar
     const target = active
     void putWorkspace(target, path)
       .then((r) => {
+        // The conversation's header shows its folder too (WorkFolderChip): tell it, whichever
+        // conversation is on screen by now.
+        announceWorkspaceChanged(target)
         // The write went to `target`; if the user has since moved on, the new session's panel must
         // not inherit an outcome line about a different conversation's boundary.
         if (activeRef.current !== target) return
@@ -425,6 +438,7 @@ export function CheckpointsPanel({ sessions, active }: { sessions: SessionSummar
     const target = active
     void deleteWorkspace(target)
       .then(() => {
+        announceWorkspaceChanged(target)
         if (activeRef.current !== target) return
         setWsOutcome({ text: clearOutcomeText(workspace?.daemon_workspace_roots), ok: true })
         setWsMode('idle')

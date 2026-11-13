@@ -18,6 +18,8 @@ import { coalesceToolResults, groupForRender } from '@shared/timeline'
 import { finalizeRow, orderForRender } from '@shared/message-order'
 import { ModelSwitcher } from './ModelSwitcher'
 import { hostDisplayName } from '@shared/daemon-api'
+import { WorkFolderChip } from './WorkFolderChip'
+import { otherComputerName } from '@shared/work-folder'
 import { speakable, speechText } from '@shared/speech-text'
 import { initialWatermark, nextAnnouncement, spokenAnnouncement } from '@shared/live-announce'
 import { ProfilePicker } from './ProfilePicker'
@@ -617,6 +619,8 @@ export function ChatShell({
   const [exportNote, setExportNote] = useState('')
   /** Live turn readout, fed by `agent_progress`. Null when no turn is running. */
   const [activity, setActivity] = useState<Activity | null>(null)
+  /** Counts turns that ended here; the header's folder chip re-reads on it. */
+  const [turnsEnded, setTurnsEnded] = useState(0)
   /** The inline "Tidying up the conversation…" line (issue 283), fed by this session's compaction frames. */
   const [compaction, setCompaction] = useState<CompactionState>(COMPACTION_IDLE)
   const [dragging, setDragging] = useState(false)
@@ -959,6 +963,8 @@ export function ChatShell({
         }))
       }
       if (f.kind === 'done' || f.kind === 'error') setActivity(null)
+      // A turn ended: the working folder may have been set or cleared by a /workspace command in it.
+      if (f.kind === 'done' || f.kind === 'command_done') setTurnsEnded((n) => n + 1)
       // Compaction (issue 283). Every frame goes through: the rules also clear a running line when the
       // model call starts or the turn ends, and they refuse a compaction frame that does not name
       // this session, which deliversToSession above would have let through.
@@ -1850,6 +1856,11 @@ export function ChatShell({
               disabled={profileState.effective === null}
             />
           )}
+          {/* The folder this conversation is working in, always shown where the conversation is
+              (@shared/work-folder). Not for an approved device, and not before main has said
+              which this is: the workspace routes are the owner's, and nothing is asked that
+              would be refused. */}
+          {limited || !roleHeard ? null : <WorkFolderChip sessionId={sessionId} where={otherComputerName(hostDisplayName(status.gateway))} refreshKey={turnsEnded} />}
           {/* One chip for state, host and distance — shared with Mission's banner. */}
           <HostChip />
           <button
