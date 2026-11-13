@@ -19,6 +19,7 @@
 
 import type { ApprovalRequest } from './ipc'
 import { coerceArguments, type ApprovalArguments } from './approval-arguments'
+import { coerceHome, isHomeToolName } from './home-approval'
 
 /**
  * The daemon's snake_case pending shape — the SAME dict `serialize_pending()` serves over BOTH
@@ -65,6 +66,8 @@ export interface RawApprovalPush {
    * now, because there is one mapper.
    */
   arguments?: unknown
+  /** Home Assistant calls only (docs/HA-UI-DATA-CONTRACT.md §3.1); coerceHome decides whether it is usable. */
+  home?: unknown
   /** A worker's request (Prometheus #720): the worker's task id, its conversation, once-only. */
   worker_task_id?: unknown
   session_id?: unknown
@@ -86,6 +89,7 @@ export interface RawApprovalPush {
  */
 export function rawToApproval(raw: RawApprovalPush): ApprovalRequest | null {
   if (typeof raw.request_id !== 'string' || raw.request_id.length === 0) return null
+  const home = coerceHome(raw.home)
   return {
     requestId: raw.request_id,
     toolName: typeof raw.tool_name === 'string' ? raw.tool_name : 'tool',
@@ -110,7 +114,9 @@ export function rawToApproval(raw: RawApprovalPush): ApprovalRequest | null {
     onceOnly: raw.once_only === true ? true : undefined,
     // Exactly what the daemon said, or nothing: `true`, `false`, or undefined for a daemon that does
     // not say (and for a value that is neither). What that means is `answeredInApp`'s to decide.
-    critical: raw.critical === true ? true : raw.critical === false ? false : undefined
+    critical: raw.critical === true ? true : raw.critical === false ? false : undefined,
+    // Present only when usable, so every other request stays byte-identical.
+    ...(home ? { home } : {})
   }
 }
 
@@ -266,6 +272,11 @@ export function notificationPlan(
   // The daemon marked this request critical: it is answered in Beacon, where all of it can be
   // read. Checked FIRST, so no later branch can hand the buttons back.
   if (inAppOnly) {
+    return { body: `${decisionGradeBody(toolName, description, Math.max(0, BODY_BUDGET - IN_APP_NOTE.length))}${IN_APP_NOTE}`, offersActions: false }
+  }
+  // A Home control call is answered on its card, never from a notification: the card shows the tier and each device's change, says a
+  // Critical call can only be denied, and offers a lasting option only when the daemon does. A one-tap Approve shows none of that.
+  if (isHomeToolName(toolName)) {
     return { body: `${decisionGradeBody(toolName, description, Math.max(0, BODY_BUDGET - IN_APP_NOTE.length))}${IN_APP_NOTE}`, offersActions: false }
   }
   const count = args ? Object.keys(args).length : 0

@@ -741,6 +741,12 @@ export interface ApprovalRequest {
    */
   onceOnly?: boolean
   /**
+   * HOME ASSISTANT (docs/HA-UI-DATA-CONTRACT.md §3.1): the devices a `ha_control_*` call touches,
+   * with each one's tier and current → requested state, as the daemon worked them out. Present only
+   * for an owner and only when the daemon sent a usable one; absent means the generic card.
+   */
+  home?: import('./home-approval').HomeApproval
+  /**
    * What the daemon said about answering this from a notification: `true` means it must be
    * answered in the app; `false` means it need not be; undefined means the daemon did not say (an
    * older Prometheus). Main decides what a notification offers with `answeredInApp`
