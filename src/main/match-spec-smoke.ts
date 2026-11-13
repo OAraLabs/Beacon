@@ -15,6 +15,7 @@
  *
  * Run: npm run smoke:match-spec
  */
+import { readFileSync } from 'node:fs'
 import { hasVoicePreamble, isVoiceTurn, stripVoiceParts, stripVoicePreamble } from '@shared/voice-preamble'
 import { clockLabel, turnLabel, turnMarks } from '@shared/turn-rule'
 import { LATENCY_WINDOW, medianMs, pushSample } from '@shared/gateway-latency'
@@ -216,14 +217,32 @@ assert(new Set(Object.values(GROUP_CHIP)).size === 4, 'every group has its own k
 // A one-key APPROVE is the most dangerous control in the app: the card exists so a person READS
 // a command before it runs. Every one of these is a way that could go wrong silently.
 const K = (over: Partial<Parameters<typeof approvalKey>[0]> = {}) =>
-  approvalKey({ key: 'a', modified: false, typing: false, first: true, ...over })
+  approvalKey({ key: 'a', modified: false, typing: false, onThisCard: true, repeat: false, critical: false, ...over })
 assert(K() === 'approve' && K({ key: 'd' }) === 'deny', 'A approves, D denies')
 assert(K({ key: 'A' }) === 'approve', 'shift-less capitals still count (caps lock is not consent)')
 assert(K({ typing: true }) === null, 'NEVER while typing — `a` belongs to the sentence in the composer')
 assert(K({ modified: true }) === null, 'never with a modifier — ⌘A is select-all and must stay so')
-assert(K({ first: false }) === null, 'only the FIRST card: with three stacked, A has no referent')
 assert(K({ key: 'Enter' }) === null && K({ key: 'x' }) === null, 'no other key resolves an approval')
 assert(K({ key: 'd', typing: true }) === null, 'the guard covers DENY too, not just approve')
+// Focus must be ON THE CARD: a letter typed at a list, a button, the bare page or another card is not an answer to this one.
+assert(K({ onThisCard: false }) === null && K({ key: 'd', onThisCard: false }) === null, 'with focus anywhere but on this card, neither key does anything')
+assert(K({ onThisCard: undefined as unknown as boolean }) === null, 'a context that does not say where focus is answers nothing (not everything)')
+// A held key repeats; each repeat would answer the next card as the one before it left.
+assert(K({ repeat: true }) === null && K({ key: 'd', repeat: true }) === null, 'a repeat from a held key answers nothing')
+assert(K({ repeat: undefined as unknown as boolean }) === null, 'nor does an event that does not say whether it is one')
+// A critical request is approved with its button, on its card.
+assert(K({ critical: true }) === null, 'A does not approve a critical request, even with focus on its card')
+assert(K({ key: 'd', critical: true }) === 'deny', 'D still denies one')
+assert(K({ critical: undefined as unknown as boolean }) === null && K({ key: 'd', critical: undefined as unknown as boolean }) === 'deny', 'a context that does not say whether the request is critical is not approved by a key')
+assert(K({ critical: true, onThisCard: false, key: 'd' }) === null, 'and the focus rule still comes first')
+{
+  const card = readFileSync(new URL('../../src/renderer/src/components/ExecApprovalCard.tsx', import.meta.url), 'utf8')
+  const view = readFileSync(new URL('../../src/renderer/src/components/MainView.tsx', import.meta.url), 'utf8')
+  assert(/onThisCard: \(document\.activeElement\?\.closest\?\.\('\[data-approval-id\]'\) as HTMLElement \| null\)\?\.dataset\.approvalId === approval\.requestId,\s*repeat: e\.repeat,\s*critical\s*\}\)/.test(card), 'the card asks the document, at each keystroke, whether focus is on THIS card, and passes the repeat flag and whether its request is critical')
+  assert((card.match(/approvalKey\(/g) ?? []).length === 1 && (card.match(/addEventListener\('keydown'/g) ?? []).length === 1, 'through the one key rule, in the one listener')
+  assert(/data-approval-id=\{approval\.requestId\}[\s\S]{0,300}tabIndex=\{-1\}/.test(card) && /role="group"\s*aria-label=\{`Approval request: /.test(card), 'a card is focusable by a click and not a Tab stop of its own (its buttons are), and has a name')
+  assert(!/autoFocus|\.focus\(\)/.test(card) && !/autoFocus/.test(view) && (view.match(/el\.focus\(\)/g) ?? []).length === 1 && /if \(el\.dataset\.approvalId !== id\) continue\s*el\.scrollIntoView\(\{ block: 'nearest' \}\)\s*el\.focus\(\)/.test(view), 'focus is never moved to a card by its appearing: only by the person (a click, Tab, or "Answer on the card", which focuses THAT request\'s card)')
+}
 assert(isTypingTarget({ tagName: 'TEXTAREA' }) && isTypingTarget({ tagName: 'input' }), 'a text field is a typing target')
 assert(isTypingTarget({ tagName: 'DIV', isContentEditable: true }), 'so is a contenteditable')
 assert(!isTypingTarget({ tagName: 'BUTTON' }) && !isTypingTarget(null), 'a button is not, and neither is nothing')

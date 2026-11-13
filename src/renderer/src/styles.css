@@ -4544,6 +4544,13 @@ body.is-resizing-panel {
 .approval-btn-approve:hover {
   background: var(--sang-deep);
 }
+/* The card focus is on is the one A and D answer: say which, for a keyboard and for a click alike. */
+.approval-card:focus,
+.approval-card:focus-within {
+  outline: 2px solid var(--c-arc);
+  outline-offset: 2px;
+}
+
 .approval-btn-deny {
   background: var(--line3);
   border-color: var(--line2);

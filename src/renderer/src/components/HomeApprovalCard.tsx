@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, useRef } from 'react'
 import type { ApprovalDecision, ApprovalRequest } from '@shared/ipc'
 import { approvalKey, isTypingTarget } from '@shared/approval-keys'
 import { COLLAPSE_AFTER, homeCardView } from '@shared/home-approval'
@@ -39,7 +39,7 @@ export function HomeApprovalCard({
   cannotApprove = null,
   disclosureOpen = false,
   onToggleDisclosure,
-  first,
+  critical = false,
   onResolve
 }: {
   approval: ApprovalRequest
@@ -47,13 +47,22 @@ export function HomeApprovalCard({
   cannotApprove?: string | null
   disclosureOpen?: boolean
   onToggleDisclosure?: () => void
-  first?: boolean
+  /** Prometheus marked this request critical (`isCardOnly`): `A` does not approve it; its button does. */
+  critical?: boolean
   onResolve: (d: ApprovalDecision) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const view = homeCardView(approval, expanded)
   const total = approval.home?.devices.length ?? 0
   const canApprove = view.canApprove && !cannotApprove
+  // Focus is on this card, so `A`/`D` answer it; the key hints are shown only then.
+  const [keysLive, setKeysLive] = useState(false)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  // No blur is fired when the focused element is REMOVED: focus drops to the page and the hints
+  // would go on saying the keys work. Checked after each render, as on the generic card.
+  useEffect(() => {
+    if (keysLive && !cardRef.current?.contains(document.activeElement)) setKeysLive(false)
+  })
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -61,7 +70,11 @@ export function HomeApprovalCard({
         key: e.key,
         modified: e.metaKey || e.ctrlKey || e.altKey,
         typing: isTypingTarget(e.target as HTMLElement | null),
-        first: first !== false
+        // The same rule as every approval card (@shared/approval-keys): only the card focus is on,
+        // never a held key, and never `A` on a request marked critical.
+        onThisCard: (document.activeElement?.closest?.('[data-approval-id]') as HTMLElement | null)?.dataset.approvalId === approval.requestId,
+        repeat: e.repeat,
+        critical
       })
       if (!action) return
       if (action === 'approve' && !canApprove) return // Critical, or refused for who is asking: `A` falls through
@@ -73,10 +86,28 @@ export function HomeApprovalCard({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [approval.requestId, first, onResolve, canApprove])
+  }, [approval.requestId, critical, onResolve, canApprove])
 
   return (
-    <div style={approvalCardStyle} data-testid="home-approval" data-tier={view.tier} data-request={approval.requestId}>
+    <div
+      style={approvalCardStyle}
+      ref={cardRef}
+      className="approval-card"
+      role="group"
+      aria-label={`Home approval request: ${view.title}`}
+      data-testid="home-approval"
+      data-tier={view.tier}
+      data-request={approval.requestId}
+      data-approval-id={approval.requestId}
+      data-critical={critical ? 'yes' : 'no'}
+      data-keys-live={keysLive ? 'yes' : 'no'}
+      // Focusable by a click or from code, not a Tab stop of its own: its buttons are.
+      tabIndex={-1}
+      onFocus={() => setKeysLive(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setKeysLive(false)
+      }}
+    >
       <div style={approvalHeaderStyle}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--lapis)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="m3 11 9-8 9 8" />
@@ -138,11 +169,11 @@ export function HomeApprovalCard({
                 onResolve({ kind: 'approve', scope: 'once' })
               }}
             >
-              Approve once <span style={approvalActionKey}>A</span>
+              Approve once{keysLive && !critical ? <span style={approvalActionKey}> A</span> : null}
             </button>
           ) : null}
           <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' })}>
-            Deny <span style={approvalActionKey}>D</span>
+            Deny{keysLive ? <span style={approvalActionKey}> D</span> : null}
           </button>
         </div>
 
