@@ -1,7 +1,8 @@
 # Home Assistant in Beacon: data contract (phase 1)
 
-Status: **draft for the owner's review, 2026-11-05.** Nothing in this file is built yet. It says what each phase 1
-screen needs from Prometheus, and whether that exists today.
+Status: **phase 1 is built in Beacon against fixtures; the daemon side is not.** Drafted 2026-11-05, with the owner's
+decisions of 2026-11-13 written in (§7). It says what each phase 1 screen needs from Prometheus, and whether that exists
+today.
 
 Phase 1 screens: the Home Assistant approval card, the "What it can touch" screen, the activity timeline.
 Phases 2 and 3 (house-state card, alerts, automation proposals) are not covered; they wait for the server.
@@ -29,6 +30,13 @@ Phases 2 and 3 (house-state card, alerts, automation proposals) are not covered;
 7. **Times are epoch seconds** on the wire, as everywhere else in the daemon API. Beacon converts.
 8. **Loud failure.** A route that answers 404 means "this Prometheus has no Home support", 403 `operator_only` means
    "this device is not an owner", and each is said in words on the screen. Never a blank list.
+9. **Hidden unless advertised.** The Home row under Integrations, the Home approval card and the Activity timeline show
+   only when the Prometheus Beacon is connected to advertises Home: `capabilities` on `GET /api/status` (owner only,
+   additive) contains exactly `"home/1"`. Without it nothing of Home is drawn and nothing under `/api/home` is asked
+   for, so nobody is shown a Home page that opens on an error. A Home approval on a Prometheus that does not advertise
+   Home gets the generic card, which shows everything the daemon sent. Beacon reads the capability again when the
+   connection changes (another Prometheus: false at once), when Integrations opens, and when a Home approval arrives
+   while it is not advertised. An unreadable answer is "not advertised". A future `home/2` is not read as `home/1`.
 
 ## 1. What the server is (read from its scope)
 
@@ -54,8 +62,9 @@ Facts from the server scope that shape the UI, and that the UI scope did not say
 - **Unclassified devices are Sensitive**, never Ordinary. Overrides come from a per-entity file the owner controls.
 - **Unattended runs (cron, background, scheduled prompts) never call a sensitive tool**, and the server rate-limits
   control calls (20 a minute). Both show up as refused calls with a reason.
-- **"Always" grants map onto the tool**, and so onto a tier. See open question Q1: this may make "Always allow" on one
-  light cover every Ordinary device.
+- **"Always" grants are per device** (decision Q1, §7). The server scope maps grants onto the tool, and there is one
+  control tool per tier, so the daemon must scope a remembered grant to the one device (or devices) the card named, not to
+  the tool: "Always allow" on the Hall light must not allow every Ordinary device.
 - **Every control call is logged** by the server (device, tier, action, requested state, real resulting state) to a log
   the agent cannot edit. That log is the source of the timeline. It does not record who asked or the approval outcome;
   Prometheus holds those.
@@ -73,7 +82,9 @@ phase 1 screens reuse:
 | `/api/approvals/grants` | GET | **owner only** | remembered grants (`GrantDTO`: `id`, `tool`, `kind`, `value`, `scope`, `created_at`, `request_id`, `describes`) |
 | `/api/approvals/grants/{grant_id}` | DELETE | **owner only** | revoke |
 | `/api/devices` | GET | any | the caller's role (`owner` or `limited`) |
+| `/api/status` | GET | owner | the daemon's status; **NEEDED** `capabilities: ["home/1"]` (§0, rule 9) |
 | WS `approval_pending` | frame | owner | the same serializer as `GET /api/approvals` |
+| WS `approval_resolved` | frame | owner | `{request_id, resolution}`; **NEEDED** `answered_on` (§3.1) |
 
 `/api/tools/recent` (owner only) and `/api/activity/recent` exist but cannot feed the timeline: the first has tool name,
 success and latency per call, the second is the signal bus; neither has a tier, a requested-versus-actual state, an
@@ -128,6 +139,14 @@ Rules the card follows:
 - **Critical** (not expected in phase 1): Deny only, plus the sentence "Critical devices can't be controlled from
   Prometheus. This request should not have been made." The Approve control is not rendered.
 - Keyboard: `A` approves once and `D` denies, as today (`@shared/approval-keys`). Every control is reachable by Tab.
+- **A notification never answers it.** A `ha_control_*` approval's notification has no Approve or Deny button on any
+  platform; its body says "answer it in Beacon". The card is where the tier, each device's change and the Critical rule
+  are shown, and a one-tap button shows none of them.
+- **`open_url`** (on the status and on each device) is a link Beacon opens in the person's browser, never a request it
+  makes (decision Q3, §7). It is opened only if it is `https`, or plain `http` to a private or tailnet host (a loopback,
+  LAN or `100.64/10` address, a `.local`, `.lan`, `.home.arpa` or `.ts.net` name, or a one-word name); and never if it
+  carries a name or password in the address, or a token, key, secret, password, session or signature in its query or
+  fragment. A link that breaks the rule is dropped, not cleaned: the row says "No link".
 
 `GET /api/home/actions/{request_id}` (owner only; 404 until the action has run; Beacon polls about once a second for up
 to 20 s after Approve, then says the result is not yet known):
@@ -148,6 +167,15 @@ to 20 s after Approve, then says the result is not yet known):
 `confirmed` shows ✓ and the message. `unconfirmed` shows ⚠ and the message, in the warning style, visibly different from
 success (different glyph, different word "Not confirmed", different colour). `failed` shows ✕ and the message.
 A denied or expired approval shows its own line and never calls this route.
+
+**Answered somewhere else** (decision Q4, §7). If the approval is answered on another surface (a chat app, another
+computer), its card must not keep live buttons. The `approval_resolved` frame carries `resolution`
+(`approved`, `denied` or `expired`) and `answered_on`, the daemon's own words for where ("Telegram", "Beacon on the
+studio computer"). The card becomes "Answered on *answered_on*" with the line "It was approved." or "It was denied.", and
+only a Dismiss control; with no `answered_on` it says "Answered elsewhere"; `expired` says "Expired" and "Nobody answered
+before it expired." A card that leaves the list with no frame to explain it (a poll noticed first) is "Answered
+elsewhere" and claims nothing about the answer. A card Beacon itself answered never becomes this, and one request makes at
+most one such card. Switching Prometheus is not an answer.
 
 ### 3.2 "What it can touch" (Integrations → Home)
 
@@ -213,11 +241,14 @@ Rules the screen follows:
 "home": { "tier": "ordinary", "devices": [{ "id": "d_01", "name": "Hall light", "room": "Hall" }] | "all_in_tier" }
 ```
 
-`"all_in_tier"` means the grant covers every device of that tier (see Q1) and the row says so in words.
+Grants are per device (decision Q1), so the daemon sends the named devices. `"all_in_tier"` is not something a current
+daemon sends; if an older one does, the row says "Every Ordinary device" in words so it can be seen and revoked.
 
 `PUT /api/home/devices/{id}/ask-once` body `{ "enabled": true | false }` → the updated device row. `409 {"error":
 "critical_device"}` for a Critical device; the server must also refuse it, so Beacon's missing button is not the only
-guard.
+guard. Only the owner sets "Ask once" (decision Q2, §7): the route is operator-only, Beacon offers it only to an owner and
+only behind the confirmation that names the device, and the daemon must refuse it when it arrives from an agent turn
+(a tool call, a schedule, a background task) rather than from the owner's own Beacon.
 
 ### 3.3 Activity timeline
 
@@ -295,24 +326,24 @@ every status `state`; the 404 and 403 shapes; a refused timeline entry with a re
 3. `GET /api/home/status`. (§3.2)
 4. `GET /api/home/devices`; the server's `ha_list` must also supply `tier_source`, `relaxed` and `open_url`. (§3.2)
 5. `PUT /api/home/devices/{id}/ask-once`, refused for Critical on the server. (§3.2)
-6. Optional `home` on grant rows. (§3.2)
+6. Optional `home` on grant rows, with per-device grants (Q1). (§3.2)
 7. `GET /api/home/activity`, with the initiator and approval outcome joined onto the server's control log. (§3.3)
 8. All of the above in `OPERATOR_ONLY`, with route-access tests.
+9. `capabilities: ["home/1"]` on `GET /api/status`, only when the Home routes and the `home` approval field are really
+   there. (§0, rule 9)
+10. `answered_on` on the `approval_resolved` frame. (§3.1)
+11. "Ask once" stored server-side where the agent cannot write it, and refused when asked for by an agent turn. (Q2)
 
-## 7. Open questions for the owner
+## 7. Decisions of 2026-11-13 (the owner's answers to the questions this contract raised)
 
-- **Q1. Grant extent.** The server scope says "Always" grants map onto tools, and there is one control tool per tier.
-  If a grant is on the tool, "Always allow" for the Hall light would allow **every** Ordinary device. The UI scope
-  assumes per-device grants. The card shows the daemon's `extents` text verbatim, so it will say whichever is true, but the
-  "Always allowed" list and "Revoke" read very differently in the two cases. Which does the daemon do?
-- **Q2. Who writes "Ask once".** The per-device override lives in a file the owner controls on the server side. Does
-  `PUT …/ask-once` write that file (so Beacon changes tier policy), or does Prometheus keep its own relax list in front of
-  it? Either way the server must enforce it.
-- **Q3. Where the Home Assistant address comes from.** `open_url` is a link Beacon opens in the browser, never a call. It
-  must come from the daemon. Is it acceptable that it is plain http on the home network?
-- **Q4. Resolved approvals.** `GET /api/approvals` drops a request once it is answered. Beacon keeps the resolved card
-  locally to show the result. If the approval is answered from another surface (a chat app) Beacon will not see the
-  result card; acceptable?
+- **Q1. Grants are per device.** "Always allow" on the Hall light allows the Hall light, not every Ordinary device. The
+  daemon scopes a remembered grant to the device or devices on the card; the extent text it sends says so, and Beacon
+  shows it verbatim. The Always allowed list names each device, and Revoke removes that one.
+- **Q2. Only the owner sets "Ask once".** From Beacon, with the confirmation that names the device, and stored
+  server-side where the agent cannot write it. It grants nothing by itself: it only makes the next approval for that
+  device offer "Always allow". Beacon shows the control to an owner only; the daemon enforces the rest (§3.2, §6).
+- **Q3. Plain-http links are fine for private and tailnet hosts only, and never carry a token.** See `open_url` in §3.1.
+- **Q4. An approval answered elsewhere becomes "Answered on …".** Its buttons are removed. See §3.1.
 
 ## 8. Out of scope
 
