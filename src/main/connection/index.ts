@@ -391,6 +391,23 @@ export class ConnectionManager extends EventEmitter {
     return this.trackAuth(this.rest.writeDaemon(path, body, method))
   }
 
+  /** One chat-projects call, as the status and body it got (the reader says what it means). Only a refused key is noticed here, as every
+   *  other REST call does; any other status is an answer. */
+  async projectsCall(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+    try {
+      return await this.trackAuth(
+        this.rest.projectsCall(method, path, body).then((r) => {
+          if (r.status === 401) throw Object.assign(new Error(`HTTP 401: ${method} ${path}`), { answer: r })
+          return r
+        })
+      )
+    } catch (e) {
+      const answer = (e as { answer?: { status: number; body: unknown } }).answer
+      if (answer) return answer
+      throw e
+    }
+  }
+
   listSessions(): Promise<SessionSummary[]> {
     return this.trackAuth(this.rest.listSessions())
   }

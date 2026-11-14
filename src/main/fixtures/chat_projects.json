@@ -1,0 +1,846 @@
+{
+  "made_from": "1189c55",
+  "capabilities": [
+    "projects"
+  ],
+  "sessions": {
+    "filed": "desktop:b3760005-0000-0000-0000-000000000000",
+    "hand_chosen_folder": "desktop:b3760007-0000-0000-0000-000000000000",
+    "device": "desktop:b3760009-0000-0000-0000-000000000000",
+    "label_only": "desktop:b376000b-0000-0000-0000-000000000000",
+    "suggested_into_project": "desktop:b376000e-0000-0000-0000-000000000000",
+    "suggested_new": "desktop:b3760013-0000-0000-0000-000000000000"
+  },
+  "frames": [
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 1,
+        "project_id": "cp_000000000001",
+        "change": "created",
+        "session_id": null
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 2,
+        "project_id": "cp_000000000002",
+        "change": "created",
+        "session_id": null
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 3,
+        "project_id": "cp_000000000002",
+        "change": "updated",
+        "session_id": null
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 4,
+        "project_id": "cp_000000000001",
+        "change": "membership",
+        "session_id": "desktop:b3760005-0000-0000-0000-000000000000"
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 5,
+        "project_id": "cp_000000000001",
+        "change": "membership",
+        "session_id": "desktop:b3760007-0000-0000-0000-000000000000"
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 6,
+        "project_id": "cp_000000000002",
+        "change": "membership",
+        "session_id": "desktop:b376000b-0000-0000-0000-000000000000"
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 7,
+        "project_id": "cp_000000000001",
+        "change": "membership",
+        "session_id": "desktop:b3760009-0000-0000-0000-000000000000"
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 8,
+        "project_id": "cp_000000000002",
+        "change": "membership",
+        "session_id": "desktop:b376000d-0000-0000-0000-000000000000"
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 9,
+        "project_id": null,
+        "change": "membership",
+        "session_id": "desktop:b3760005-0000-0000-0000-000000000000"
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 10,
+        "project_id": "cp_000000000003",
+        "change": "created",
+        "session_id": null
+      }
+    },
+    {
+      "type": "chat_project_changed",
+      "payload": {
+        "rev": 11,
+        "project_id": "cp_000000000003",
+        "change": "deleted",
+        "session_id": null
+      }
+    }
+  ],
+  "device_got_frames": 0,
+  "exchanges": [
+    {
+      "label": "a route this daemon does not have",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/there-is-no-such-route",
+      "request": null,
+      "status": 404,
+      "body": {
+        "detail": "Not Found"
+      }
+    },
+    {
+      "label": "list, none yet",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/chat-projects",
+      "request": null,
+      "status": 200,
+      "body": {
+        "role": "owner",
+        "rev": 0,
+        "projects": []
+      }
+    },
+    {
+      "label": "create, a managed folder",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Kitchen remodel",
+        "import_key": "beacon-desktop:p1"
+      },
+      "status": 201,
+      "body": {
+        "ok": true,
+        "project": {
+          "id": "cp_000000000001",
+          "name": "Kitchen remodel",
+          "folder": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/kitchen-remodel",
+          "folder_managed": true,
+          "instructions_chars": 0,
+          "instructions_rev": "",
+          "files": 0,
+          "sessions": 0,
+          "import_key": "beacon-desktop:p1",
+          "created_at": 1793667600.0,
+          "updated_at": 1793667600.0
+        },
+        "created": true
+      }
+    },
+    {
+      "label": "create again, same import key",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Kitchen remodel",
+        "import_key": "beacon-desktop:p1"
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "project": {
+          "id": "cp_000000000001",
+          "name": "Kitchen remodel",
+          "folder": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/kitchen-remodel",
+          "folder_managed": true,
+          "instructions_chars": 0,
+          "instructions_rev": "",
+          "files": 0,
+          "sessions": 0,
+          "import_key": "beacon-desktop:p1",
+          "created_at": 1793667600.0,
+          "updated_at": 1793667600.0
+        },
+        "created": false
+      }
+    },
+    {
+      "label": "create, same name in another case",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "  KITCHEN remodel "
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "project": {
+          "id": "cp_000000000001",
+          "name": "Kitchen remodel",
+          "folder": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/kitchen-remodel",
+          "folder_managed": true,
+          "instructions_chars": 0,
+          "instructions_rev": "",
+          "files": 0,
+          "sessions": 0,
+          "import_key": "beacon-desktop:p1",
+          "created_at": 1793667600.0,
+          "updated_at": 1793667600.0
+        },
+        "created": false
+      }
+    },
+    {
+      "label": "create, a folder the owner picked",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Garden",
+        "folder": "/private/tmp/beacon-chat-projects-fixture/world/home/repo"
+      },
+      "status": 201,
+      "body": {
+        "ok": true,
+        "project": {
+          "id": "cp_000000000002",
+          "name": "Garden",
+          "folder": "/private/tmp/beacon-chat-projects-fixture/world/home/repo",
+          "folder_managed": false,
+          "instructions_chars": 0,
+          "instructions_rev": "",
+          "files": 0,
+          "sessions": 0,
+          "import_key": null,
+          "created_at": 1793667600.0,
+          "updated_at": 1793667600.0
+        },
+        "created": true
+      }
+    },
+    {
+      "label": "create, a name taken (with another folder)",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "garden",
+        "folder": "/private/tmp/beacon-chat-projects-fixture/world/home/other"
+      },
+      "status": 409,
+      "body": {
+        "error": "a project is already called 'Garden'",
+        "kind": "name_taken"
+      }
+    },
+    {
+      "label": "create, a folder already used",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Another",
+        "folder": "/private/tmp/beacon-chat-projects-fixture/world/home/repo"
+      },
+      "status": 409,
+      "body": {
+        "error": "the project 'Garden' already uses that folder",
+        "kind": "folder_in_use"
+      }
+    },
+    {
+      "label": "create, the home folder",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Home",
+        "folder": "/tmp/beacon-chat-projects-fixture/world/home"
+      },
+      "status": 400,
+      "body": {
+        "error": "the home directory, or a folder that contains it, cannot be a project folder",
+        "kind": "bad_folder"
+      }
+    },
+    {
+      "label": "create, a folder that is not there",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Nowhere",
+        "folder": "/tmp/beacon-chat-projects-fixture/world/home/nope"
+      },
+      "status": 400,
+      "body": {
+        "error": "/private/tmp/beacon-chat-projects-fixture/world/home/nope is not an existing directory",
+        "kind": "bad_folder"
+      }
+    },
+    {
+      "label": "create, no name",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "   "
+      },
+      "status": 400,
+      "body": {
+        "error": "a project needs a name",
+        "kind": "name_required"
+      }
+    },
+    {
+      "label": "create, a chat-only device",
+      "as": "a",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Not allowed"
+      },
+      "status": 403,
+      "body": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    {
+      "label": "list",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/chat-projects",
+      "request": null,
+      "status": 200,
+      "body": {
+        "role": "owner",
+        "rev": 2,
+        "projects": [
+          {
+            "id": "cp_000000000001",
+            "name": "Kitchen remodel",
+            "folder": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/kitchen-remodel",
+            "folder_managed": true,
+            "instructions_chars": 0,
+            "instructions_rev": "",
+            "files": 0,
+            "sessions": 0,
+            "import_key": "beacon-desktop:p1",
+            "created_at": 1793667600.0,
+            "updated_at": 1793667600.0
+          },
+          {
+            "id": "cp_000000000002",
+            "name": "Garden",
+            "folder": "/private/tmp/beacon-chat-projects-fixture/world/home/repo",
+            "folder_managed": false,
+            "instructions_chars": 0,
+            "instructions_rev": "",
+            "files": 0,
+            "sessions": 0,
+            "import_key": null,
+            "created_at": 1793667600.0,
+            "updated_at": 1793667600.0
+          }
+        ]
+      }
+    },
+    {
+      "label": "list, as a chat-only device",
+      "as": "a",
+      "method": "GET",
+      "path": "/api/chat-projects",
+      "request": null,
+      "status": 200,
+      "body": {
+        "role": "chat_only",
+        "projects": []
+      }
+    },
+    {
+      "label": "get one",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/chat-projects/cp_000000000002",
+      "request": null,
+      "status": 200,
+      "body": {
+        "id": "cp_000000000002",
+        "name": "Garden",
+        "folder": "/private/tmp/beacon-chat-projects-fixture/world/home/repo",
+        "folder_managed": false,
+        "instructions_chars": 0,
+        "instructions_rev": "",
+        "files": 0,
+        "sessions": 0,
+        "import_key": null,
+        "created_at": 1793667600.0,
+        "updated_at": 1793667600.0,
+        "session_ids": []
+      }
+    },
+    {
+      "label": "get, unknown",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/chat-projects/cp_000000000000",
+      "request": null,
+      "status": 404,
+      "body": {
+        "error": "no such project",
+        "kind": "unknown_project"
+      }
+    },
+    {
+      "label": "rename",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/chat-projects/cp_000000000002",
+      "request": {
+        "name": "Back garden"
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "project": {
+          "id": "cp_000000000002",
+          "name": "Back garden",
+          "folder": "/private/tmp/beacon-chat-projects-fixture/world/home/repo",
+          "folder_managed": false,
+          "instructions_chars": 0,
+          "instructions_rev": "",
+          "files": 0,
+          "sessions": 0,
+          "import_key": null,
+          "created_at": 1793667600.0,
+          "updated_at": 1793667600.0
+        }
+      }
+    },
+    {
+      "label": "rename, a name taken",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/chat-projects/cp_000000000002",
+      "request": {
+        "name": "Kitchen REMODEL"
+      },
+      "status": 409,
+      "body": {
+        "error": "a project is already called 'Kitchen REMODEL'",
+        "kind": "name_taken"
+      }
+    },
+    {
+      "label": "a conversation's folder chosen by hand",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760007-0000-0000-0000-000000000000/workspace",
+      "request": {
+        "path": "/private/tmp/beacon-chat-projects-fixture/world/home/hand-picked"
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "session_id": "desktop:b3760007-0000-0000-0000-000000000000",
+        "workspace": "/private/tmp/beacon-chat-projects-fixture/world/home/hand-picked"
+      }
+    },
+    {
+      "label": "file",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760005-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000001"
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "session_id": "desktop:b3760005-0000-0000-0000-000000000000",
+        "chat_project_id": "cp_000000000001",
+        "workspace": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/kitchen-remodel"
+      }
+    },
+    {
+      "label": "file, a folder was chosen by hand",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760007-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000001"
+      },
+      "status": 409,
+      "body": {
+        "error": "the conversation already works in /private/tmp/beacon-chat-projects-fixture/world/home/hand-picked",
+        "kind": "workspace_set",
+        "workspace": "/private/tmp/beacon-chat-projects-fixture/world/home/hand-picked"
+      }
+    },
+    {
+      "label": "file, replacing the hand-chosen folder",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760007-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000001",
+        "replace_workspace": true
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "session_id": "desktop:b3760007-0000-0000-0000-000000000000",
+        "chat_project_id": "cp_000000000001",
+        "workspace": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/kitchen-remodel"
+      }
+    },
+    {
+      "label": "file, as a label only (the folder is kept)",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab376000b-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000002",
+        "keep_workspace": true
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "session_id": "desktop:b376000b-0000-0000-0000-000000000000",
+        "chat_project_id": "cp_000000000002",
+        "workspace": null
+      }
+    },
+    {
+      "label": "file, a chat-only device's conversation",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760009-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000001"
+      },
+      "status": 409,
+      "body": {
+        "error": "this conversation belongs to a chat-only device; binding it to the project's folder needs device_session: true",
+        "kind": "device_session"
+      }
+    },
+    {
+      "label": "file a device's conversation as a label only",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760009-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000001",
+        "keep_workspace": true
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "session_id": "desktop:b3760009-0000-0000-0000-000000000000",
+        "chat_project_id": "cp_000000000001",
+        "workspace": null
+      }
+    },
+    {
+      "label": "file, a session the daemon does not have",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Agone/project",
+      "request": {
+        "chat_project_id": "cp_000000000001",
+        "keep_workspace": true
+      },
+      "status": 404,
+      "body": {
+        "error": "unknown session",
+        "kind": "unknown_session"
+      }
+    },
+    {
+      "label": "file, a machine session",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/cron%3Anightly/project",
+      "request": {
+        "chat_project_id": "cp_000000000001",
+        "keep_workspace": true
+      },
+      "status": 404,
+      "body": {
+        "error": "unknown session",
+        "kind": "unknown_session"
+      }
+    },
+    {
+      "label": "file, a project that is not there",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760005-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000000"
+      },
+      "status": 404,
+      "body": {
+        "error": "no such project",
+        "kind": "unknown_project"
+      }
+    },
+    {
+      "label": "file, as a chat-only device",
+      "as": "a",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760009-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": "cp_000000000001"
+      },
+      "status": 403,
+      "body": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    {
+      "label": "the session list carries the filing",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/sessions",
+      "request": null,
+      "status": 200,
+      "body": [
+        {
+          "session_id": "desktop:b3760005-0000-0000-0000-000000000000",
+          "chat_project_id": "cp_000000000001",
+          "has_chat_project_id": true
+        },
+        {
+          "session_id": "desktop:b3760007-0000-0000-0000-000000000000",
+          "chat_project_id": "cp_000000000001",
+          "has_chat_project_id": true
+        },
+        {
+          "session_id": "desktop:b3760009-0000-0000-0000-000000000000",
+          "chat_project_id": "cp_000000000001",
+          "has_chat_project_id": true
+        },
+        {
+          "session_id": "desktop:b376000b-0000-0000-0000-000000000000",
+          "chat_project_id": "cp_000000000002",
+          "has_chat_project_id": true
+        }
+      ]
+    },
+    {
+      "label": "get, with its conversations",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/chat-projects/cp_000000000001",
+      "request": null,
+      "status": 200,
+      "body": {
+        "id": "cp_000000000001",
+        "name": "Kitchen remodel",
+        "folder": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/kitchen-remodel",
+        "folder_managed": true,
+        "instructions_chars": 0,
+        "instructions_rev": "",
+        "files": 0,
+        "sessions": 3,
+        "import_key": "beacon-desktop:p1",
+        "created_at": 1793667600.0,
+        "updated_at": 1793667600.0,
+        "session_ids": [
+          "desktop:b3760005-0000-0000-0000-000000000000",
+          "desktop:b3760007-0000-0000-0000-000000000000",
+          "desktop:b3760009-0000-0000-0000-000000000000"
+        ]
+      }
+    },
+    {
+      "label": "start a conversation inside a project",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/sessions",
+      "request": {
+        "gateway": "desktop",
+        "chat_project_id": "cp_000000000002"
+      },
+      "status": 200,
+      "body": {
+        "session_id": "desktop:b376000d-0000-0000-0000-000000000000",
+        "gateway": "desktop",
+        "chat_project_id": "cp_000000000002",
+        "workspace": "/private/tmp/beacon-chat-projects-fixture/world/home/repo"
+      }
+    },
+    {
+      "label": "start a conversation, a project that is not there",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/sessions",
+      "request": {
+        "gateway": "desktop",
+        "chat_project_id": "cp_000000000000"
+      },
+      "status": 404,
+      "body": {
+        "error": "no such project",
+        "kind": "unknown_project"
+      }
+    },
+    {
+      "label": "suggestions",
+      "as": "op",
+      "method": "GET",
+      "path": "/api/chat-project-suggestions",
+      "request": null,
+      "status": 200,
+      "body": {
+        "suggestions": {
+          "desktop:b376000e-0000-0000-0000-000000000000": {
+            "key": "cp_000000000002",
+            "label": "Back garden",
+            "share": 1.0,
+            "calls": 3,
+            "project": {
+              "id": "cp_000000000002",
+              "name": "Back garden"
+            }
+          },
+          "desktop:b3760013-0000-0000-0000-000000000000": {
+            "key": "new-thing",
+            "label": "new-thing",
+            "share": 1.0,
+            "calls": 3,
+            "project": null
+          }
+        },
+        "rev": 8
+      }
+    },
+    {
+      "label": "suggestions, as a chat-only device",
+      "as": "a",
+      "method": "GET",
+      "path": "/api/chat-project-suggestions",
+      "request": null,
+      "status": 403,
+      "body": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    },
+    {
+      "label": "file, unfile",
+      "as": "op",
+      "method": "PUT",
+      "path": "/api/sessions/desktop%3Ab3760005-0000-0000-0000-000000000000/project",
+      "request": {
+        "chat_project_id": null
+      },
+      "status": 200,
+      "body": {
+        "ok": true,
+        "session_id": "desktop:b3760005-0000-0000-0000-000000000000",
+        "chat_project_id": null,
+        "workspace": null
+      }
+    },
+    {
+      "label": "create, for the frame it makes",
+      "as": "op",
+      "method": "POST",
+      "path": "/api/chat-projects",
+      "request": {
+        "name": "Framed"
+      },
+      "status": 201,
+      "body": {
+        "ok": true,
+        "project": {
+          "id": "cp_000000000003",
+          "name": "Framed",
+          "folder": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/framed",
+          "folder_managed": true,
+          "instructions_chars": 0,
+          "instructions_rev": "",
+          "files": 0,
+          "sessions": 0,
+          "import_key": null,
+          "created_at": 1793667600.0,
+          "updated_at": 1793667600.0
+        },
+        "created": true
+      }
+    },
+    {
+      "label": "delete",
+      "as": "op",
+      "method": "DELETE",
+      "path": "/api/chat-projects/cp_000000000003",
+      "request": null,
+      "status": 200,
+      "body": {
+        "ok": true,
+        "id": "cp_000000000003",
+        "unfiled": 0
+      }
+    },
+    {
+      "label": "delete, a project that is not there",
+      "as": "op",
+      "method": "DELETE",
+      "path": "/api/chat-projects/cp_000000000000",
+      "request": null,
+      "status": 404,
+      "body": {
+        "error": "no such project",
+        "kind": "unknown_project"
+      }
+    },
+    {
+      "label": "delete, as a chat-only device",
+      "as": "a",
+      "method": "DELETE",
+      "path": "/api/chat-projects/cp_000000000001",
+      "request": null,
+      "status": 403,
+      "body": {
+        "error": "operator_only",
+        "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+      }
+    }
+  ]
+}
