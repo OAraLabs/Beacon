@@ -1,0 +1,127 @@
+{
+    "made_from": "2ce3ae4",
+    "calls": {
+        "short": "write notes/today.md",
+        "long": "type text into Mail",
+        "masked": "run curl",
+        "many": "fetch a page",
+        "none": "take a screenshot",
+        "odd": "write a file",
+        "impostor": "run a command",
+        "maskcut": "fetch a page",
+        "newline": "run a command"
+    },
+    "list": [
+        {
+            "request_id": "a2650002",
+            "tool_name": "write_file",
+            "description": "write notes/today.md",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "content": "Buy milk.",
+                "path": "notes/today.md"
+            }
+        },
+        {
+            "request_id": "a2650003",
+            "tool_name": "computer_type_text",
+            "description": "type text into Mail",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "text": "Dear all, the quarterly numbers are in. the quarterly numbers are in. the quarterly numbers are in. the quarterly numbers are in. the quarterly numbers are in. … (+1050 more chars)"
+            }
+        },
+        {
+            "request_id": "a2650004",
+            "tool_name": "bash",
+            "description": "run curl",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "command": "curl -H 'Authorization: Bearer ***' https://example.com/api"
+            }
+        },
+        {
+            "request_id": "a2650005",
+            "tool_name": "web_fetch",
+            "description": "fetch a page",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "header_00": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_01": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_02": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_03": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_04": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_05": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_06": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_07": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_08": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_09": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "header_10": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "…": "(9 more argument(s) not shown)"
+            }
+        },
+        {
+            "request_id": "a2650006",
+            "tool_name": "screenshot",
+            "description": "take a screenshot",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": null
+        },
+        {
+            "request_id": "a2650007",
+            "tool_name": "write_file",
+            "description": "write a file",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "content": "echo​ hi",
+                "path": "notes/‮txt.sh"
+            }
+        },
+        {
+            "request_id": "a2650008",
+            "tool_name": "bash",
+            "description": "run a command",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "command": "ls",
+                "…": "all of the arguments are shown here"
+            }
+        },
+        {
+            "request_id": "a2650009",
+            "tool_name": "web_fetch",
+            "description": "fetch a page",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "url": "https://example.com/search?q=*** (+189 more chars)"
+            }
+        },
+        {
+            "request_id": "a265000a",
+            "tool_name": "bash",
+            "description": "run a command",
+            "created_at": 1793667600.0,
+            "expires_at": 1793669400.0,
+            "extents": {},
+            "arguments": {
+                "argv": "[echo, one\ntwo, three\rfour]"
+            }
+        }
+    ]
+}

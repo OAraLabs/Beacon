@@ -6,6 +6,8 @@ later update themselves.
 
 ## Unreleased
 
+- **An approval card says when it isn't showing you the whole call.** The arguments on an approval card are the assistant's own words, and Prometheus already cuts long ones, masks some, and leaves some out when there are many. The card now tells you, above the arguments in the error colour: "Prometheus cut or hid part of this. You are not seeing the whole call, and what is missing may be the part that matters." Each affected line carries a word you can read as well as see: CUT (Prometheus cut it short and says by how much), PART HIDDEN (it masked part of it), LEFT OUT (it left arguments out and says how many). It never says that anything was kept safe, because what is missing may be the part that does the thing. A character that does not show, such as a direction override that makes `notes/txt.sh` read as another name, a zero-width space or a stray line break, is written out as ⟨U+202E⟩ where it was, and the card says so. The text is otherwise Prometheus's, in its order, with nothing re-cut. A Prometheus that says it cut the arguments itself (`arguments_cut`) is believed; none does yet. Nothing was needed from Prometheus.
+
 ## 0.5.0 (2026-11-13)
 
 Beacon 0.5.0 is for everyday use as well as for running an assistant: a Today home, saved prompts, files and screenshots in quick capture, tool servers at an address, and a folder to work in. Adding a phone is now a scan and an approval, Beacon keeps several Prometheus side by side, and approvals are harder to answer by accident.

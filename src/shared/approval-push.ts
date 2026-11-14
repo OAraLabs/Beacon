@@ -57,6 +57,8 @@ export interface RawApprovalPush {
   extents?: unknown
   /** `true`: answer in the app, never from a notification (`answeredInApp`). Absent on an older daemon. */
   critical?: unknown
+  /** `true` where a daemon says it cut the arguments itself. No daemon sends it yet; the card reads it when one does. */
+  arguments_cut?: unknown
   /**
    * dict[str, str] | None from `redact_arguments()` — the arguments being approved, scrubbed and
    * truncated daemon-side. `null` (its only empty form) means nothing worth showing.
@@ -104,6 +106,8 @@ export function rawToApproval(raw: RawApprovalPush): ApprovalRequest | null {
     // An `arguments` carried on the REST mapper alone would render a card whose decisive value
     // appears seconds late — and `A` is a one-key approve.
     arguments: coerceArguments(raw.arguments),
+    // Only a plain true is a claim; anything else is the same as not saying.
+    argumentsCut: raw.arguments_cut === true ? true : undefined,
     // Undefined unless present and well-formed: an ordinary request stays byte-identical.
     workerTaskId: typeof raw.worker_task_id === 'string' && raw.worker_task_id ? raw.worker_task_id : undefined,
     sessionId: typeof raw.session_id === 'string' && raw.session_id ? raw.session_id : undefined,

@@ -113,6 +113,7 @@ export default defineConfig({
           'owner-promotion-smoke': resolve('src/main/owner-promotion-smoke.ts'),
           'approval-push-smoke': resolve('src/main/approval-push-smoke.ts'),
           'approval-critical-smoke': resolve('src/main/approval-critical-smoke.ts'),
+          'approval-arguments-smoke': resolve('src/main/approval-arguments-smoke.ts'),
           'voice-smoke': resolve('src/main/voice-smoke.ts'),
           'voice-stream-smoke': resolve('src/main/voice-stream-smoke.ts'),
           'hands-free-smoke': resolve('src/main/hands-free-smoke.ts'),

@@ -728,6 +728,8 @@ export interface ApprovalRequest {
    * VERBATIM and re-derives nothing; see @shared/approval-arguments for what that forbids.
    */
   arguments?: import('./approval-arguments').ApprovalArguments
+  /** The daemon says it cut the arguments (`arguments_cut: true`). Undefined unless it says so; no daemon sends it yet. */
+  argumentsCut?: boolean
   /**
    * A WORKER'S REQUEST (Prometheus #720): the background worker that asked. Undefined on an
    * ordinary request. @shared/workers names it on the card.
