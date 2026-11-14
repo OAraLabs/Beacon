@@ -1955,7 +1955,9 @@ function notifyApproval(
   description: string,
   args?: ApprovalArguments,
   /** What the daemon said (ApprovalRequest.critical). */
-  critical?: boolean
+  critical?: boolean,
+  /** What the daemon said (ApprovalRequest.argumentsCut): it cut the arguments, so the notification cannot show the whole call. */
+  argumentsCut?: boolean
 ): void {
   if (notifiedApprovalIds.has(requestId)) return
   notifiedApprovalIds.add(requestId)
@@ -1970,7 +1972,7 @@ function notifyApproval(
 
   // A critical request offers no answer here; it is answered in Beacon. Judged against what the
   // Prometheus that ASKED advertises, not whichever one is connected now.
-  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy?.getStatus().approvalCritical))
+  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy?.getStatus().approvalCritical), argumentsCut === true)
   const actions =
     process.platform === 'darwin' && plan.offersActions
       ? ([
@@ -2003,7 +2005,7 @@ function handleApprovalFrame(raisedBy: ConnectionManager, ev: { type?: string; p
   const p = ev.payload ?? {}
   if (ev.type === 'approval_pending') {
     const a = rawToApproval(p as RawApprovalPush)
-    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments, a.critical)
+    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments, a.critical, a.argumentsCut)
   } else if (ev.type === 'approval_resolved') {
     const rid = typeof p.request_id === 'string' ? p.request_id : null
     if (rid) notifiedApprovalIds.delete(rid)
@@ -2324,7 +2326,7 @@ app.whenReady().then(() => {
       // shaped like an ApprovalRequest rather than known to be one. Idempotent on an
       // already-coerced map, and it is the same function both daemon mappers use.
       if (a && typeof a.requestId === 'string')
-        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments), a.critical === true ? true : a.critical === false ? false : undefined)
+        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments), a.critical === true ? true : a.critical === false ? false : undefined, a.argumentsCut === true)
     }
   })
   // A conversation's working folder (@shared/work-folder). MAIN decides whether Prometheus shares

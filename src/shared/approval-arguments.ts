@@ -114,13 +114,25 @@ const LEFT_OUT_SENTENCE = /^\([0-9]+ more argument\(s\) not shown\)$/
  *  and a mask over the end of a cut URL takes the "…" with it ("?q=*** (+189 more chars)"). */
 const ENDS_CUT = / \(\+[0-9]+ more chars\)$/
 
-/** Format and control characters, and the line and paragraph separators: the ones that do not draw (direction overrides and
- *  isolates, zero-width spaces and joiners, the byte-order mark, line breaks, NUL). Nothing visible is in this set. */
-const INVISIBLE = /[\p{Cf}\p{Cc}\p{Zl}\p{Zp}]/gu
+/** Characters that do not draw, or draw as blank: format and control characters, the line and paragraph separators (direction
+ *  overrides and isolates, zero-width spaces and joiners, the byte-order mark, line breaks, NUL), every space that is not a plain
+ *  space (no-break, ideographic and the rest of the Zs class), and the letters and marks that are blank on screen: the Hangul
+ *  fillers, the Braille blank and the combining grapheme joiner. A run of them can hold the tail of a command out of sight behind
+ *  what looks like empty space. Nothing visible is in this set; a plain space and a plain letter never are. */
+const BLANK = String.raw`[\p{Cf}\p{Cc}\p{Zl}\p{Zp}\u034F\u115F\u1160\u2800\u3164\uFFA0]|(?! )\p{Zs}`
+/** One such character, and the run of the SAME character that follows it. */
+const INVISIBLE_RUN = new RegExp(`(${BLANK})\\1*`, 'gu')
+/** A run this long is written once with its length, so a wall of blanks cannot push the text after it out of view. */
+const RUN_AS_ONE = 3
 
-/** The text with every character that does not draw written out as ⟨U+XXXX⟩. */
+/** The text with every character that does not draw written out as ⟨U+XXXX⟩ (a run of three or more of the same one as
+ *  ⟨U+XXXX ×N⟩). */
 export function writeOutInvisibles(text: string): string {
-  return text.replace(INVISIBLE, (c) => `⟨U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase()}⟩`)
+  return text.replace(INVISIBLE_RUN, (run: string, first: string) => {
+    const code = `U+${(first.codePointAt(0) ?? 0).toString(16).toUpperCase()}`
+    const n = Array.from(run).length
+    return n >= RUN_AS_ONE ? `⟨${code} ×${n}⟩` : `⟨${code}⟩`.repeat(n)
+  })
 }
 
 export interface ArgumentLine {
@@ -139,7 +151,9 @@ export interface ArgumentLine {
 }
 
 export interface ArgumentsView {
-  /** In the daemon's own order. Every argument is here, including the daemon's own "not shown" row. */
+  /** In the daemon's order, except that a name that is a whole number (`"2"`) is drawn first, in numeric order: that is how
+   *  JavaScript orders the keys of an object, and the wire has already been parsed into one by the time it gets here. Every
+   *  argument is here, including the daemon's own "not shown" row. */
   lines: ArgumentLine[]
   /** The daemon's "left out" sentence is among the lines, in its exact words. */
   leftOut: boolean

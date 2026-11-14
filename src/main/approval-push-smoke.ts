@@ -56,7 +56,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53 + 39 + 15
+const MIN_CHECKS = 53 + 39 + 19
 
 let failures = 0
 let checks = 0
@@ -240,6 +240,12 @@ const plainPlan = notificationPlan('bash', 'git push origin main')
 check(plainPlan.offersActions === true, 'a request with NO arguments still offers its buttons — the fallback is targeted, not blanket')
 check(plainPlan.body === 'bash: git push origin main', 'and its body is unchanged, verbatim')
 check(notificationPlan('bash', 'git push', {}).offersActions === true, 'an empty argument map is the nothing-to-show case, not a payload')
+// A daemon that says it cut the arguments (`arguments_cut`): the notification cannot show the whole call, even with none to count.
+const cutPlan = notificationPlan('bash', 'git push origin main', undefined, false, true)
+check(cutPlan.offersActions === false && cutPlan.body.includes('part of this was cut; approve in Beacon') && cutPlan.body.startsWith('bash'), 'a request the daemon says it cut offers no buttons, and says why, even with no arguments listed')
+check(notificationPlan('bash', 'git push', { command: 'ls' }, false, true).offersActions === false, 'and arguments plus a daemon that says it cut them are no more answerable from a notification')
+check(notificationPlan('bash', 'git push', undefined, false, false).offersActions === true && notificationPlan('bash', 'git push', undefined, false, undefined as unknown as boolean).offersActions === true, 'with nothing cut and no arguments, a notification still offers its buttons (unchanged)')
+check(notificationPlan('bash', 'rm -rf build', undefined, true, true).offersActions === false && notificationPlan('bash', 'rm -rf build', undefined, true, true).body.includes('answer it in Beacon'), 'a critical request still says it is answered in Beacon, whatever else is true of it')
 
 console.log('\n=== 5. main actually WIRES it — the pure plan is worthless unwired ===')
 // Everything above proves notificationPlan decides correctly. None of it proves main ASKS.
@@ -312,8 +318,8 @@ console.log('\n=== 6. critical — the daemon says a request is answered in the 
   check(notificationPlan('write_file', 'write', { path: '/tmp/a' }, false).body === notificationPlan('write_file', 'write', { path: '/tmp/a' }).body, 'and a request with arguments that is not critical reads as it did')
 
   // main wires it: per connection, from the subscribed reply, on both paths.
-  check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical: the frame path as mapped, the poll path re-checked where it crosses from the page')
-  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\)\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
+  check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical, a\.argumentsCut\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined, a\.argumentsCut === true\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical and about cutting the arguments: the frame path as mapped, the poll path re-checked where it crosses from the page')
+  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\), argumentsCut === true\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
   // What a Prometheus advertises, and how the connection keeps it, is approval-critical-smoke's (the rule is run through its sequences there).
   check(/handleApprovalFrame\(conn, ev as/.test(mainSrc), 'and the frames reach it with the connection they came over')
   check(/&& plan\.offersActions\s*\? \(\[[\s\S]{0,160}\] as Electron\.NotificationAction\[\]\)\s*: \[\]/.test(mainSrc) && (mainSrc.match(/text: 'Approve'/g) ?? []).length === 1, 'the Approve button exists in one place, behind the plan: a plan with no actions makes a notification with none')

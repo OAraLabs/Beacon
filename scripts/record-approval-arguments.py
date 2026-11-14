@@ -104,6 +104,7 @@ async def main() -> dict:
         sys.exit(f"expected {len(CALLS)} requests in the list: {listed.status_code} {listed.text[:300]}")
     return {"made_from": os.environ.get("PROMETHEUS_REV", "unknown"),
             "calls": {name: description for name, (_tool, description, _arguments) in CALLS.items()},
+            "tools": {name: tool for name, (tool, _description, _arguments) in CALLS.items()},
             "list": listed.json()}
 
 

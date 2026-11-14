@@ -11,6 +11,17 @@
         "maskcut": "fetch a page",
         "newline": "run a command"
     },
+    "tools": {
+        "short": "write_file",
+        "long": "computer_type_text",
+        "masked": "bash",
+        "many": "web_fetch",
+        "none": "screenshot",
+        "odd": "write_file",
+        "impostor": "bash",
+        "maskcut": "web_fetch",
+        "newline": "bash"
+    },
     "list": [
         {
             "request_id": "a2650002",

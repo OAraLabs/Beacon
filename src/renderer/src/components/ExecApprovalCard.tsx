@@ -128,7 +128,10 @@ const argsLabel: CSSProperties = {
 }
 const argsGrid: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'auto minmax(0, 1fr)',
+  // A name can be as long as the agent likes (the daemon cuts values and says so, but never names), so the name column is capped
+  // and its text wraps: otherwise a long name takes the whole row and the value is pushed out of sight, to the right of a box that
+  // scrolls sideways.
+  gridTemplateColumns: 'fit-content(40%) minmax(0, 1fr)',
   columnGap: 10,
   rowGap: 3,
   margin: 0
@@ -139,7 +142,11 @@ const argKey: CSSProperties = {
   fontSize: 11.5,
   lineHeight: 1.5,
   color: 'var(--ink3)',
-  whiteSpace: 'nowrap'
+  // Wraps, at any character: a name that cannot wrap is the one that takes the row (see argsGrid).
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
+  // Right-to-left letters in one cell must not reorder what is around them in the next.
+  unicodeBidi: 'isolate'
 }
 const argVal: CSSProperties = {
   margin: 0,
@@ -150,7 +157,8 @@ const argVal: CSSProperties = {
   // The value is the decision. It wraps rather than being clipped or ellipsised — an argument
   // the card hides is an argument the operator approved without reading.
   whiteSpace: 'pre-wrap',
-  overflowWrap: 'anywhere'
+  overflowWrap: 'anywhere',
+  unicodeBidi: 'isolate'
 }
 /**
  * The `{}` slot. Occupies the place the disclosure would have taken, so the absence of a
