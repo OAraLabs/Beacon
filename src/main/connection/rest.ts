@@ -571,6 +571,7 @@ const PROJECT_ROUTES_ALLOWED: ReadonlyArray<readonly [string, RegExp]> = [
 export function isProjectRoute(method: string, path: string): boolean {
   // The path is joined to the address as text and read by a URL parser afterwards, which resolves `.` and `..` segments, and a
   // percent-encoded one (%2e, %2f, %5c) as well: so none may be in it, however the pattern below would read it.
-  if (/%2e|%2f|%5c|\\|\/\.{1,2}(\/|$)/i.test(path)) return false
+  // A tab or newline inside a segment is stripped by the parser too (`/api/sessions/.<TAB>./project` is `/api/project`).
+  if (/[\x00-\x20\x7f]|%2e|%2f|%5c|\\|\/\.{1,2}(\/|$)/i.test(path)) return false
   return PROJECT_ROUTES_ALLOWED.some(([m, re]) => m === method && re.test(path))
 }

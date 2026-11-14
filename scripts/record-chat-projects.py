@@ -122,8 +122,10 @@ def main() -> dict:
     call("file, a chat-only device's conversation", "op", "PUT", f"/api/sessions/{q(s3)}/project", {"chat_project_id": kitchen["id"]})
     call("file a device's conversation as a label only", "op", "PUT", f"/api/sessions/{q(s3)}/project",
          {"chat_project_id": kitchen["id"], "keep_workspace": True})
+    call("list, as a chat-only device that has a conversation filed", "a", "GET", "/api/chat-projects")
     call("file, a session the daemon does not have", "op", "PUT", f"/api/sessions/{q('desktop:gone')}/project", {"chat_project_id": kitchen["id"], "keep_workspace": True})
-    call("file, a machine session", "op", "PUT", f"/api/sessions/{q('cron:nightly')}/project", {"chat_project_id": kitchen["id"], "keep_workspace": True})
+    w.conv.add_message("eval:nightly", MessagePart(role="user", content="tick", session_id="eval:nightly", turn_index=0))
+    call("file, a machine session", "op", "PUT", f"/api/sessions/{q('eval:nightly')}/project", {"chat_project_id": kitchen["id"], "keep_workspace": True})
     call("file, a project that is not there", "op", "PUT", f"/api/sessions/{q(s1)}/project", {"chat_project_id": "cp_000000000000"})
     call("file, as a chat-only device", "a", "PUT", f"/api/sessions/{q(s3)}/project", {"chat_project_id": kitchen["id"]})
     listed = w.call("op", "GET", "/api/sessions").json()

@@ -119,8 +119,9 @@ export function refusal(status: number, body: unknown): ChatProjectError {
     case 'unavailable':
       return err('unsupported')
   }
-  // A Prometheus with no projects answers 404 with no kind of ours (the framework's own "not found").
-  if (status === 404 || status === 405) return err('unsupported')
+  // A Prometheus with no projects answers 404 with no kind at all (the framework's own "not found"). A 404 that DOES carry a kind
+  // we do not know is a daemon that serves projects saying something newer: that is a failure, not "no projects".
+  if ((status === 404 || status === 405) && kind === null) return err('unsupported')
   return err('failed')
 }
 
@@ -130,12 +131,13 @@ function notReadable(status: number, body: unknown): ChatProjectError {
   return status === 200 || status === 201 ? { ok: false, kind: 'failed', message: WORDS.failed, status } : refusal(status, body)
 }
 
-function readProject(v: unknown): ChatProject | null {
+function readProject(v: unknown, chatOnly = false): ChatProject | null {
   if (!isObj(v)) return null
   const id = str(v.id)
   const name = str(v.name)
-  const folder = str(v.folder)
-  if (!id || name === null || !folder) return null
+  // A device that may only chat is told a project's id, name and conversation count, and not where it is: no folder.
+  const folder = str(v.folder) ?? (chatOnly ? '' : null)
+  if (!id || name === null || folder === null || (!chatOnly && !folder)) return null
   const num = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
   return {
     id,
@@ -168,12 +170,13 @@ export function readProjectList(status: number, body: unknown): Read<ProjectList
   if (status !== 200 || !isObj(body) || !Array.isArray(body.projects)) return notReadable(status, body)
   const projects: ChatProject[] = []
   let skipped = 0
+  const chatOnly = body.role === 'chat_only'
   for (const raw of body.projects) {
-    const p = readProject(raw)
+    const p = readProject(raw, chatOnly)
     if (p) projects.push(p)
     else skipped++
   }
-  const role = body.role === 'chat_only' ? 'chat_only' : 'owner'
+  const role = chatOnly ? 'chat_only' : 'owner'
   return { ok: true, value: { role, rev: typeof body.rev === 'number' && Number.isFinite(body.rev) ? body.rev : null, projects, skipped } }
 }
 
@@ -224,7 +227,8 @@ export interface Suggestion {
 /** GET /api/chat-project-suggestions: for each recent unfiled conversation, what the daemon suggests. */
 export function readSuggestions(status: number, body: unknown): Read<{ suggestions: Record<string, Suggestion>; rev: number | null }> {
   if (status !== 200 || !isObj(body) || !isObj(body.suggestions)) return notReadable(status, body)
-  const out: Record<string, Suggestion> = {}
+  // No prototype: a conversation id of `__proto__` is an ordinary key, not a way to set the object's prototype.
+  const out: Record<string, Suggestion> = Object.create(null)
   for (const [sid, raw] of Object.entries(body.suggestions)) {
     if (!isObj(raw)) continue
     const key = str(raw.key)
@@ -282,11 +286,11 @@ export const PROJECT_ROUTES = {
 } as const
 
 const IMPORT_KEY_HEAD = 'beacon-desktop:'
-/** The `import_key` of a project moved from this computer: `beacon-desktop:<local id>`, printable ASCII, at most 200 characters. Null if
+/** The `import_key` of a project moved from this computer: `beacon-desktop:<local id>`, printable ASCII with no space (the daemon refuses one), at most 200 characters. Null if
  *  the id would not make a key the daemon accepts: the caller then moves the project without one (and says it can't be re-run safely). */
 export function importKey(localId: string): string | null {
   const key = `${IMPORT_KEY_HEAD}${localId}`
-  return /^[\x20-\x7e]{1,200}$/.test(key) && localId.length > 0 ? key : null
+  return /^[\x21-\x7e]{1,200}$/.test(key) && localId.length > 0 ? key : null
 }
 
 // ── What the window sees and asks (the IPC between the page and main) ───────────────────────────────────────────────────────────────

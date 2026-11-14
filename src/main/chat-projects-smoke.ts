@@ -34,7 +34,7 @@ import {
 import { ChatProjectsHub, type ProjectsRequest } from './chat-projects'
 import { isProjectRoute } from './connection/rest'
 
-const EXPECTED = 94
+const EXPECTED = 105
 let failures = 0
 let checks = 0
 function assert(cond: boolean, label: string, detail?: unknown): void {
@@ -62,7 +62,7 @@ const WORDS = /HTTP|\b[45]\d\d\b|\/api\/|operator_only|name_taken|bad_folder|wor
 const sentence = (m: string): boolean => m.length > 10 && m.length < 140 && /[.]$/.test(m) && !WORDS.test(m)
 
 // ── the recording ───────────────────────────────────────────────────────────────────────────────────────────────────────────
-assert(typeof fixture.made_from === 'string' && fixture.made_from !== 'unknown' && exchanges.length === 40, 'the fixture says which daemon it came from, and holds its forty exchanges', fixture.made_from)
+assert(typeof fixture.made_from === 'string' && fixture.made_from !== 'unknown' && exchanges.length === 41, 'the fixture says which daemon it came from, and holds its forty-one exchanges', fixture.made_from)
 assert(advertisesChatProjects({ server_capabilities: fixture.capabilities }) && CHAT_PROJECTS_CAPABILITY === 'projects', 'the capability the daemon lists is the one Beacon looks for')
 assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_critical'] }) && !advertisesChatProjects({}) && !advertisesChatProjects(null) && !advertisesChatProjects({ server_capabilities: 'projects' }) && !advertisesChatProjects({ server_capabilities: [{ projects: true }] }), 'anything else, or nothing, or something malformed, is "no"')
 
@@ -78,6 +78,8 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
   assert(!!g && g.folderManaged === false && g.importKey === null && g.folder.endsWith('/home/repo'), 'a folder the owner picked is not managed, and has no import key')
   const chatOnly = readProjectList(ex('list, as a chat-only device').status, ex('list, as a chat-only device').body)
   assert(chatOnly.ok && chatOnly.value.role === 'chat_only' && chatOnly.value.rev === null && chatOnly.value.projects.length === 0, 'a device that may only chat is told nothing: an empty list, and no rev')
+  const chatOnlyFiled = readProjectList(ex('list, as a chat-only device that has a conversation filed').status, ex('list, as a chat-only device that has a conversation filed').body)
+  assert(chatOnlyFiled.ok && chatOnlyFiled.value.role === 'chat_only' && chatOnlyFiled.value.projects.length === 1 && chatOnlyFiled.value.skipped === 0 && chatOnlyFiled.value.projects[0].folder === '' && chatOnlyFiled.value.projects[0].sessions === 1, "a device that may only chat is told a project's name and how many of its conversations are in it, and no folder: that is read, not skipped")
   const odd = readProjectList(200, { role: 'owner', rev: 3, projects: [{ id: 'cp_1', name: 'ok', folder: '/x' }, { nope: true }, 'text', { id: 'cp_2', name: 'also ok', folder: '/y' }] })
   assert(odd.ok && odd.value.projects.length === 2 && odd.value.skipped === 2, 'an entry that cannot be read is counted, not silently dropped')
   const bad = readProjectList(200, { projects: 'many' })
@@ -98,6 +100,7 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
     ['file, a folder was chosen by hand', 'workspace_set'],
     ["file, a chat-only device's conversation", 'device_session'],
     ['file, a session the daemon does not have', 'unknown_session'],
+    ['file, a machine session', 'machine_session'],
     ['file, a project that is not there', 'unknown_project'],
     ['file, as a chat-only device', 'not_owner'],
     ['start a conversation, a project that is not there', 'unknown_project'],
@@ -116,7 +119,7 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
   const home = refusal(400, ex('create, the home folder').body)
   assert(!home.ok && home.reason === "the home directory, or a folder that contains it, cannot be a project folder", "a folder the daemon won't use carries the daemon's own reason beside Beacon's sentence")
   assert(!refusal(0, null).ok && refusal(0, null).kind === 'unreachable' && refusal(401, null).kind === 'not_owner' && refusal(500, { error: 'boom' }).kind === 'failed' && refusal(404, { error: 'x', kind: 'unavailable' }).kind === 'unsupported', 'no answer, a refused key, a server error, and "no durable store" each have their own word')
-  assert(refusal(404, { error: 'x', kind: 'made_up_by_a_newer_daemon' }).kind === 'unsupported' && refusal(409, { kind: 'made_up_by_a_newer_daemon' }).kind === 'failed', 'a kind Beacon does not know is read from the status, never believed')
+  assert(refusal(404, { error: 'x', kind: 'made_up_by_a_newer_daemon' }).kind === 'failed' && refusal(409, { kind: 'made_up_by_a_newer_daemon' }).kind === 'failed' && refusal(404, { detail: 'Not Found' }).kind === 'unsupported' && refusal(405, null).kind === 'unsupported', 'a kind Beacon does not know is a failure, never believed and never taken for "no projects"; only a 404 with no kind of any sort is that')
   assert((['unsupported', 'not_owner', 'name_taken', 'name_required', 'folder_in_use', 'bad_folder', 'unknown_project', 'unknown_session', 'machine_session', 'workspace_set', 'device_session', 'unreachable', 'failed'] as const).every((k) => sentence(chatProjectWords(k))), 'every kind has a sentence with no status, route or daemon word in it')
 }
 
@@ -161,6 +164,8 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
   const intoNew = s.ok ? s.value.suggestions[fixture.sessions.suggested_new] : undefined
   assert(intoOld?.project?.id === 'cp_000000000002' && intoOld.calls === 3 && intoOld.share === 1, 'a suggestion for a folder that is a project names that project')
   assert(intoNew?.project === null && intoNew.label === 'new-thing', 'a suggestion for one that is not: no project, and the label a new one would get')
+  const proto = readSuggestions(200, { suggestions: JSON.parse('{"__proto__":{"key":"k","label":"l","share":1,"calls":3,"project":null},"desktop:ok":{"key":"k2","label":"l2","share":1,"calls":3,"project":null}}'), rev: 1 })
+  assert(proto.ok && Object.keys(proto.value.suggestions).join() === '__proto__,desktop:ok' && proto.value.suggestions['__proto__']?.key === 'k', 'a conversation id of __proto__ is an ordinary key: a suggestion for it is kept, not lost')
   const frames = fixture.frames.map((f) => readChangeFrame(f))
   assert(frames.every((f) => f !== null) && frames.map((f) => f?.change).join() === 'created,created,updated,membership,membership,membership,membership,membership,membership,created,deleted', 'every frame the daemon sent is read, in order, with its kind')
   assert(frames.every((f, i) => i === 0 || (f?.rev ?? 0) > (frames[i - 1]?.rev ?? 0)), 'each carries a rev that is higher than the one before')
@@ -184,7 +189,7 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
   assert(same(PROJECT_ROUTES.file(fixture.sessions.hand_chosen_folder, 'cp_000000000001', { replace: true }), 'file, replacing the hand-chosen folder'), 'filing and replacing the folder somebody chose')
   assert(same(PROJECT_ROUTES.file(fixture.sessions.label_only, 'cp_000000000002', { keep: true }), 'file, as a label only (the folder is kept)'), 'filing as a label only')
   assert(same(PROJECT_ROUTES.start('cp_000000000002'), 'start a conversation inside a project'), 'a conversation started in a project')
-  assert(importKey('p1') === 'beacon-desktop:p1' && importKey('') === null && importKey('é') === null && importKey('x'.repeat(200)) === null && importKey('x'.repeat(185)) !== null, 'an import key is printable ASCII, at most 200 characters, or none')
+  assert(importKey('p1') === 'beacon-desktop:p1' && importKey('') === null && importKey('é') === null && importKey('x'.repeat(200)) === null && importKey('x'.repeat(185)) !== null && importKey('a b') === null && importKey('a\tb') === null, 'an import key is printable ASCII with no space, at most 200 characters, or none')
 }
 
 // ── a route a window may ask, and an id that is one segment ─────────────────────────────────────────────────────────────────
@@ -195,7 +200,7 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
     ['POST', '/api/chat-projects/cp_1'], ['GET', '/api/sessions'], ['DELETE', '/api/sessions/x/project'], ['PUT', '/api/approvals/x/approve'],
     ['GET', '/api/chat-projects/..'], ['PUT', '/api/chat-projects/.'], ['PUT', '/api/sessions/../project'], ['PUT', '/api/sessions/%2e%2e/project'],
     ['DELETE', '/api/chat-projects/%2E%2E'], ['PUT', '/api/sessions/a%2fb/project'], ['PUT', '/api/sessions/a%5cb/project'], ['PUT', '/api/sessions/a\\b/project'],
-    ['GET', '/api/chat-projects/cp_1?x=/../approvals'], ['GET', '/api/chat-projects/x/files'], ['GET', '/api/chat-projects/']
+    ['GET', '/api/chat-projects/cp_1?x=/../approvals'], ['PUT', '/api/sessions/.\t./project'], ['PUT', '/api/sessions/.\n./project'], ['PUT', '/api/sessions/a b/project'], ['GET', '/api/chat-projects/cp_1\r'], ['GET', '/api/chat-projects/x/files'], ['GET', '/api/chat-projects/']
   ]
   assert(no.every(([m, p]) => !isProjectRoute(m, p)), 'another method, another path, a dot segment (written or encoded), an encoded slash or backslash, a query, or a path under a project that is not a route: none is')
   const ok = (o: unknown): boolean => validOp(o) !== null
@@ -216,6 +221,8 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
   assert(/const projects = new ChatProjectsHub\(\{\s*request: \(method, path, body\) => conn\.projectsCall\(method, path, body\)/.test(main) && !/new ChatProjectsHub/.test(main.replace(/const projects = new ChatProjectsHub/, '')), 'one hub is made for each connection, and it asks through THAT connection: never whichever one is current later')
   assert(/projects\.onGatewayEvent\(ev as \{ type\?: string; payload\?: unknown \}\)/.test(main) && /onListed: \(rows\) => projects\.setFilings\(rows\)/.test(main), "the hub hears the connection's frames and the daemon's session list")
   assert(/if \(chatProjects === projects\) broadcast\(IPC\.CHAT_PROJECTS_CHANGED, s\)/.test(main) && /registerChatProjectsHandlers\(\(\) => chatProjects\)/.test(main), 'a hub that has been replaced says nothing to the window, and the window reaches only the current one')
+  assert(/chatProjects\?\.reset\(\) \/\/ the one for the connection before this/.test(main) && /chatProjects\?\.reset\(\)\s*chatProjects = null\s*broadcast\(IPC\.CHAT_PROJECTS_CHANGED, noChatProjects\(\)\)/.test(main), 'a connection that is replaced, or forgotten with its key, takes its hub with it: nothing more is asked of that Prometheus, and the window is told there are no projects')
+  assert(/if \(r\.status === 0\) throw Object\.assign/.test(src('src/main/connection/index.ts')), 'no answer at all is never taken for an answer the key was tried on: it cannot clear a refused key')
   const ipc = src('src/main/chat-projects-ipc.ts')
   assert(/const op = validOp\(raw\)\s*if \(!op\) return refusal\(400, null\)\s*const hub = current\(\)/.test(ipc) && (ipc.match(/handleFromShell\(/g) ?? []).length === 2 && !/ipcMain/.test(ipc), 'the window can ask only through two shell-checked handlers, and an op is validated before it reaches the hub')
   const rest = src('src/main/connection/rest.ts')
@@ -318,41 +325,115 @@ async function hubChecks(): Promise<void> {
   const gone = await w.hub.run({ op: 'refresh' })
   assert(!gone.ok && gone.kind === 'unsupported' && w.asked.length === 2, 'and nothing more is asked')
 
-  const slow = world()
-  slow.hold.on = true
-  slow.hub.onGatewayEvent(subscribed(['projects']))
-  await settle()
-  slow.hub.reset()
-  slow.hold.release()
-  await settle()
-  slow.hold.release()
-  await settle()
-  assert(slow.hub.state().available === false && slow.hub.state().list === null && slow.latest().list === null, 'an answer that lands after the connection was replaced is dropped: it is never shown for the new Prometheus')
-
-  const co = world()
-  co.hold.on = true
-  co.hub.onGatewayEvent(subscribed(['projects']))
-  await settle()
-  void co.hub.refresh()
-  void co.hub.refresh()
-  void co.hub.refresh()
-  await settle()
-  const during = co.asked.length
-  co.hold.on = false
-  co.hold.release()
-  await settle()
-  await settle()
-  assert(during === 1 && co.asked.length <= 5, 'reads are one at a time: three asks while one is out make at most one more read, not three', { during, total: co.asked.length })
 }
+  // An answer that lands after the connection was replaced is dropped. The old read answers with projects the new one does not have.
+  {
+    let release: () => void = () => undefined
+    let calls = 0
+    const recorded = (label: string): { status: number; body: unknown } => ({ status: ex(label).status, body: ex(label).body })
+    const stub: ProjectsRequest = async (method, path) => {
+      if (method === 'GET' && path === '/api/chat-projects') {
+        calls++
+        if (calls === 1) {
+          await new Promise<void>((res) => (release = res))
+          return recorded('list') // two projects: what the replaced connection's Prometheus would have said
+        }
+        return recorded('list, none yet')
+      }
+      return recorded('suggestions')
+    }
+    const hub = new ChatProjectsHub({ request: stub, onState: () => undefined })
+    hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    hub.reset()
+    hub.onGatewayEvent(subscribed(['projects'])) // the next connection, which also serves projects
+    await settle()
+    release()
+    await settle()
+    await settle()
+    assert(hub.state().available && hub.state().list?.projects.length === 0 && hub.state().list?.rev === 0, 'an answer from the replaced connection lands after the new one has read its own list: it is dropped, and the new list stands')
+  }
+  {
+    const hold = { release: () => undefined as void }
+    const asked3: string[] = []
+    const stub: ProjectsRequest = async (method, path) => {
+      asked3.push(`${method} ${path}`)
+      if (method === 'POST') {
+        await new Promise<void>((res) => (hold.release = res))
+        return { status: ex('create, a managed folder').status, body: ex('create, a managed folder').body }
+      }
+      const label = path === '/api/chat-projects' ? 'list, none yet' : 'suggestions'
+      return { status: ex(label).status, body: ex(label).body }
+    }
+    const hub = new ChatProjectsHub({ request: stub, onState: () => undefined })
+    hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    const pending = hub.run({ op: 'create', name: 'Kitchen remodel', importKey: 'beacon-desktop:p1' })
+    await settle()
+    hub.reset()
+    hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    const readsBefore = asked3.length
+    hold.release()
+    const result = await pending
+    await settle()
+    assert(!result.ok && result.kind === 'unreachable' && !hub.state().list?.projects.some((p) => p.id === 'cp_000000000001') && asked3.length === readsBefore, "a change that was out when the connection was replaced is refused, not applied to the new Prometheus's list, and starts no read of its own")
+  }
+  {
+    // A read under way when the Prometheus is rolled back, and upgraded again: the hub reads again (it does not wait on a dead read).
+    const w3 = world()
+    w3.hold.on = true
+    w3.hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    w3.hub.onGatewayEvent(subscribed(['voice_input']))
+    w3.hold.on = false
+    w3.hold.release()
+    await settle()
+    const before = w3.asked.length
+    w3.hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    assert(w3.asked.length === before + 2 && w3.hub.state().list !== null, 'a Prometheus rolled back during a read, then upgraded again: the list is read again, not left empty behind a read that will never finish')
+  }
+  {
+    // A reconnect to the same Prometheus misses frames: the list is read again.
+    const w4 = world()
+    w4.hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    const before = w4.asked.length
+    w4.hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    assert(w4.asked.length === before + 2, 'a reconnect whose reply still says it serves projects reads the list again: changes made while the socket was down sent Beacon no frame')
+  }
+  {
+    const co = world()
+    co.hold.on = true
+    co.hub.onGatewayEvent(subscribed(['projects']))
+    await settle()
+    void co.hub.refresh()
+    void co.hub.refresh()
+    void co.hub.refresh()
+    await settle()
+    const during = co.asked.length
+    co.hold.on = false
+    co.hold.release()
+    await settle()
+    await settle()
+    assert(during === 1 && co.asked.length === 4, 'reads are one at a time: three asks while one is out make exactly one more read (a list and the suggestions), not three', { during, total: co.asked.length })
+  }
 {
   // Filings from the session list.
   const w = world()
+  w.hub.setFilings([{ id: 'desktop:early', chatProjectId: 'cp_000000000001' }]) // the list can land before the daemon has said anything
+  assert(Object.keys(w.hub.state().filings).length === 0 && w.asked.length === 0, 'a session list that lands before the daemon says it serves projects shows nothing and asks nothing')
   w.hub.onGatewayEvent(subscribed(['projects']))
   await settle()
+  assert(JSON.stringify(w.hub.state().filings) === '{"desktop:early":"cp_000000000001"}', 'but it is kept, and shown once the daemon says it does')
   w.hub.setFilings([{ id: 'desktop:a', chatProjectId: 'cp_000000000001' }, { id: 'desktop:b', chatProjectId: null }, { id: 'desktop:c' }])
-  assert(JSON.stringify(w.hub.state().filings) === '{"desktop:a":"cp_000000000001"}', 'the daemon\'s session list says which conversation is filed where; unfiled ones are absent')
+  assert(JSON.stringify(w.hub.state().filings) === '{"desktop:a":"cp_000000000001"}', "the daemon's session list says which conversation is filed where; unfiled ones are absent")
   w.hub.setFilings([{ id: 'desktop:a' }, { id: 'desktop:b' }])
   assert(JSON.stringify(w.hub.state().filings) === '{"desktop:a":"cp_000000000001"}', 'a daemon that says nothing about projects in its list leaves what Beacon has alone')
+  w.hub.setFilings([])
+  assert(Object.keys(w.hub.state().filings).length === 0, 'an empty list from a daemon that serves projects says nothing is filed')
 }
 }
 hubChecks().catch((e) => {

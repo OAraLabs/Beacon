@@ -398,6 +398,8 @@ export class ConnectionManager extends EventEmitter {
       return await this.trackAuth(
         this.rest.projectsCall(method, path, body).then((r) => {
           if (r.status === 401) throw Object.assign(new Error(`HTTP 401: ${method} ${path}`), { answer: r })
+          // No answer at all says nothing about the key: it must not clear a refusal the key earned (every other REST call throws here).
+          if (r.status === 0) throw Object.assign(new Error(`no answer: ${method} ${path}`), { answer: r })
           return r
         })
       )

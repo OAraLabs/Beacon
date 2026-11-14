@@ -80,6 +80,7 @@ import { registerMainModelHandlers } from './main-model-ipc'
 import { OwnerPromotion } from './owner-promotion'
 import { registerOwnerPromotionHandlers } from './owner-promotion-ipc'
 import { ChatProjectsHub } from './chat-projects'
+import { noChatProjects } from '@shared/chat-projects'
 import { registerChatProjectsHandlers } from './chat-projects-ipc'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
@@ -620,6 +621,7 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
   })
   // This Prometheus's projects (@shared/chat-projects): a hub made for THIS connection, so what it asks goes to the Prometheus that
   // was connected when it was made, and a project id from another one is never in front of it.
+  chatProjects?.reset() // the one for the connection before this: nothing it still has out is shown or applied
   const projects = new ChatProjectsHub({
     request: (method, path, body) => conn.projectsCall(method, path, body),
     onState: (s) => {
@@ -885,6 +887,10 @@ function forgetConnection(): SetupForgetResult {
       connection.stop()
       connection = null
     }
+    // Its projects go with it: no Prometheus is kept, so nothing may be asked of the one that was, with the key just cleared.
+    chatProjects?.reset()
+    chatProjects = null
+    broadcast(IPC.CHAT_PROJECTS_CHANGED, noChatProjects())
     applyPins(null)
     connectedLink = null
     cache = null

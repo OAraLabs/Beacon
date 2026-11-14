@@ -8,8 +8,8 @@
     "hand_chosen_folder": "desktop:b3760007-0000-0000-0000-000000000000",
     "device": "desktop:b3760009-0000-0000-0000-000000000000",
     "label_only": "desktop:b376000b-0000-0000-0000-000000000000",
-    "suggested_into_project": "desktop:b376000e-0000-0000-0000-000000000000",
-    "suggested_new": "desktop:b3760013-0000-0000-0000-000000000000"
+    "suggested_into_project": "desktop:b376000f-0000-0000-0000-000000000000",
+    "suggested_new": "desktop:b3760014-0000-0000-0000-000000000000"
   },
   "frames": [
     {
@@ -81,7 +81,7 @@
         "rev": 8,
         "project_id": "cp_000000000002",
         "change": "membership",
-        "session_id": "desktop:b376000d-0000-0000-0000-000000000000"
+        "session_id": "desktop:b376000e-0000-0000-0000-000000000000"
       }
     },
     {
@@ -575,6 +575,24 @@
       }
     },
     {
+      "label": "list, as a chat-only device that has a conversation filed",
+      "as": "a",
+      "method": "GET",
+      "path": "/api/chat-projects",
+      "request": null,
+      "status": 200,
+      "body": {
+        "role": "chat_only",
+        "projects": [
+          {
+            "id": "cp_000000000001",
+            "name": "Kitchen remodel",
+            "sessions": 1
+          }
+        ]
+      }
+    },
+    {
       "label": "file, a session the daemon does not have",
       "as": "op",
       "method": "PUT",
@@ -593,15 +611,15 @@
       "label": "file, a machine session",
       "as": "op",
       "method": "PUT",
-      "path": "/api/sessions/cron%3Anightly/project",
+      "path": "/api/sessions/eval%3Anightly/project",
       "request": {
         "chat_project_id": "cp_000000000001",
         "keep_workspace": true
       },
-      "status": 404,
+      "status": 400,
       "body": {
-        "error": "unknown session",
-        "kind": "unknown_session"
+        "error": "a machine session cannot be filed in a project",
+        "kind": "machine_session"
       }
     },
     {
@@ -659,6 +677,11 @@
           "session_id": "desktop:b376000b-0000-0000-0000-000000000000",
           "chat_project_id": "cp_000000000002",
           "has_chat_project_id": true
+        },
+        {
+          "session_id": "eval:nightly",
+          "chat_project_id": null,
+          "has_chat_project_id": true
         }
       ]
     },
@@ -699,7 +722,7 @@
       },
       "status": 200,
       "body": {
-        "session_id": "desktop:b376000d-0000-0000-0000-000000000000",
+        "session_id": "desktop:b376000e-0000-0000-0000-000000000000",
         "gateway": "desktop",
         "chat_project_id": "cp_000000000002",
         "workspace": "/private/tmp/beacon-chat-projects-fixture/world/home/repo"
@@ -729,7 +752,7 @@
       "status": 200,
       "body": {
         "suggestions": {
-          "desktop:b376000e-0000-0000-0000-000000000000": {
+          "desktop:b376000f-0000-0000-0000-000000000000": {
             "key": "cp_000000000002",
             "label": "Back garden",
             "share": 1.0,
@@ -739,7 +762,7 @@
               "name": "Back garden"
             }
           },
-          "desktop:b3760013-0000-0000-0000-000000000000": {
+          "desktop:b3760014-0000-0000-0000-000000000000": {
             "key": "new-thing",
             "label": "new-thing",
             "share": 1.0,

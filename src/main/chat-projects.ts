@@ -32,8 +32,10 @@ export type ProjectsRequest = (method: string, path: string, body?: unknown) => 
 export class ChatProjectsHub {
   private available = false
   private list: ProjectList | null = null
-  private filings: Record<string, string> = {}
-  private suggestions: Record<string, Suggestion> = {}
+  private filings: Record<string, string> = Object.create(null)
+  /** The latest filings the daemon's session list gave, kept even before the daemon has said it serves projects (the list can land first). */
+  private seenFilings: Record<string, string> | null = null
+  private suggestions: Record<string, Suggestion> = Object.create(null)
   private problem: string | null = null
   /** Bumped by `reset()`: an answer that lands after it belongs to a connection that is gone, and is dropped. */
   private gen = 0
@@ -58,8 +60,9 @@ export class ChatProjectsHub {
     this.gen++
     this.available = false
     this.list = null
-    this.filings = {}
-    this.suggestions = {}
+    this.filings = Object.create(null)
+    this.seenFilings = null
+    this.suggestions = Object.create(null)
     this.problem = null
     this.reading = null
     this.readAgain = false
@@ -71,17 +74,25 @@ export class ChatProjectsHub {
   onGatewayEvent(ev: { type?: string; payload?: unknown }): void {
     if (ev.type === 'subscribed') {
       const now = advertisesChatProjects(ev.payload)
-      if (now === this.available) return
+      if (now === this.available) {
+        // A reconnect to the same Prometheus: changes made while the socket was down sent no frame Beacon has seen.
+        if (now) void this.refresh()
+        return
+      }
       this.available = now
       if (!now) {
+        // Rolled back to a Prometheus without projects: everything goes, and a read under way is abandoned (not waited for).
         this.list = null
-        this.filings = {}
-        this.suggestions = {}
+        this.filings = Object.create(null)
+        this.suggestions = Object.create(null)
         this.problem = null
         this.gen++
+        this.reading = null
+        this.readAgain = false
         this.emit()
         return
       }
+      if (this.seenFilings) this.filings = { ...this.seenFilings }
       this.emit()
       void this.refresh()
       return
@@ -92,15 +103,18 @@ export class ChatProjectsHub {
     if (change && (this.list?.rev === null || this.list === null || change.rev !== this.list.rev)) void this.refresh()
   }
 
-  /** The daemon's session list, for which conversation is filed where. A daemon that doesn't say leaves what we have alone. */
+  /** The daemon's session list, for which conversation is filed where. A daemon that doesn't say leaves what we have alone; an empty
+   *  list from one that serves projects says nothing is filed. Kept when it lands before the daemon has said it serves projects. */
   setFilings(rows: ReadonlyArray<{ id: string; chatProjectId?: string | null }>): void {
-    if (!this.available) return
-    if (!rows.some((r) => r.chatProjectId !== undefined)) return
-    const next: Record<string, string> = {}
+    const says = rows.length === 0 || rows.some((r) => r.chatProjectId !== undefined)
+    if (!says) return
+    const next: Record<string, string> = Object.create(null)
     for (const r of rows) if (typeof r.chatProjectId === 'string') next[r.id] = r.chatProjectId
+    this.seenFilings = next
+    if (!this.available) return
     const same = Object.keys(next).length === Object.keys(this.filings).length && Object.entries(next).every(([k, v]) => this.filings[k] === v)
     if (same) return
-    this.filings = next
+    this.filings = { ...next }
     this.emit()
   }
 
@@ -154,14 +168,18 @@ export class ChatProjectsHub {
   async run(op: ChatProjectsOp): Promise<ChatProjectsResult> {
     if (!this.available) return refusal(404, null)
     const mine = this.gen
+    // The connection was replaced while this was out: whatever it answered is about a Prometheus Beacon is no longer on, so it is
+    // neither shown nor applied nor returned.
+    const gone = (): ChatProjectsResult => refusal(0, null)
     switch (op.op) {
       case 'refresh':
         await this.refresh()
-        return { ok: true }
+        return mine === this.gen ? { ok: true } : gone()
       case 'create': {
         const r = PROJECT_ROUTES.create(op.name, op.importKey ? { importKey: op.importKey } : {})
         const read = readProjectWrite(...(await this.askArgs(r)))
-        if (!read.ok || mine !== this.gen) return read.ok ? { ok: true, project: read.value.project } : read
+        if (mine !== this.gen) return gone()
+        if (!read.ok) return this.afterRefusal(read)
         this.upsert(read.value.project)
         void this.refresh()
         return { ok: true, project: read.value.project, created: read.value.created }
@@ -169,41 +187,41 @@ export class ChatProjectsHub {
       case 'rename': {
         const r = PROJECT_ROUTES.rename(op.id, op.name)
         const read = readProjectWrite(...(await this.askArgs(r)))
+        if (mine !== this.gen) return gone()
         if (!read.ok) return this.afterRefusal(read)
-        if (mine === this.gen) this.upsert(read.value.project)
+        this.upsert(read.value.project)
         void this.refresh()
         return { ok: true, project: read.value.project }
       }
       case 'remove': {
         const r = PROJECT_ROUTES.remove(op.id)
         const read = readProjectDeleted(...(await this.askArgs(r)))
+        if (mine !== this.gen) return gone()
         if (!read.ok) return this.afterRefusal(read)
-        if (mine === this.gen) {
-          if (this.list) this.list = { ...this.list, projects: this.list.projects.filter((p) => p.id !== op.id) }
-          for (const [sid, pid] of Object.entries(this.filings)) if (pid === op.id) delete this.filings[sid]
-          this.emit()
-        }
+        if (this.list) this.list = { ...this.list, projects: this.list.projects.filter((p) => p.id !== op.id) }
+        for (const [sid, pid] of Object.entries(this.filings)) if (pid === op.id) delete this.filings[sid]
+        this.emit()
         void this.refresh()
         return { ok: true, unfiled: read.value.unfiled }
       }
       case 'file': {
         const r = PROJECT_ROUTES.file(op.sessionId, op.projectId, { keep: op.keep, replace: op.replace, device: op.device })
         const read = readFiled(...(await this.askArgs(r)))
+        if (mine !== this.gen) return gone()
         if (!read.ok) return this.afterRefusal(read)
-        if (mine === this.gen) {
-          if (read.value.projectId) this.filings[read.value.sessionId] = read.value.projectId
-          else delete this.filings[read.value.sessionId]
-          delete this.suggestions[read.value.sessionId]
-          this.emit()
-        }
+        if (read.value.projectId) this.filings[read.value.sessionId] = read.value.projectId
+        else delete this.filings[read.value.sessionId]
+        delete this.suggestions[read.value.sessionId]
+        this.emit()
         void this.refresh()
         return { ok: true, sessionId: read.value.sessionId, workspace: read.value.workspace }
       }
       case 'start': {
         const r = PROJECT_ROUTES.start(op.projectId)
         const read = readStarted(...(await this.askArgs(r)))
+        if (mine !== this.gen) return gone()
         if (!read.ok) return this.afterRefusal(read)
-        if (mine === this.gen && read.value.projectId) {
+        if (read.value.projectId) {
           this.filings[read.value.sessionId] = read.value.projectId
           this.emit()
         }
