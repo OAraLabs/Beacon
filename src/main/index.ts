@@ -79,6 +79,9 @@ import { MainModelSetting } from './main-model'
 import { registerMainModelHandlers } from './main-model-ipc'
 import { OwnerPromotion } from './owner-promotion'
 import { registerOwnerPromotionHandlers } from './owner-promotion-ipc'
+import { ChatProjectsHub } from './chat-projects'
+import { noChatProjects } from '@shared/chat-projects'
+import { registerChatProjectsHandlers } from './chat-projects-ipc'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
 import { pairTlsPorts } from '@shared/devices'
@@ -424,6 +427,8 @@ app.on('open-file', (e, path) => {
 // The connection + cache live in the main process and outlive any window (spec §3.2/§3.3). The
 // connection is (re)built by bringUpConnection — at startup if configured, or on first-run save.
 let connection: ConnectionManager | null = null
+/** The projects of the Prometheus `connection` talks to (@shared/chat-projects), made with it and replaced with it. */
+let chatProjects: ChatProjectsHub | null = null
 /**
  * The live link: the gateway `connection` was brought up with and the key it uses there, set TOGETHER and only once the address may be
  * used (null until then, and while there is none). Every module that talks to "the connected Prometheus" with a key (the network and
@@ -614,16 +619,28 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
     if (refused || connection !== conn) return
     connectedLink = { gateway: gw, token }
   })
+  // This Prometheus's projects (@shared/chat-projects): a hub made for THIS connection, so what it asks goes to the Prometheus that
+  // was connected when it was made, and a project id from another one is never in front of it.
+  chatProjects?.reset() // the one for the connection before this: nothing it still has out is shown or applied
+  const projects = new ChatProjectsHub({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    onState: (s) => {
+      if (chatProjects === projects) broadcast(IPC.CHAT_PROJECTS_CHANGED, s)
+    }
+  })
+  chatProjects = projects
+  broadcast(IPC.CHAT_PROJECTS_CHANGED, projects.state())
   connection.on('status', onStatus)
   connection.on('stream', onStreamFrame)
   connection.on('gatewayEvent', (ev) => {
+    projects.onGatewayEvent(ev as { type?: string; payload?: unknown })
     // A pairing frame names a device and an address. The watcher takes it, and it goes nowhere else: not the activity feed, not a notification.
     if (pairingWatcher.takesFrame(ev.type, ev.payload, typeof ev.ts === 'number' ? ev.ts / 1000 : undefined)) return
     broadcast(IPC.GATEWAY_EVENT, ev)
     maybeNotifyTask(ev as { type?: string; payload?: Record<string, unknown> })
     handleApprovalFrame(conn, ev as { type?: string; payload?: Record<string, unknown> })
   })
-  cache = new CacheService(folder.repo, connection, { held: fp === null })
+  cache = new CacheService(folder.repo, connection, { held: fp === null, onListed: (rows) => projects.setFilings(rows) })
   cache.attach()
   if (fp === null) confirmIdentity(conn, cache, gw, folder.id)
   if (before !== null && before !== folder.id) broadcast(IPC.CACHE_FOLDER_CHANGED, null)
@@ -870,6 +887,10 @@ function forgetConnection(): SetupForgetResult {
       connection.stop()
       connection = null
     }
+    // Its projects go with it: no Prometheus is kept, so nothing may be asked of the one that was, with the key just cleared.
+    chatProjects?.reset()
+    chatProjects = null
+    broadcast(IPC.CHAT_PROJECTS_CHANGED, noChatProjects())
     applyPins(null)
     connectedLink = null
     cache = null
@@ -2176,6 +2197,7 @@ app.whenReady().then(() => {
     return code.ok ? { ...code, name: rec.label } : code
   })
   registerPairPinHandlers(pairPin) // Devices → Enrol: the pairing code's TLS pin, before the token is minted
+  registerChatProjectsHandlers(() => chatProjects) // projects on the Prometheus: asked only where it says it serves them
   registerOwnerPromotionHandlers(ownerPromotion) // Settings → Make this Beacon an owner: the one-time code for an owner token
   registerMainModelHandlers(mainModelSetting) // Config → Models → Main model: which AI Prometheus thinks with (restart: the network setting's)
   app.on('before-quit', () => {

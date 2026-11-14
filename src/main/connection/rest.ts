@@ -23,6 +23,8 @@ interface RawSession {
   message_count: number
   watermark?: number // per-session max rowid (cold-start unread)
   pinned?: boolean // daemon-owned pin (Prometheus#351)
+  /** The project the conversation is filed in (a Prometheus that serves projects): a string, or null when unfiled. Absent on one that doesn't. */
+  chat_project_id?: string | null
 }
 
 interface RawMessage {
@@ -279,7 +281,9 @@ export class RestClient {
       watermark: s.watermark,
       // Carried, not dropped. The comment above records what happened the last time a field was
       // discarded at this boundary: downstream concluded the daemon had nothing to offer.
-      pinned: pinnedFromWire(s.pinned)
+      pinned: pinnedFromWire(s.pinned),
+      // Undefined when the daemon doesn't say (it has no projects): different from null, which is "unfiled".
+      chatProjectId: s.chat_project_id === undefined ? undefined : typeof s.chat_project_id === 'string' ? s.chat_project_id : null
     }))
   }
 
@@ -489,6 +493,28 @@ export class RestClient {
     return res.json().catch(() => null)
   }
 
+  /**
+   * One call about chat projects (@shared/chat-projects), answered as the status and body it got, whatever the status: what an answer
+   * means is the reader's to say. A failure to get an answer is status 0. Only the project routes may be asked: not a path of the
+   * caller's own, and not another method on them.
+   */
+  async projectsCall(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+    if (!isProjectRoute(method, path)) throw new Error(`blocked daemon path: ${method} ${path}`)
+    let res: Response
+    try {
+      res = await this.send(`${this.apiBase}${path}`, {
+        method,
+        headers: this.headers(body === undefined ? undefined : { 'Content-Type': 'application/json' }),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(10_000)
+      })
+    } catch {
+      return { status: 0, body: null }
+    }
+    const parsed: unknown = await res.json().catch(() => null)
+    return { status: res.status, body: parsed }
+  }
+
   /** GET /api/pair/requests: who is waiting for this Prometheus's owner to say yes. Owner only; a device that was itself approved is told 403. */
   async listPairRequests(): Promise<PairListReply> {
     const res = await this.send(`${this.apiBase}/api/pair/requests`, { headers: this.headers(), signal: AbortSignal.timeout(8_000) })
@@ -528,4 +554,24 @@ async function fullText(res: Response): Promise<string> {
   } catch {
     return ''
   }
+}
+
+/** The routes of chat projects, by method (docs/design/chat-projects.md in Prometheus). Nothing else may be asked through
+ *  `projectsCall`. A project id is one path segment. */
+const PROJECT_ROUTES_ALLOWED: ReadonlyArray<readonly [string, RegExp]> = [
+  ['GET', /^\/api\/chat-projects$/],
+  ['POST', /^\/api\/chat-projects$/],
+  ['GET', /^\/api\/chat-projects\/[^/?#]+$/],
+  ['PUT', /^\/api\/chat-projects\/[^/?#]+$/],
+  ['DELETE', /^\/api\/chat-projects\/[^/?#]+$/],
+  ['GET', /^\/api\/chat-project-suggestions$/],
+  ['PUT', /^\/api\/sessions\/[^/?#]+\/project$/],
+  ['POST', /^\/api\/sessions$/]
+]
+export function isProjectRoute(method: string, path: string): boolean {
+  // The path is joined to the address as text and read by a URL parser afterwards, which resolves `.` and `..` segments, and a
+  // percent-encoded one (%2e, %2f, %5c) as well: so none may be in it, however the pattern below would read it.
+  // A tab or newline inside a segment is stripped by the parser too (`/api/sessions/.<TAB>./project` is `/api/project`).
+  if (/[\x00-\x20\x7f]|%2e|%2f|%5c|\\|\/\.{1,2}(\/|$)/i.test(path)) return false
+  return PROJECT_ROUTES_ALLOWED.some(([m, re]) => m === method && re.test(path))
 }
