@@ -21,22 +21,14 @@ import { rowIndicator, type SessionTurn } from '@shared/session-activity'
 import { SESSION_LIST_WIDTH } from '@shared/side-panel'
 import { SESSION_DRAG_TYPE } from '@shared/split-panes'
 import {
-  assignSession,
-  createProject,
-  deleteProject,
-  dismissSuggestion,
-  emptyProjectStore,
-  parseProjectStore,
-  renameProject,
   rowSuggestion,
-  serializeProjectStore,
-  SESSION_PROJECTS_SETTING_KEY,
   SESSION_UNFILED_SETTING_KEY,
   parseUnfiledMode,
   type UnfiledMode,
-  type ProjectHint,
-  type ProjectStore
+  type ProjectHint
 } from '@shared/session-projects'
+import { useProjectsSource } from '../projects-source'
+import { ProjectQuestion } from './ProjectQuestion'
 
 /** How often the sidebar re-asks main for project hints while it is open. Hints move slowly (a
  *  session needs several tool calls to shift a majority), and main re-reads only changed sessions. */
@@ -368,39 +360,17 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
     })
   }
 
-  // ── Projects (@shared/session-projects) ──────────────────────────────────
-  // Local settings KV, loaded once. `loaded` guards the save: a write before the read resolves
-  // would replace the stored projects with an empty store.
-  const [store, setStore] = useState<ProjectStore>(emptyProjectStore)
-  const loaded = useRef(false)
-  useEffect(() => {
-    let alive = true
-    void window.beacon?.settings
-      .get(SESSION_PROJECTS_SETTING_KEY)
-      .then((raw) => {
-        if (!alive) return
-        loaded.current = true
-        setStore(parseProjectStore(raw))
-      })
-      .catch(() => {
-        // Unreadable: leave `loaded` false, so nothing this session writes can clobber what is stored.
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
-  const updateStore = useCallback((fn: (s: ProjectStore) => ProjectStore): void => {
-    if (!loaded.current) return
-    setStore((prev) => {
-      const next = fn(prev)
-      if (next !== prev) void window.beacon?.settings.set(SESSION_PROJECTS_SETTING_KEY, serializeProjectStore(next)).catch(() => undefined)
-      return next
-    })
-  }, [])
+  // ── Projects (@shared/session-projects, @shared/chat-projects) ───────────────────────────────────────
+  // This computer's projects, or the Prometheus's when it keeps them (src/renderer/src/projects-source.ts says which and why). With
+  // a Prometheus that does not, this is what it always was.
+  const projects = useProjectsSource(onSelect)
+  const store = projects.store
 
   // Hints come from main's read of the local cache. Re-asked when the open session changes
   // (opening one is what pulls its history into the cache) and on a slow timer.
   const [hints, setHints] = useState<Record<string, ProjectHint>>({})
+  // The Prometheus's own suggestions when it keeps the projects; else what main works out from the local cache.
+  const shownHints = projects.hints ?? hints
   useEffect(() => {
     let alive = true
     const load = (): void => {
@@ -447,28 +417,20 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
   const [dragging, setDragging] = useState<string | null>(null)
   const [dropOn, setDropOn] = useState<string | null>(null)
 
-  const fileInto = (sessionId: string, projectId: string | null): void => updateStore((s) => assignSession(s, sessionId, projectId))
+  const titleOf = (sessionId: string): string => {
+    const r = sessions.find((s) => s.id === sessionId)
+    return r ? rowName(r) : ''
+  }
+  const fileInto = (sessionId: string, projectId: string | null): void => projects.fileInto(sessionId, projectId, titleOf(sessionId))
   /** Accept a suggestion: into the project of the same name if there is one, else a new one. */
-  const acceptHint = (sessionIds: string[], label: string): void =>
-    updateStore((s) => {
-      const made = createProject(s, label)
-      if (!made.id) return s
-      let next = made.store
-      for (const sid of sessionIds) next = assignSession(next, sid, made.id)
-      return next
-    })
-  const dismissHints = (items: Array<{ sessionId: string; key: string }>): void =>
-    updateStore((s) => items.reduce((acc, it) => dismissSuggestion(acc, it.sessionId, it.key), s))
+  const acceptHint = (sessionIds: string[], label: string): void => projects.acceptHint(sessionIds, label)
+  const dismissHints = (items: Array<{ sessionId: string; key: string }>): void => projects.dismissHints(items)
   const commitNaming = (): void => {
     const n = naming
     setNaming(null)
     if (!n) return
-    if (n.kind === 'rename') updateStore((s) => renameProject(s, n.projectId, n.value))
-    else
-      updateStore((s) => {
-        const made = createProject(s, n.value)
-        return made.id && n.sessionId ? assignSession(made.store, n.sessionId, made.id) : made.store
-      })
+    if (n.kind === 'rename') projects.renameProject(n.projectId, n.value)
+    else projects.createProject(n.value, n.sessionId, n.sessionId ? titleOf(n.sessionId) : '')
   }
 
   /**
@@ -554,7 +516,7 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
   const suggested = new Map<string, { label: string; existing?: string; rows: Array<{ s: SessionSummary; hint: ProjectHint }> }>()
   for (const row of shown) {
     if (pinned?.[row.id]) continue
-    const sug = rowSuggestion(store, row.id, hints[row.id])
+    const sug = rowSuggestion(store, row.id, shownHints[row.id])
     if (!sug) continue
     const g = suggested.get(sug.hint.key) ?? { label: sug.existing?.name ?? sug.hint.label, existing: sug.existing?.name, rows: [] }
     g.rows.push({ s: row, hint: sug.hint })
@@ -562,7 +524,7 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
   }
   const suggestionCount = [...suggested.values()].reduce((n, g) => n + g.rows.length, 0)
   const menuRow = menu?.kind === 'row' ? shown.find((r) => r.id === menu.sessionId) ?? sessions.find((r) => r.id === menu.sessionId) : undefined
-  const menuSug = menuRow ? rowSuggestion(store, menuRow.id, hints[menuRow.id]) : null
+  const menuSug = menuRow ? rowSuggestion(store, menuRow.id, shownHints[menuRow.id]) : null
   const menuProject = menu?.kind === 'project' ? store.projects.find((p) => p.id === menu.projectId) : undefined
   const rowName = (r: SessionSummary): string => shortTitle(r, titles?.[r.id])
 
@@ -1146,6 +1108,20 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
       ) : null}
       {menu?.kind === 'project' && menuProject ? (
         <ContextMenu x={menu.x} y={menu.y} onClose={closeMenu} label={`Project ${menuProject.name}`}>
+          {projects.mode === 'daemon' ? (
+            <button
+              className="ctx-menu-item"
+              role="menuitem"
+              data-testid="project-new-here"
+              title={projects.folderOf(menuProject.id) ?? undefined}
+              onClick={() => {
+                projects.startIn(menuProject.id)
+                closeMenu()
+              }}
+            >
+              New conversation here
+            </button>
+          ) : null}
           <button
             className="ctx-menu-item"
             role="menuitem"
@@ -1160,13 +1136,15 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
             className="ctx-menu-item is-danger"
             role="menuitem"
             onClick={() => {
-              updateStore((s) => deleteProject(s, menuProject.id))
+              projects.removeProject(menuProject.id)
               closeMenu()
             }}
           >
             Delete project
           </button>
-          <div className="ctx-menu-foot">Deleting keeps its sessions; they go back to the date groups.</div>
+          <div className="ctx-menu-foot">
+            {projects.mode === 'daemon' ? 'Deleting keeps its conversations, its folder and its files; the conversations go back to the date groups.' : 'Deleting keeps its sessions; they go back to the date groups.'}
+          </div>
         </ContextMenu>
       ) : null}
       {menu?.kind === 'unfiled' ? (
@@ -1183,6 +1161,15 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
           </button>
           <div className="ctx-menu-foot">Sessions in no project. Drop one here to take it out of its project.</div>
         </ContextMenu>
+      ) : null}
+      {projects.question ? <ProjectQuestion words={projects.question.words} onAnswer={projects.answer} /> : null}
+      {projects.note ? (
+        <div className="project-note" role="status" data-testid="project-note">
+          <span>{projects.note}</span>
+          <button className="project-note-x" onClick={projects.clearNote} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
       ) : null}
       {/* The footer: the open conversation's context window. Nothing when no conversation is open. */}
       {active ? (

@@ -114,6 +114,7 @@ export default defineConfig({
           'approval-push-smoke': resolve('src/main/approval-push-smoke.ts'),
           'approval-critical-smoke': resolve('src/main/approval-critical-smoke.ts'),
           'chat-projects-smoke': resolve('src/main/chat-projects-smoke.ts'),
+          'chat-projects-view-smoke': resolve('src/main/chat-projects-view-smoke.ts'),
           'approval-arguments-smoke': resolve('src/main/approval-arguments-smoke.ts'),
           'voice-smoke': resolve('src/main/voice-smoke.ts'),
           'voice-stream-smoke': resolve('src/main/voice-stream-smoke.ts'),
