@@ -57,6 +57,8 @@ export interface RawApprovalPush {
   extents?: unknown
   /** `true`: answer in the app, never from a notification (`answeredInApp`). Absent on an older daemon. */
   critical?: unknown
+  /** `true` where a daemon says it cut the arguments itself. No daemon sends it yet; the card reads it when one does. */
+  arguments_cut?: unknown
   /**
    * dict[str, str] | None from `redact_arguments()` — the arguments being approved, scrubbed and
    * truncated daemon-side. `null` (its only empty form) means nothing worth showing.
@@ -104,6 +106,8 @@ export function rawToApproval(raw: RawApprovalPush): ApprovalRequest | null {
     // An `arguments` carried on the REST mapper alone would render a card whose decisive value
     // appears seconds late — and `A` is a one-key approve.
     arguments: coerceArguments(raw.arguments),
+    // Only a plain true is a claim; anything else is the same as not saying.
+    argumentsCut: raw.arguments_cut === true ? true : undefined,
     // Undefined unless present and well-formed: an ordinary request stays byte-identical.
     workerTaskId: typeof raw.worker_task_id === 'string' && raw.worker_task_id ? raw.worker_task_id : undefined,
     sessionId: typeof raw.session_id === 'string' && raw.session_id ? raw.session_id : undefined,
@@ -256,12 +260,17 @@ function omissionNote(count: number): string {
 /** Said in a notification that offers no answer because the daemon wants this one answered in the app. */
 const IN_APP_NOTE = ' — answer it in Beacon'
 
+/** Said when the daemon reports it cut the arguments and none came with the request to count. */
+const CUT_NOTE = ' — part of this was cut; approve in Beacon'
+
 export function notificationPlan(
   toolName: string,
   description: string,
   args?: ApprovalArguments,
   /** `answeredInApp(...)` for this request: no buttons, whatever else is true of it. */
-  inAppOnly = false
+  inAppOnly = false,
+  /** The daemon said it cut the arguments (`arguments_cut`): there is something the notification cannot show, so no buttons. */
+  argumentsCut = false
 ): NotificationPlan {
   // The daemon marked this request critical: it is answered in Beacon, where all of it can be
   // read. Checked FIRST, so no later branch can hand the buttons back.
@@ -269,11 +278,11 @@ export function notificationPlan(
     return { body: `${decisionGradeBody(toolName, description, Math.max(0, BODY_BUDGET - IN_APP_NOTE.length))}${IN_APP_NOTE}`, offersActions: false }
   }
   const count = args ? Object.keys(args).length : 0
-  if (count === 0) return { body: decisionGradeBody(toolName, description), offersActions: true }
+  if (count === 0 && !argumentsCut) return { body: decisionGradeBody(toolName, description), offersActions: true }
   // The note is RESERVED out of the budget, never appended past it — a body that
   // overran would be cut by the OS, and the first thing lost would be the sentence
   // explaining why there is nothing to tap.
-  const note = omissionNote(count)
+  const note = count === 0 ? CUT_NOTE : omissionNote(count)
   return {
     body: `${decisionGradeBody(toolName, description, Math.max(0, BODY_BUDGET - note.length))}${note}`,
     offersActions: false

@@ -3,6 +3,7 @@ import { Fragment, useEffect, type CSSProperties, useState, useRef } from 'react
 import type { ApprovalRequest, ApprovalDecision } from '@shared/ipc'
 import { disclosureLabel } from '@shared/approval-disclosure'
 import { approvalKey, isTypingTarget } from '@shared/approval-keys'
+import { INCOMPLETE_NOTICE, INVISIBLES_NOTICE, describeArguments, type ArgumentLine } from '@shared/approval-arguments'
 import { approvalScopes, workerApprovalView } from '@shared/workers'
 import { Icon } from './Icon'
 import { trace } from '../ui-trace-client'
@@ -104,6 +105,20 @@ const argsInset: CSSProperties = {
   maxHeight: 132,
   overflowY: 'auto'
 }
+/** What the card says above the arguments when the person is not seeing all of them: the error tint, as a refusal's line has. */
+const argsWarning: CSSProperties = {
+  padding: '7px 10px',
+  borderRadius: 6,
+  border: '1px solid var(--sang)',
+  color: 'var(--c-err-text)',
+  fontSize: 12,
+  lineHeight: 1.5
+}
+/** The word a line carries when it is cut, masked, left out or has characters that do not draw: text, so it is read as well as seen. */
+const argTag: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, color: 'var(--c-err-text)', whiteSpace: 'nowrap' }
+function argTags(line: ArgumentLine): string[] {
+  return [line.cut ? 'CUT' : '', line.masked ? 'PART HIDDEN' : '', line.leftOut ? 'LEFT OUT' : '', line.invisibles ? 'ODD CHARACTERS' : ''].filter(Boolean)
+}
 /** The daemon's own word for this block in its Telegram prompt — one vocabulary, two surfaces. */
 const argsLabel: CSSProperties = {
   fontFamily: 'var(--font-mono)',
@@ -113,7 +128,10 @@ const argsLabel: CSSProperties = {
 }
 const argsGrid: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'auto minmax(0, 1fr)',
+  // A name can be as long as the agent likes (the daemon cuts values and says so, but never names), so the name column is capped
+  // and its text wraps: otherwise a long name takes the whole row and the value is pushed out of sight, to the right of a box that
+  // scrolls sideways.
+  gridTemplateColumns: 'fit-content(40%) minmax(0, 1fr)',
   columnGap: 10,
   rowGap: 3,
   margin: 0
@@ -124,7 +142,11 @@ const argKey: CSSProperties = {
   fontSize: 11.5,
   lineHeight: 1.5,
   color: 'var(--ink3)',
-  whiteSpace: 'nowrap'
+  // Wraps, at any character: a name that cannot wrap is the one that takes the row (see argsGrid).
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
+  // Right-to-left letters in one cell must not reorder what is around them in the next.
+  unicodeBidi: 'isolate'
 }
 const argVal: CSSProperties = {
   margin: 0,
@@ -135,7 +157,8 @@ const argVal: CSSProperties = {
   // The value is the decision. It wraps rather than being clipped or ellipsised — an argument
   // the card hides is an argument the operator approved without reading.
   whiteSpace: 'pre-wrap',
-  overflowWrap: 'anywhere'
+  overflowWrap: 'anywhere',
+  unicodeBidi: 'isolate'
 }
 /**
  * The `{}` slot. Occupies the place the disclosure would have taken, so the absence of a
@@ -223,8 +246,9 @@ export function ExecApprovalCard({
   // A worker's request (Prometheus 720) names the worker and its conversation in the header.
   const worker = workerApprovalView(approval, activeSessionId)
   // Wire order, untouched — the daemon sorted these, and re-ordering to put the "important" one
-  // first would be Beacon deciding which argument matters. See @shared/approval-arguments.
-  const args = Object.entries(approval.arguments ?? {})
+  // first would be Beacon deciding which argument matters. See @shared/approval-arguments, which also
+  // says what the card must tell the person when the daemon cut, masked or left something out.
+  const argsView = describeArguments(approval.arguments, approval.argumentsCut)
   const countdown = expiresIn(approval.expiresAt)
   // Focus is on this card, so `A`/`D` answer it; the key hints are shown only then.
   const [keysLive, setKeysLive] = useState(false)
@@ -307,14 +331,34 @@ export function ExecApprovalCard({
 
         {/* ABOVE the buttons, deliberately — see the header note. A definition list rather than
             styled divs: these ARE name/value pairs, and a screen reader should say so. */}
-        {args.length > 0 ? (
+        {/* BEFORE the arguments and outside the part that scrolls: when anything was cut, masked or left out the person is
+            told first, in the error tint, that they are not seeing the whole call. It does not say anything was kept safe. */}
+        {argsView?.incomplete ? (
+          <div style={argsWarning} role="note" data-testid="approval-args-incomplete">
+            {INCOMPLETE_NOTICE}
+          </div>
+        ) : null}
+        {argsView?.hasInvisibles ? (
+          <div style={argsWarning} role="note" data-testid="approval-args-invisibles">
+            {INVISIBLES_NOTICE}
+          </div>
+        ) : null}
+        {argsView && argsView.lines.length > 0 ? (
           <div style={argsInset}>
             <div style={argsLabel}>With</div>
             <dl style={argsGrid}>
-              {args.map(([key, value]) => (
-                <Fragment key={key}>
-                  <dt style={argKey}>{key}</dt>
-                  <dd style={argVal}>{value}</dd>
+              {argsView.lines.map((line, i) => (
+                <Fragment key={i}>
+                  <dt style={argKey}>{line.key}</dt>
+                  <dd style={argVal}>
+                    {line.value}
+                    {argTags(line).map((tag) => (
+                      <span key={tag} style={argTag}>
+                        {' '}
+                        [{tag}]
+                      </span>
+                    ))}
+                  </dd>
                 </Fragment>
               ))}
             </dl>
