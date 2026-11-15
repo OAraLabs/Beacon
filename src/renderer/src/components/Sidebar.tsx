@@ -29,6 +29,7 @@ import {
 } from '@shared/session-projects'
 import { useProjectsSource } from '../projects-source'
 import { ProjectQuestion } from './ProjectQuestion'
+import { ProjectSettings } from './ProjectSettings'
 
 /** How often the sidebar re-asks main for project hints while it is open. Hints move slowly (a
  *  session needs several tool calls to shift a majority), and main re-reads only changed sessions. */
@@ -411,6 +412,9 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
   }
 
   const [menu, setMenu] = useState<Menu | null>(null)
+  /** The project whose instructions and files are open (daemon mode). It stays open if the project goes: unsaved text is the person's to keep,
+   *  and the Prometheus says in words that the project is gone. */
+  const [settingsFor, setSettingsFor] = useState<{ id: string; name: string; folder: string } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const [naming, setNaming] = useState<Naming | null>(null)
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -1129,6 +1133,19 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
               New conversation here
             </button>
           ) : null}
+          {projects.mode === 'daemon' ? (
+            <button
+              className="ctx-menu-item"
+              role="menuitem"
+              data-testid="project-settings-open"
+              onClick={() => {
+                setSettingsFor({ id: menuProject.id, name: menuProject.name, folder: projects.folderOf(menuProject.id) ?? '' })
+                closeMenu()
+              }}
+            >
+              Instructions and files…
+            </button>
+          ) : null}
           <button
             className="ctx-menu-item"
             role="menuitem"
@@ -1170,6 +1187,15 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
         </ContextMenu>
       ) : null}
       {projects.question ? <ProjectQuestion words={projects.question.words} onAnswer={projects.answer} /> : null}
+      {settingsFor ? (
+        <ProjectSettings
+          projectId={settingsFor.id}
+          name={store.projects.find((p) => p.id === settingsFor.id)?.name ?? settingsFor.name}
+          folder={projects.folderOf(settingsFor.id) ?? settingsFor.folder}
+          listRev={projects.listRev}
+          onClose={() => setSettingsFor(null)}
+        />
+      ) : null}
       {projects.note ? (
         <div className="project-note" role="status" data-testid="project-note">
           <span>{projects.note}</span>

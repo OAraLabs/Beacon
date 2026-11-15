@@ -410,6 +410,23 @@ export class ConnectionManager extends EventEmitter {
     }
   }
 
+  /** A reference file's bytes up or down (see RestClient.projectsBytes), with the same notice of a refused key as `projectsCall`. */
+  async projectsBytes(method: string, path: string, opts: { replace?: boolean; body?: Buffer; maxBytes: number }): Promise<{ status: number; body: unknown; bytes: Buffer | null; contentType: string | null }> {
+    try {
+      return await this.trackAuth(
+        this.rest.projectsBytes(method, path, opts).then((r) => {
+          if (r.status === 401) throw Object.assign(new Error(`HTTP 401: ${method} ${path}`), { answer: r })
+          if (r.status === 0) throw Object.assign(new Error(`no answer: ${method} ${path}`), { answer: r })
+          return r
+        })
+      )
+    } catch (e) {
+      const answer = (e as { answer?: { status: number; body: unknown; bytes: Buffer | null; contentType: string | null } }).answer
+      if (answer) return answer
+      throw e
+    }
+  }
+
   listSessions(): Promise<SessionSummary[]> {
     return this.trackAuth(this.rest.listSessions())
   }

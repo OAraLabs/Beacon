@@ -177,7 +177,7 @@ const REGISTRATIONS: Record<string, { helper: number; raw: number }> = {
   'src/main/network-setting-ipc.ts': { helper: 3, raw: 0 },
   'src/main/main-model-ipc.ts': { helper: 5, raw: 0 },
   'src/main/owner-promotion-ipc.ts': { helper: 1, raw: 0 },
-  'src/main/chat-projects-ipc.ts': { helper: 2, raw: 0 },
+  'src/main/chat-projects-ipc.ts': { helper: 3, raw: 0 },
   'src/main/pair-pin-ipc.ts': { helper: 1, raw: 0 },
   'src/main/model-setup-ipc.ts': { helper: 4, raw: 0 },
   'src/main/screenshot-ipc.ts': { helper: 3, raw: 0 },

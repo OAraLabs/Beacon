@@ -53,6 +53,19 @@ export type ChatProjectErrorKind =
   | 'workspace_set' // 409: the conversation already works in a folder somebody chose; ask, then say keep or replace
   | 'device_session' // 409: a chat-only device's conversation; ask, then say so or keep it as a label
   | 'unreachable' // no answer
+  // Instructions and reference files (src/shared/chat-projects-content.ts):
+  | 'conflict' // 409: the instructions changed since they were read (the answer carries the current text and revision)
+  | 'would_shadow' // 409: saving would stop the Prometheus reading another instructions file in that folder
+  | 'not_a_file' // 409: the instructions file there is a folder or a link
+  | 'folder_missing' // 409: the project's folder is gone from that computer
+  | 'too_large'
+  | 'too_long'
+  | 'exists' // 409: a reference file has that name
+  | 'too_many'
+  | 'bad_name'
+  | 'unknown_file'
+  | 'io_error'
+  | 'timeout'
   | 'failed'
 
 export interface ChatProjectError {
@@ -65,6 +78,10 @@ export interface ChatProjectError {
   reason?: string
   /** `workspace_set`: the folder the conversation already works in. */
   workspace?: string
+  /** `conflict`: the instructions as they are on the Prometheus now, and their revision. */
+  current?: { content: string; rev: string }
+  /** `would_shadow`: the instructions files a PROMETHEUS.md there would stop being read. */
+  shadowed?: string[]
 }
 export type Read<T> = { ok: true; value: T } | ChatProjectError
 
@@ -81,6 +98,18 @@ const WORDS: Record<ChatProjectErrorKind, string> = {
   workspace_set: 'That conversation already works in a folder that was chosen for it.',
   device_session: 'That conversation belongs to a phone that can only chat.',
   unreachable: "Couldn't reach Prometheus. Try again.",
+  conflict: 'These instructions changed on Prometheus since you opened them.',
+  would_shadow: 'Saving these would stop Prometheus reading another instructions file in that folder.',
+  not_a_file: "The instructions file there is a folder or a link, so Beacon can't edit it.",
+  folder_missing: "That project's folder is gone from Prometheus's computer.",
+  too_large: 'That is too large for Prometheus to take (1 MB for the instructions, 20 MB for a reference file).',
+  too_long: 'These instructions are longer than Prometheus reads from one file.',
+  exists: 'A reference file with that name is already there.',
+  too_many: 'That project already has as many reference files as Prometheus allows.',
+  bad_name: "Prometheus can't use that file name (one name, no slash, no dot at the start, at most 120 characters).",
+  unknown_file: 'That file is no longer there.',
+  io_error: "Prometheus couldn't read or write that file.",
+  timeout: 'The upload took too long.',
   failed: "That didn't work. Try again."
 }
 
@@ -101,10 +130,13 @@ export function refusal(status: number, body: unknown): ChatProjectError {
     message: WORDS[k],
     status,
     ...(k === 'bad_folder' && error ? { reason: error } : {}),
-    ...(k === 'workspace_set' && isObj(body) && typeof body.workspace === 'string' ? { workspace: body.workspace } : {})
+    ...(k === 'workspace_set' && isObj(body) && typeof body.workspace === 'string' ? { workspace: body.workspace } : {}),
+    ...(k === 'conflict' && isObj(body) && typeof body.content === 'string' && typeof body.rev === 'string' ? { current: { content: body.content, rev: body.rev } } : {}),
+    ...(k === 'would_shadow' && isObj(body) && Array.isArray(body.files) ? { shadowed: body.files.filter((f): f is string => typeof f === 'string') } : {})
   })
   if (status === 0) return err('unreachable')
   if (status === 401 || status === 403) return err('not_owner')
+  if (status === 413) return err('too_large')
   switch (kind) {
     case 'name_taken':
     case 'name_required':
@@ -115,6 +147,18 @@ export function refusal(status: number, body: unknown): ChatProjectError {
     case 'machine_session':
     case 'workspace_set':
     case 'device_session':
+    case 'conflict':
+    case 'would_shadow':
+    case 'not_a_file':
+    case 'folder_missing':
+    case 'too_large':
+    case 'too_long':
+    case 'exists':
+    case 'too_many':
+    case 'bad_name':
+    case 'unknown_file':
+    case 'io_error':
+    case 'timeout':
       return err(kind)
     case 'unavailable':
       return err('unsupported')

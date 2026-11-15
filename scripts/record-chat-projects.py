@@ -12,6 +12,8 @@ INPUT: a frozen clock, counted ids and the invented names. The answers are the d
 PROMETHEUS_TESTS is a directory holding `tests/` (the daemon's World helper lives there). Copy both first: importing writes
 bytecode next to the source, and this must not write into a checkout.
 """
+import base64
+import hashlib
 import itertools
 import json
 import os
@@ -21,6 +23,7 @@ import sys
 import time
 import types
 import urllib.parse
+from pathlib import Path
 import uuid
 
 SRC = os.environ.get("PROMETHEUS_SRC", "")
@@ -55,6 +58,89 @@ from tests.test_chat_projects_routes import World, _Socket  # noqa: E402
 def q(session_id: str) -> str:
     """A session id as Beacon puts it in a path (encodeURIComponent): the colon is escaped."""
     return urllib.parse.quote(session_id, safe="")
+
+
+def record_content(w, owner_sock, device_sock) -> dict:
+    """A project's instructions and reference files, as the daemon answers them (design 3.5), kept apart from the exchanges above."""
+    exchanges: list[dict] = []
+    frames_before = len(owner_sock.frames)
+    keep = ("content-type", "content-disposition", "cache-control", "x-content-type-options")
+
+    def make(name: str) -> dict:  # a project, not recorded: the stage the recorded steps are played on
+        r = w.call("op", "POST", "/api/chat-projects", json={"name": name})
+        assert r.status_code in (200, 201), r.text
+        return r.json()["project"]
+
+    def step(label: str, who: str, method: str, url: str, body=None, data: bytes | None = None) -> dict:
+        kw: dict = {}
+        if body is not None:
+            kw["json"] = body
+        if data is not None:
+            kw["content"] = data
+        r = w.client.request(method, url, headers=w.hdr(who), **kw)
+        ctype = r.headers.get("content-type", "")
+        parsed = r.json() if ctype.startswith("application/json") else None
+        entry = {"label": label, "as": who, "method": method, "path": url, "status": r.status_code,
+                 "request": body if body is not None else ({"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} if data is not None else None)}
+        if parsed is not None:
+            entry["body"] = parsed
+        else:
+            entry["bytes_b64"] = base64.b64encode(r.content).decode()
+            entry["headers"] = {k: v for k, v in r.headers.items() if k.lower() in keep}
+        exchanges.append(entry)
+        return parsed if isinstance(parsed, dict) else {}
+
+    docs = make("Docs")
+    base = f"/api/chat-projects/{docs['id']}"
+    step("files, none yet", "op", "GET", f"{base}/files")
+    empty = step("instructions, none yet", "op", "GET", f"{base}/instructions")
+    saved = step("save instructions", "op", "PUT", f"{base}/instructions", {"content": "Be brief.", "base_rev": empty["rev"]})
+    step("instructions", "op", "GET", f"{base}/instructions")
+    step("save, but somebody saved since (a stale revision)", "op", "PUT", f"{base}/instructions", {"content": "Mine.", "base_rev": empty["rev"]})
+    step("save, too long", "op", "PUT", f"{base}/instructions", {"content": "x" * 12001, "base_rev": saved["rev"]})
+    step("save, not a text", "op", "PUT", f"{base}/instructions", {"content": 5, "base_rev": saved["rev"]})
+
+    shadow = make("Shadow")
+    Path(shadow["folder"], "CLAUDE.md").write_text("Older instructions.\n")
+    sbase = f"/api/chat-projects/{shadow['id']}"
+    sempty = step("instructions where another convention file is", "op", "GET", f"{sbase}/instructions")
+    step("save that would shadow it", "op", "PUT", f"{sbase}/instructions", {"content": "New.", "base_rev": sempty["rev"]})
+    step("save anyway", "op", "PUT", f"{sbase}/instructions", {"content": "New.", "base_rev": sempty["rev"], "shadow_ok": True})
+
+    linked = make("Linked")
+    os.mkdir(Path(linked["folder"], "PROMETHEUS.md"))
+    step("instructions, the file is a folder", "op", "GET", f"/api/chat-projects/{linked['id']}/instructions")
+    gone = make("Gone")
+    shutil.rmtree(gone["folder"])
+    step("instructions, the project's folder was deleted", "op", "GET", f"/api/chat-projects/{gone['id']}/instructions")
+
+    q = lambda name: urllib.parse.quote(name, safe="")  # a file name as Beacon puts it in a path
+    step("add a file", "op", "PUT", f"{base}/files/{q('notes.md')}", data=b"# Notes\nBuy milk.\n")
+    step("add it again", "op", "PUT", f"{base}/files/{q('notes.md')}", data=b"# Other\n")
+    step("add it again, replacing", "op", "PUT", f"{base}/files/{q('notes.md')}?replace=true", data=b"# Notes\nBuy milk and eggs.\n")
+    step("add a file, a name that is not allowed", "op", "PUT", f"{base}/files/{q('.hidden')}", data=b"x")
+    step("add a file, a name with a space and accents", "op", "PUT", f"{base}/files/{q('résumé draft.txt')}", data="Café\n".encode())
+    step("add a web page", "op", "PUT", f"{base}/files/{q('page.html')}", data=b"<script>alert(1)</script>")
+    step("files", "op", "GET", f"{base}/files")
+    step("get a file", "op", "GET", f"{base}/files/{q('notes.md')}")
+    step("get a web page", "op", "GET", f"{base}/files/{q('page.html')}")
+    step("get a file that is not there", "op", "GET", f"{base}/files/{q('nope.txt')}")
+    step("delete a file", "op", "DELETE", f"{base}/files/{q('notes.md')}")
+    step("delete it again", "op", "DELETE", f"{base}/files/{q('notes.md')}")
+    step("instructions, as a chat-only device", "a", "GET", f"{base}/instructions")
+    step("instructions, a project that is not there", "op", "GET", "/api/chat-projects/cp_000000000000/instructions")
+    frames = [f for f in owner_sock.frames[frames_before:] if f["type"] == "chat_project_changed"]
+
+    # A file's modification time is the file system's own clock, not the frozen one, so it differs on every recording: it is the one value
+    # set to a fixed number here, so the fixture does not change when nothing else did.
+    def settle(v):
+        if isinstance(v, dict):
+            return {k: (1793667600.0 if k == "mtime" and isinstance(x, float) else settle(x)) for k, x in v.items()}
+        if isinstance(v, list):
+            return [settle(x) for x in v]
+        return v
+
+    return {"exchanges": settle(exchanges), "frames": frames, "project": docs["id"]}
 
 
 def main() -> dict:
@@ -158,7 +244,8 @@ def main() -> dict:
     device_frames = [f for f in device_sock.frames if f["type"] == "chat_project_changed"]
     call("delete, a project that is not there", "op", "DELETE", "/api/chat-projects/cp_000000000000")
     call("delete, as a chat-only device", "a", "DELETE", f"/api/chat-projects/{kitchen['id']}")
-    return {"made_from": os.environ.get("PROMETHEUS_REV", "unknown"), "capabilities": capabilities,
+    content = record_content(w, owner_sock, device_sock)
+    return {"made_from": os.environ.get("PROMETHEUS_REV", "unknown"), "capabilities": capabilities, "content": content,
             "sessions": {"filed": s1, "hand_chosen_folder": s2, "device": s3, "label_only": s4, "suggested_into_project": s5,
                          "suggested_new": s6},
             "frames": frames, "device_got_frames": len(device_frames), "exchanges": exchanges}

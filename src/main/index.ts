@@ -85,6 +85,7 @@ import { noChatProjects } from '@shared/chat-projects'
 import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY, parseMigrated } from '@shared/chat-projects-view'
 import { SESSION_PROJECTS_SETTING_KEY } from '@shared/session-projects'
 import { registerChatProjectsHandlers } from './chat-projects-ipc'
+import { ChatProjectContent } from './chat-projects-content'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
 import { pairTlsPorts } from '@shared/devices'
@@ -432,6 +433,8 @@ app.on('open-file', (e, path) => {
 let connection: ConnectionManager | null = null
 /** The projects of the Prometheus `connection` talks to (@shared/chat-projects), made with it and replaced with it. */
 let chatProjects: ChatProjectsHub | null = null
+/** The same connection's way to a project's instructions and reference files. */
+let chatContent: ChatProjectContent | null = null
 /**
  * The live link: the gateway `connection` was brought up with and the key it uses there, set TOGETHER and only once the address may be
  * used (null until then, and while there is none). Every module that talks to "the connected Prometheus" with a key (the network and
@@ -666,6 +669,12 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
     }
   })
   chatProjects = projects
+  chatContent = new ChatProjectContent({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    bytes: (method, path, opts) => conn.projectsBytes(method, path, opts),
+    available: () => projects.state().available,
+    isCurrent: () => chatProjects === projects
+  })
   broadcast(IPC.CHAT_PROJECTS_CHANGED, projects.state())
   connection.on('status', onStatus)
   connection.on('stream', onStreamFrame)
@@ -927,6 +936,7 @@ function forgetConnection(): SetupForgetResult {
     // Its projects go with it: no Prometheus is kept, so nothing may be asked of the one that was, with the key just cleared.
     chatProjects?.reset()
     chatProjects = null
+    chatContent = null
     broadcast(IPC.CHAT_PROJECTS_CHANGED, noChatProjects())
     applyPins(null)
     connectedLink = null
@@ -2234,7 +2244,7 @@ app.whenReady().then(() => {
     return code.ok ? { ...code, name: rec.label } : code
   })
   registerPairPinHandlers(pairPin) // Devices → Enrol: the pairing code's TLS pin, before the token is minted
-  registerChatProjectsHandlers(() => chatProjects) // projects on the Prometheus: asked only where it says it serves them
+  registerChatProjectsHandlers(() => chatProjects, () => chatContent) // projects on the Prometheus: asked only where it says it serves them
   registerOwnerPromotionHandlers(ownerPromotion) // Settings → Make this Beacon an owner: the one-time code for an owner token
   registerMainModelHandlers(mainModelSetting) // Config → Models → Main model: which AI Prometheus thinks with (restart: the network setting's)
   app.on('before-quit', () => {
