@@ -60,6 +60,7 @@ if (!list.ok || !sug.ok) throw new Error('fixture: list or suggestions unreadabl
 const served: ChatProjectsState = {
   known: true,
   available: true,
+  migration: null,
   list: list.value,
   filings: { [fixture.sessions.filed]: 'cp_000000000001', [fixture.sessions.label_only]: 'cp_000000000002' },
   suggestions: sug.value.suggestions,

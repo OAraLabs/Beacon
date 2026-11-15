@@ -80,8 +80,10 @@ import { registerMainModelHandlers } from './main-model-ipc'
 import { OwnerPromotion } from './owner-promotion'
 import { registerOwnerPromotionHandlers } from './owner-promotion-ipc'
 import { ChatProjectsHub } from './chat-projects'
+import { ChatProjectsMigration } from './chat-projects-migration'
 import { noChatProjects } from '@shared/chat-projects'
-import { CHAT_PROJECTS_SERVED_KEY } from '@shared/chat-projects-view'
+import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY, parseMigrated } from '@shared/chat-projects-view'
+import { SESSION_PROJECTS_SETTING_KEY } from '@shared/session-projects'
 import { registerChatProjectsHandlers } from './chat-projects-ipc'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
@@ -634,9 +636,29 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
         repo?.setSetting(CHAT_PROJECTS_SERVED_KEY, '1')
       }
       broadcast(IPC.CHAT_PROJECTS_CHANGED, s)
+      // The move of this computer's projects to this Prometheus: once it has said it serves them, its list is read and this Beacon is its
+      // owner, and the folder is confirmed as its own. Cheap to ask again (it knows if it is running or done, and backs off after a miss).
+      if (s.available && s.list?.role === 'owner' && cache && !cache.isHeld()) void migration.run()
     }
   })
   let servedNoted = false
+  // Per connection, like the hub: it asks THIS Prometheus, and reads and records in THIS Prometheus's folder.
+  const folderRepo = folder.repo
+  const migration = new ChatProjectsMigration({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    readOwn: () => folderRepo.getSetting(SESSION_PROJECTS_SETTING_KEY),
+    readOthers: () =>
+      (folders?.listInstances() ?? [])
+        .filter((i) => i.id !== folder.id)
+        .map((i) => ({ folderId: i.id, raw: folders!.getSettingFor(i.id, SESSION_PROJECTS_SETTING_KEY) })),
+    isDone: () => parseMigrated(folderRepo.getSetting(CHAT_PROJECTS_MIGRATED_KEY)),
+    writeDone: (value) => folderRepo.setSetting(CHAT_PROJECTS_MIGRATED_KEY, value),
+    report: (m) => {
+      if (chatProjects !== projects) return
+      projects.setMigration(m)
+      if (m.status === 'done') void projects.refresh()
+    }
+  })
   chatProjects = projects
   broadcast(IPC.CHAT_PROJECTS_CHANGED, projects.state())
   connection.on('status', onStatus)

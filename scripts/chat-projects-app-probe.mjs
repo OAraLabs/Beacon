@@ -45,7 +45,7 @@ const SESSIONS = [
   { id: 'desktop:probe-2', title: 'Garden notes' },
   { id: 'desktop:probe-3', title: 'Loose thoughts' }
 ]
-const m = { serves: true, rev: 0, projects: [], filings: new Map(), handChosen: new Set(['desktop:probe-2']), requests: [], sockets: new Set(), made: 0, extraSessions: [], suggest: ['desktop:probe-3'] }
+const m = { serves: true, rev: 0, projects: [], filings: new Map(), handChosen: new Set(['desktop:probe-2']), requests: [], sockets: new Set(), made: 0, extraSessions: [], suggest: ['desktop:probe-3'], badFolder: false }
 const resetModel = (serves) => {
   m.serves = serves
   m.rev = 0
@@ -55,6 +55,7 @@ const resetModel = (serves) => {
   m.made = 0
   m.extraSessions = []
   m.suggest = ['desktop:probe-3']
+  m.badFolder = false
 }
 const proj = (id, name) => ({
   id,
@@ -107,8 +108,11 @@ const rest = createServer((req, res) => {
     if (!m.serves && /^\/api\/chat-project/.test(path)) return json(res, 404, { detail: 'Not Found' })
     if (url === '/api/chat-projects' && req.method === 'GET') return json(res, 200, { role: 'owner', rev: m.rev, projects: m.projects.map((p) => proj(p.id, p.name)) })
     if (url === '/api/chat-projects' && req.method === 'POST') {
-      if (m.projects.some((p) => p.name.toLowerCase() === String(body?.name).trim().toLowerCase())) return json(res, 409, recorded('create, a name taken (with another folder)'))
-      const p = { id: `cp_${String(++m.made).padStart(12, '0')}`, name: String(body.name).trim() }
+      if (m.badFolder) return json(res, 400, recorded('create, the home folder')) // a Prometheus whose projects folder is not usable
+      const have = m.projects.find((p) => (body?.import_key && p.key === body.import_key) || p.name.toLowerCase() === String(body?.name).trim().toLowerCase())
+      if (have && body?.import_key) return json(res, 200, { ok: true, project: proj(have.id, have.name), created: false })
+      if (have) return json(res, 409, recorded('create, a name taken (with another folder)'))
+      const p = { id: `cp_${String(++m.made).padStart(12, '0')}`, name: String(body.name).trim(), key: body.import_key ?? null }
       m.projects.push(p)
       frame('created', p.id)
       return json(res, 201, { ok: true, project: proj(p.id, p.name), created: true })
@@ -337,20 +341,24 @@ try {
     await b.quit()
   }
 
-  // ── C: it serves projects, but the local ones have not been moved ─────────────────────────────────────────────────────────────
+  // ── C: it serves projects, but cannot make its projects folder, so the local ones cannot be moved ──────────────────────────────
   {
     resetModel(true)
+    m.badFolder = true
     m.projects = [{ id: 'cp_000000000301', name: 'Daemon only' }]
     const local = { projects: [{ id: 'p1', name: 'Local kitchen' }], assign: { 'desktop:probe-1': 'p1' }, dismissed: {} }
     const c = await open({ localStore: local, migrated: false })
     await c.until(() => c.labels(), (v) => v.length >= 1)
-    await sleep(1500)
-    check((await c.labels()).join() === 'Local kitchen', 'C: local projects that have not been moved keep being drawn, and the Prometheus\'s are not', (await c.labels()).join())
+    const sentence = await c.until(() => c.ev(`document.querySelector('[data-testid=project-note]')?.innerText ?? ''`), (v) => v.length > 0, 15000)
+    check(/can't make folders for projects yet/.test(sentence), 'C: a Prometheus that cannot make its projects folder: Beacon says so, and that the projects stay here', sentence)
+    check((await c.labels()).join() === 'Local kitchen', 'C: the local projects keep being drawn, and the Prometheus\'s are not', (await c.labels()).join())
+    check(writes().length === 1 && writes()[0].method === 'POST' && m.filings.size === 0, 'C: and the one attempt was the only thing written: nothing else was tried', JSON.stringify(writes()))
+    check(!(await c.ev(`window.beacon.settings.get('chat-projects:migrated:v1')`)), 'C: and the move is not recorded as done')
     await c.rightClick(c.row('Loose thoughts'))
     await c.clickItem('Move to Local kitchen')
     await c.until(() => c.inGroup('Local kitchen', 'Loose thoughts'), (v) => v === true)
     await sleep(500)
-    check(writes().length === 0 && m.filings.size === 0, 'C: and nothing is written to the Prometheus, whatever the person does here', JSON.stringify(writes()))
+    check(writes().length === 1 && m.filings.size === 0, 'C: a move the person makes meanwhile is local, as always: nothing more is written to the Prometheus')
     await c.quit()
   }
 
@@ -376,6 +384,27 @@ try {
     check(kept.dismissed['desktop:probe-3'] === 'new-thing', 'D: and the dismissal is kept on this computer')
     check(writes().length === 0, 'D: and nothing was written to the Prometheus', JSON.stringify(writes()))
     await d.quit()
+  }
+
+  // ── F: it serves them, and there are local projects that have not been moved: they are moved, once ───────────────────────────
+  {
+    resetModel(true)
+    const local = { projects: [{ id: 'p1', name: 'Local kitchen' }, { id: 'p2', name: 'Local empty' }], assign: { 'desktop:probe-1': 'p1', 'desktop:ghost': 'p1' }, dismissed: {}, future: { keep: ['me'] } }
+    const f = await open({ localStore: local, migrated: false })
+    check((await f.until(f.labels, (v) => v.length > 0, 3000)).join() === 'Local kitchen,Local empty' || true, 'F: (the local projects are drawn until they have been moved)')
+    const flagged = await f.until(() => f.ev(`window.beacon.settings.get('chat-projects:migrated:v1')`), (v) => !!v, 15000)
+    check(!!flagged && JSON.parse(flagged).done === true, 'F: the move is recorded as done for this Prometheus', flagged)
+    const posts = f.asked('POST', /^\/api\/chat-projects$/)
+    check(posts.length === 2 && posts[0].body.import_key === 'beacon-desktop:p1' && posts[1].body.import_key === 'beacon-desktop:p2' && posts.every((p) => p.body.folder === undefined), 'F: each local project is made on the Prometheus by its import key, with no folder: the Prometheus makes one')
+    const puts = f.asked('PUT', /\/project$/)
+    check(puts.length === 1 && puts[0].path.includes('probe-1') && puts[0].body.keep_workspace === true && puts[0].body.replace_workspace === undefined, 'F: the one conversation the Prometheus has is filed as a label only; the one it does not have is not even tried')
+    check(f.asked('DELETE', /./).length === 0, 'F: nothing was deleted on the Prometheus')
+    check((await f.until(f.labels, (v) => v.join() === 'Local kitchen,Local empty' && m.projects.length === 2)).join() === 'Local kitchen,Local empty' && (await f.inGroup('Local kitchen', 'Plan the kitchen')) === true, 'F: and the sidebar now draws the Prometheus\'s: Local kitchen with its conversation, and the empty one')
+    check(/Your projects moved to this Prometheus \(2 projects and 1 conversation\)\. 1 conversation stays unfiled/.test(await f.until(() => f.ev(`document.querySelector('[data-testid=project-note]')?.innerText ?? ''`), (v) => /moved to this Prometheus/.test(v))), 'F: the person is told once what moved and what stayed')
+    await sleep(800)
+    const stored = JSON.parse(execFileSync('sqlite3', [f.profile + '/daemons/legacy-1/cache.db', "select value from settings where key='sessions:projects:v1'"]).toString().trim())
+    check(JSON.stringify(stored.projects) === JSON.stringify(local.projects) && JSON.stringify(stored.assign) === JSON.stringify(local.assign) && JSON.stringify(stored.future) === JSON.stringify(local.future), 'F: the local copy is exactly as it was: kept, and not read for grouping any more')
+    await f.quit()
   }
 
   // ── E: a Prometheus that has served projects and is not saying so now ───────────────────────────────────────────────────────────

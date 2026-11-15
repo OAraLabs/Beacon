@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { noChatProjects, type ChatProjectsOp, type ChatProjectsState } from '@shared/chat-projects'
+import { migrationNote } from '@shared/chat-projects-migration'
 import {
   CHAT_PROJECTS_MIGRATED_KEY,
   CHAT_PROJECTS_SERVED_KEY,
@@ -139,7 +140,7 @@ export function useProjectsSource(onOpenSession: (sessionId: string) => void): P
     return () => {
       alive = false
     }
-  }, [state.known, state.available, state.list?.rev])
+  }, [state.known, state.available, state.list?.rev, state.migration?.status])
 
   const mode = projectsMode({ state, migrated, local: localLoaded ? local : null, servedBefore })
   const daemon = mode === 'daemon'
@@ -160,6 +161,16 @@ export function useProjectsSource(onOpenSession: (sessionId: string) => void): P
     },
     []
   )
+  // The move of this computer's projects to the Prometheus: told once for each way it ends.
+  const toldAbout = useRef('')
+  useEffect(() => {
+    const m = state.migration
+    const line = m ? migrationNote(m) : null
+    const key = m ? `${m.status}|${m.projects}|${m.moved}|${m.leftovers}` : ''
+    if (!line || toldAbout.current === key) return
+    toldAbout.current = key
+    say(line)
+  }, [state.migration, say])
   const [asked, setAsked] = useState<FilingQuestion | null>(null)
   /** What to do once the filing a question is about has gone through. */
   const afterAsked = useRef<(() => void) | undefined>(undefined)

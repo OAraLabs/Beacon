@@ -282,8 +282,18 @@ export const PROJECT_ROUTES = {
     }
   }),
   start: (projectId: string) => ({ method: 'POST', path: '/api/sessions', body: { gateway: 'desktop', chat_project_id: projectId } }),
-  suggestions: () => ({ method: 'GET', path: '/api/chat-project-suggestions' })
+  suggestions: () => ({ method: 'GET', path: '/api/chat-project-suggestions' }),
+  /** The Prometheus's own session list: which conversations it has (the move asks it once). */
+  sessions: () => ({ method: 'GET', path: '/api/sessions' })
 } as const
+
+/** The ids in the daemon's session list, or null when the answer was not a list. */
+export function readSessionIds(status: number, body: unknown): Set<string> | null {
+  if (status !== 200 || !Array.isArray(body)) return null
+  const ids = new Set<string>()
+  for (const row of body) if (isObj(row) && typeof row.session_id === 'string' && row.session_id) ids.add(row.session_id)
+  return ids
+}
 
 const IMPORT_KEY_HEAD = 'beacon-desktop:'
 /** The `import_key` of a project moved from this computer: `beacon-desktop:<local id>`, printable ASCII with no space (the daemon refuses one), at most 200 characters. Null if
@@ -310,10 +320,12 @@ export interface ChatProjectsState {
   suggestions: Record<string, Suggestion>
   /** Beacon's words about the last read that failed, or null. The last good list stays on screen. */
   problem: string | null
+  /** The move of this computer's projects to this Prometheus (src/main/chat-projects-migration.ts); null until it has started. */
+  migration: import('./chat-projects-migration').MigrationState | null
 }
 
 export function noChatProjects(): ChatProjectsState {
-  return { known: false, available: false, list: null, filings: {}, suggestions: {}, problem: null }
+  return { known: false, available: false, list: null, filings: {}, suggestions: {}, problem: null, migration: null }
 }
 
 export type ChatProjectsOp =
