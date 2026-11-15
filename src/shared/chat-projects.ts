@@ -297,6 +297,9 @@ export function importKey(localId: string): string | null {
 
 /** What main knows about this Prometheus's projects. The page draws it and asks main to change it; it never asks the daemon itself. */
 export interface ChatProjectsState {
+  /** Beacon has heard what this Prometheus does (a `subscribed` reply), or has waited long enough to take silence for "no". Until then
+   *  `available: false` means "not known yet", and a view must not act as if it were "no". */
+  known: boolean
   /** This Prometheus said it serves projects. False: nothing below is read, nothing is asked, and the local projects are what there are. */
   available: boolean
   /** The projects, in the daemon's order; null until the first read (or while not available). */
@@ -310,7 +313,7 @@ export interface ChatProjectsState {
 }
 
 export function noChatProjects(): ChatProjectsState {
-  return { available: false, list: null, filings: {}, suggestions: {}, problem: null }
+  return { known: false, available: false, list: null, filings: {}, suggestions: {}, problem: null }
 }
 
 export type ChatProjectsOp =
