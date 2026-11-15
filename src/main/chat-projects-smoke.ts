@@ -435,7 +435,7 @@ async function hubChecks(): Promise<void> {
 {
   // What the move of the local projects tells the window.
   const w = world()
-  const note = { status: 'done' as const, projects: 2, moved: 3, leftovers: 1, message: null, fresh: true }
+  const note = { status: 'done' as const, projects: 2, moved: 3, leftovers: 1, alreadyFiled: 0, skippedProjects: 0, message: null, fresh: true }
   w.hub.setMigration(note)
   assert(w.hub.state().migration === null, 'a Prometheus that does not serve projects has no move to report')
   w.hub.onGatewayEvent(subscribed(['projects']))

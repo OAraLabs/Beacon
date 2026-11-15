@@ -44,7 +44,7 @@ export type ProjectsMode = 'local' | 'daemon' | 'wait'
 
 /**
  * Which projects the sidebar draws.
- *   * `wait` while anything this rule needs is still being read; while a Prometheus that has served projects before (or has had the
+ *   * `wait` while anything this rule needs is still being read; while the local projects are being moved to the Prometheus; while a Prometheus that has served projects before (or has had the
  *     local ones moved to it) is not answering now; and while the Prometheus's own answer is still on its way AND there are no local
  *     projects yet (the one moment a project made here could keep its projects from ever being drawn). With local projects already
  *     there and a Prometheus that has never served any, nothing waits: it is local, at once, as it always was;
@@ -60,6 +60,8 @@ export function projectsMode(o: { state: ChatProjectsState; migrated: boolean | 
     return !state.known && !localHasProjects(local) ? 'wait' : 'local'
   }
   if (!state.list) return 'wait' // it serves them; its list is still being read
+  // The local projects are being moved: an edit now would not be in what is moved, and the move would then hide it.
+  if (state.migration?.status === 'running') return 'wait'
   if (state.list.role !== 'owner') return 'local'
   return migrated || !localHasProjects(local) ? 'daemon' : 'local'
 }

@@ -29,7 +29,7 @@ import {
 import { classifiedScope } from '@shared/daemon-profiles'
 import { emptyProjectStore, rowSuggestion, type ProjectStore } from '@shared/session-projects'
 
-const EXPECTED = 58
+const EXPECTED = 60
 let failures = 0
 let checks = 0
 function assert(cond: boolean, label: string, detail?: unknown): void {
@@ -89,6 +89,8 @@ assert(mode({ ...served, list: null }, true, localEmpty) === 'wait', 'it serves 
 const chatOnly = readProjectList(ex('list, as a chat-only device').status, ex('list, as a chat-only device').body)
 assert(chatOnly.ok && mode({ ...served, list: chatOnly.value }, true, localEmpty) === 'local', "a Beacon that is not the owner (a device that may only chat) keeps its local projects: it could change none of the daemon's")
 assert(mode(served, null, localEmpty) === 'wait' && mode(served, true, null) === 'wait' && mode(served, true, localEmpty, null) === 'wait' && mode(served, null, null, null) === 'wait', 'while the flag, the local store or the served flag is still being read: wait')
+assert(mode({ ...served, migration: { status: 'running', projects: 0, moved: 0, leftovers: 0, alreadyFiled: 0, skippedProjects: 0, message: null, fresh: false } }, false, localFull) === 'wait', 'while the local projects are being moved, nothing is made or changed: an edit then would not be in what is moved, and the move would hide it')
+assert(mode({ ...served, migration: { status: 'incomplete', projects: 0, moved: 0, leftovers: 0, alreadyFiled: 0, skippedProjects: 0, message: 'x', fresh: false } }, false, localFull) === 'local' && mode({ ...served, migration: { status: 'done', projects: 1, moved: 1, leftovers: 0, alreadyFiled: 0, skippedProjects: 0, message: null, fresh: true } }, true, localFull) === 'daemon', 'a move that did not finish leaves the local projects drawn; one that did, the Prometheus\'s')
 assert(mode(served, true, localFull) === 'daemon', "the local projects have been moved: the Prometheus's are drawn")
 assert(mode(served, false, localEmpty) === 'daemon', "there were none to move: the Prometheus's are drawn")
 assert(mode(served, false, localFull) === 'local' && mode(served, false, localOnlyAssign) === 'local', 'local projects that have not been moved keep being drawn, and are not touched')

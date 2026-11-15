@@ -287,12 +287,13 @@ export const PROJECT_ROUTES = {
   sessions: () => ({ method: 'GET', path: '/api/sessions' })
 } as const
 
-/** The ids in the daemon's session list, or null when the answer was not a list. */
-export function readSessionIds(status: number, body: unknown): Set<string> | null {
+/** The daemon's session list as conversation id → the project it is filed in (null: none), or null when the answer was not a list. A row
+ *  that does not say (a daemon that has no projects) counts as not filed. */
+export function readSessionList(status: number, body: unknown): Map<string, string | null> | null {
   if (status !== 200 || !Array.isArray(body)) return null
-  const ids = new Set<string>()
-  for (const row of body) if (isObj(row) && typeof row.session_id === 'string' && row.session_id) ids.add(row.session_id)
-  return ids
+  const rows = new Map<string, string | null>()
+  for (const row of body) if (isObj(row) && typeof row.session_id === 'string' && row.session_id) rows.set(row.session_id, typeof row.chat_project_id === 'string' ? row.chat_project_id : null)
+  return rows
 }
 
 const IMPORT_KEY_HEAD = 'beacon-desktop:'

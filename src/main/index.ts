@@ -638,7 +638,7 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
       broadcast(IPC.CHAT_PROJECTS_CHANGED, s)
       // The move of this computer's projects to this Prometheus: once it has said it serves them, its list is read and this Beacon is its
       // owner, and the folder is confirmed as its own. Cheap to ask again (it knows if it is running or done, and backs off after a miss).
-      if (s.available && s.list?.role === 'owner' && cache && !cache.isHeld()) void migration.run()
+      if (s.available && s.list?.role === 'owner' && cache && !cache.isHeld()) void migration.run().catch(() => undefined)
     }
   })
   let servedNoted = false
@@ -653,10 +653,16 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
         .map((i) => ({ folderId: i.id, raw: folders!.getSettingFor(i.id, SESSION_PROJECTS_SETTING_KEY) })),
     isDone: () => parseMigrated(folderRepo.getSetting(CHAT_PROJECTS_MIGRATED_KEY)),
     writeDone: (value) => folderRepo.setSetting(CHAT_PROJECTS_MIGRATED_KEY, value),
+    isCurrent: () => chatProjects === projects, // replaced or forgotten: it stops asking, and writes nothing
     report: (m) => {
-      if (chatProjects !== projects) return
-      projects.setMigration(m)
-      if (m.status === 'done') void projects.refresh()
+      void (async () => {
+        // Before the window is told it is done, it is given the conversations' filings from the Prometheus's own list: otherwise it would
+        // draw the Prometheus's projects with every conversation unfiled for a moment, which looks like a loss.
+        if (m.status === 'done' && m.fresh) await cache?.listSessions().catch(() => undefined)
+        if (chatProjects !== projects) return
+        projects.setMigration(m)
+        if (m.status === 'done') void projects.refresh()
+      })()
     }
   })
   chatProjects = projects

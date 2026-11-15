@@ -8,7 +8,8 @@
 //   2  a conversation with a folder chosen by hand: filed as a label, its folder unchanged;
 //   3  the move run again (nothing remembered): no duplicates;
 //   4  a move cut off part way, then finished: no duplicates, and nothing recorded until it is done;
-//   5  a Prometheus that cannot be reached: nothing made, nothing recorded.
+//   5  a Prometheus that cannot be reached: nothing made, nothing recorded;
+//   6  a conversation already in a project on the Prometheus is left where it is.
 //
 //   BEACON_REAL_DAEMON_SRC=<prometheus src of the chat-projects branch> BEACON_REAL_DAEMON_PY=<its python> npm run build && npm run probe:chat-projects-migration
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
@@ -53,6 +54,7 @@ const mover = (d, log, own, others, flag, opts) => {
     isDone: () => !!flag.value,
     writeDone: (v) => (flag.value = v),
     report: (s) => reports.push(s),
+    isCurrent: () => true,
     now: () => Date.now()
   })
   return { m, reports }
@@ -84,7 +86,7 @@ try {
   check(end1?.status === 'done' && end1.fresh === true, '1: the move on the first Prometheus finishes', JSON.stringify(end1))
   const one = await byName(d1)
   check(JSON.stringify(one) === JSON.stringify({ Kitchen: ['desktop:one-1', 'desktop:one-3'], Garden: [], Solo: [], Reading: ['desktop:one-2'] }), "1: it has Kitchen with its two conversations, the empty Garden, Reading with its one, and an empty Solo (a project of its own store keeps its name; Solo's conversation is on the other)", JSON.stringify(one))
-  check(end1.moved === 3 && end1.leftovers === 3, '1: three filed; three stay unfiled (the other Prometheus\'s two, and one that is nowhere)', JSON.stringify(end1))
+  check(end1.moved === 3 && end1.leftovers === 3 && end1.alreadyFiled === 0, "1: three filed; three stay unfiled (the other Prometheus's two, and one that is nowhere)", JSON.stringify(end1))
   const log2 = []
   const flag2 = { value: null }
   const b = mover(d2, log2, null, [{ folderId: 'f1', raw: mixed }], flag2)
@@ -138,7 +140,18 @@ try {
   const endLater = await later.m.run()
   check(endLater?.status === 'done' && JSON.stringify(await byName(fresh)) === JSON.stringify({ Offline: ['desktop:z'] }), '5: when it comes back, it migrates, and the conversation is filed')
   fresh.stop()
-  check(true, 'the stores this computer holds were only ever read: they are strings the mover was handed')
+
+  // ── 6: a conversation somebody already filed on the Prometheus is left where it is ───────────────────────────────────────────────
+  const d5 = await startRealDaemon({ name: 'Five', seedSessions: ['desktop:x1', 'desktop:x2'] })
+  try {
+    const elsewhere = (await d5.owner('POST', '/api/chat-projects', { name: 'Elsewhere' })).body.project
+    await d5.owner('PUT', `/api/sessions/${enc('desktop:x1')}/project`, { chat_project_id: elsewhere.id, keep_workspace: true })
+    const endFiled = await mover(d5, [], store([['p1', 'Kitchen']], { 'desktop:x1': 'p1', 'desktop:x2': 'p1' }), [], { value: null }).m.run()
+    const filed = await byName(d5)
+    check(endFiled?.status === 'done' && endFiled.alreadyFiled === 1 && JSON.stringify(filed) === JSON.stringify({ Elsewhere: ['desktop:x1'], Kitchen: ['desktop:x2'] }), '6: a conversation already in a project on the Prometheus stays there: the move does not replace that filing', JSON.stringify(filed))
+  } finally {
+    d5.stop()
+  }
 } finally {
   for (const d of [d1, d2, d3]) d?.stop()
 }

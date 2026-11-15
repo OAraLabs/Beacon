@@ -391,7 +391,6 @@ try {
     resetModel(true)
     const local = { projects: [{ id: 'p1', name: 'Local kitchen' }, { id: 'p2', name: 'Local empty' }], assign: { 'desktop:probe-1': 'p1', 'desktop:ghost': 'p1' }, dismissed: {}, future: { keep: ['me'] } }
     const f = await open({ localStore: local, migrated: false })
-    check((await f.until(f.labels, (v) => v.length > 0, 3000)).join() === 'Local kitchen,Local empty' || true, 'F: (the local projects are drawn until they have been moved)')
     const flagged = await f.until(() => f.ev(`window.beacon.settings.get('chat-projects:migrated:v1')`), (v) => !!v, 15000)
     check(!!flagged && JSON.parse(flagged).done === true, 'F: the move is recorded as done for this Prometheus', flagged)
     const posts = f.asked('POST', /^\/api\/chat-projects$/)
@@ -400,7 +399,7 @@ try {
     check(puts.length === 1 && puts[0].path.includes('probe-1') && puts[0].body.keep_workspace === true && puts[0].body.replace_workspace === undefined, 'F: the one conversation the Prometheus has is filed as a label only; the one it does not have is not even tried')
     check(f.asked('DELETE', /./).length === 0, 'F: nothing was deleted on the Prometheus')
     check((await f.until(f.labels, (v) => v.join() === 'Local kitchen,Local empty' && m.projects.length === 2)).join() === 'Local kitchen,Local empty' && (await f.inGroup('Local kitchen', 'Plan the kitchen')) === true, 'F: and the sidebar now draws the Prometheus\'s: Local kitchen with its conversation, and the empty one')
-    check(/Your projects moved to this Prometheus \(2 projects and 1 conversation\)\. 1 conversation stays unfiled/.test(await f.until(() => f.ev(`document.querySelector('[data-testid=project-note]')?.innerText ?? ''`), (v) => /moved to this Prometheus/.test(v))), 'F: the person is told once what moved and what stayed')
+    check(/Your projects moved to this Prometheus \(2 projects and 1 conversation\)\. 1 conversation couldn't be filed here and stays unfiled/.test(await f.until(() => f.ev(`document.querySelector('[data-testid=project-note]')?.innerText ?? ''`), (v) => /moved to this Prometheus/.test(v))), 'F: the person is told once what moved and what stayed')
     await sleep(800)
     const stored = JSON.parse(execFileSync('sqlite3', [f.profile + '/daemons/legacy-1/cache.db', "select value from settings where key='sessions:projects:v1'"]).toString().trim())
     check(JSON.stringify(stored.projects) === JSON.stringify(local.projects) && JSON.stringify(stored.assign) === JSON.stringify(local.assign) && JSON.stringify(stored.future) === JSON.stringify(local.future), 'F: the local copy is exactly as it was: kept, and not read for grouping any more')

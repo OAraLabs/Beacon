@@ -23,8 +23,10 @@ export interface PlannedProject {
   name: string
   /** `own`: this Prometheus's own store. Otherwise the id of the folder whose store it is. */
   origin: 'own' | string
-  /** Its conversations this Prometheus lists: the ones to file. */
+  /** Its conversations this Prometheus lists and has in no project: the ones to file. */
   sessions: string[]
+  /** Its conversations this Prometheus lists that are ALREADY in a project there (somebody filed them, here or on the phone): left exactly where they are. */
+  already: string[]
   /** Assigned in the local store but not in this Prometheus's list: not filed, and counted as left unfiled. */
   missing: string[]
 }
@@ -35,12 +37,13 @@ export interface PlannedProject {
  *     chose is not dropped; a folder wholly on another Prometheus leaves a project of that name here too, which is the name kept on each side);
  *   * a project of ANOTHER store only when this Prometheus lists at least one of its conversations, and then only those;
  *   * a conversation is planned once: its own store's filing wins over another's.
- * `listed` is the ids in this Prometheus's session list.
+ * `listed` is this Prometheus's session list: conversation id → the project it is in there, or null. A conversation already in a project on the
+ * Prometheus is never filed again by the move: the daemon would replace that filing, and the person (or another Beacon) put it there.
  */
 export function planMigration(o: {
   own: ProjectStore
   others: ReadonlyArray<{ folderId: string; store: ProjectStore }>
-  listed: ReadonlySet<string>
+  listed: ReadonlyMap<string, string | null>
 }): PlannedProject[] {
   const out: PlannedProject[] = []
   const planned = new Set<string>()
@@ -48,14 +51,27 @@ export function planMigration(o: {
   for (const p of o.own.projects) {
     const ids = sessionsOf(o.own, p.id)
     for (const id of ids) planned.add(id)
-    out.push({ key: importKey(p.id), localId: p.id, name: p.name, origin: 'own', sessions: ids.filter((id) => o.listed.has(id)), missing: ids.filter((id) => !o.listed.has(id)) })
+    out.push({
+      key: importKey(p.id),
+      localId: p.id,
+      name: p.name,
+      origin: 'own',
+      sessions: ids.filter((id) => o.listed.has(id) && o.listed.get(id) === null),
+      already: ids.filter((id) => typeof o.listed.get(id) === 'string'),
+      missing: ids.filter((id) => !o.listed.has(id))
+    })
   }
   for (const f of o.others) {
     for (const p of f.store.projects) {
       const ids = sessionsOf(f.store, p.id).filter((id) => o.listed.has(id) && !planned.has(id))
-      if (ids.length === 0) continue
+      const toFile = ids.filter((id) => o.listed.get(id) === null)
+      if (toFile.length === 0) {
+        // Nothing of this project is here to file (all already in a project, or none listed): no project is made for it on this Prometheus.
+        for (const id of ids) planned.add(id)
+        continue
+      }
       for (const id of ids) planned.add(id)
-      out.push({ key: importKey(`${f.folderId}:${p.id}`), localId: p.id, name: p.name, origin: f.folderId, sessions: ids, missing: [] })
+      out.push({ key: importKey(`${f.folderId}:${p.id}`), localId: p.id, name: p.name, origin: f.folderId, sessions: toFile, already: ids.filter((id) => typeof o.listed.get(id) === 'string'), missing: [] })
     }
   }
   return out
@@ -70,8 +86,12 @@ export interface MigrationState {
   projects: number
   /** Conversations filed. */
   moved: number
-  /** Conversations Prometheus does not have (or runs itself) that stay unfiled; their local copy is kept. */
+  /** Conversations that could not be filed here and stay unfiled (not on this Prometheus, or not ones it files); their local copy is kept. */
   leftovers: number
+  /** Conversations already in a project on the Prometheus, left exactly where they are. */
+  alreadyFiled: number
+  /** Projects the Prometheus would not take (its name); their local copy is kept. */
+  skippedProjects: number
   /** Why it did not finish, in words; null otherwise. */
   message: string | null
   /** This run did the work (as opposed to finding it already done), so the person is told once. */
@@ -81,10 +101,15 @@ export interface MigrationState {
 /** The one line the person is told when the move has finished, or null when there is nothing to say. */
 export function migrationNote(m: MigrationState): string | null {
   if (m.status === 'blocked' || m.status === 'incomplete') return m.message
-  if (m.status !== 'done' || !m.fresh || (m.projects === 0 && m.moved === 0)) return null
-  const what = `${m.projects} project${m.projects === 1 ? '' : 's'}${m.moved > 0 ? ` and ${m.moved} conversation${m.moved === 1 ? '' : 's'}` : ''}`
-  const left = m.leftovers > 0 ? ` ${m.leftovers} conversation${m.leftovers === 1 ? ' stays' : 's stay'} unfiled: Prometheus no longer has ${m.leftovers === 1 ? 'it' : 'them'}.` : ''
-  return `Your projects moved to this Prometheus (${what}).${left} The copy on this computer is kept.`
+  if (m.status !== 'done' || !m.fresh || (m.projects === 0 && m.moved === 0 && m.skippedProjects === 0)) return null
+  const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
+  const what = `${plural(m.projects, 'project', 'projects')}${m.moved > 0 ? ` and ${plural(m.moved, 'conversation', 'conversations')}` : ''}`
+  const parts = [`Your projects moved to this Prometheus (${what}).`]
+  if (m.alreadyFiled > 0) parts.push(`${plural(m.alreadyFiled, 'conversation was', 'conversations were')} already in a project there and ${m.alreadyFiled === 1 ? 'was' : 'were'} left where ${m.alreadyFiled === 1 ? 'it is' : 'they are'}.`)
+  if (m.leftovers > 0) parts.push(`${plural(m.leftovers, 'conversation', 'conversations')} couldn't be filed here and ${m.leftovers === 1 ? 'stays' : 'stay'} unfiled: ${m.leftovers === 1 ? 'it may' : 'they may'} be on another Prometheus, or gone.`)
+  if (m.skippedProjects > 0) parts.push(`${plural(m.skippedProjects, 'project', 'projects')} couldn't be moved: Prometheus wouldn't take ${m.skippedProjects === 1 ? 'its name' : 'their names'}.`)
+  parts.push('The copy on this computer is kept.')
+  return parts.join(' ')
 }
 
 export const MIGRATION_WORDS = {
