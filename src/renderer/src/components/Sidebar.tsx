@@ -421,7 +421,7 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
     const r = sessions.find((s) => s.id === sessionId)
     return r ? rowName(r) : ''
   }
-  const fileInto = (sessionId: string, projectId: string | null): void => projects.fileInto(sessionId, projectId, titleOf(sessionId))
+  const fileInto = (sessionId: string, projectId: string | null, after?: () => void): void => projects.fileInto(sessionId, projectId, titleOf(sessionId), after)
   /** Accept a suggestion: into the project of the same name if there is one, else a new one. */
   const acceptHint = (sessionIds: string[], label: string): void => projects.acceptHint(sessionIds, label)
   const dismissHints = (items: Array<{ sessionId: string; key: string }>): void => projects.dismissHints(items)
@@ -443,8 +443,10 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
       if (!pinned?.[sessionId]) onTogglePin?.(sessionId, true)
       return
     }
-    if (pinned?.[sessionId]) onTogglePin?.(sessionId, false)
-    fileInto(sessionId, target === 'unfiled' ? null : target)
+    // Unpinned once it is FILED: a filing on the Prometheus can be refused, or a question cancelled, and the row must not end up
+    // unpinned and unfiled by a drop that did nothing.
+    const unpin = pinned?.[sessionId] ? (): void => onTogglePin?.(sessionId, false) : undefined
+    fileInto(sessionId, target === 'unfiled' ? null : target, unpin)
   }
   const dropProps = (target: string) => ({
     onDragOver: (e: RDragEvent): void => {
@@ -675,7 +677,11 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
             className="project-review-toggle"
             onClick={() => setReviewOpen((o) => !o)}
             aria-expanded={reviewOpen}
-            title="Sessions whose tool calls mostly touched one project folder. Nothing is filed until you say so."
+            title={
+              projects.mode === 'daemon'
+                ? "Conversations whose tool calls mostly touched one project folder. Nothing is filed until you say so, and a conversation filed in a project works in that project's folder."
+                : 'Sessions whose tool calls mostly touched one project folder. Nothing is filed until you say so.'
+            }
           >
             <Icon name="files" size={11} />
             <span>
@@ -986,6 +992,7 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
                 className="ctx-menu-item"
                 role="menuitem"
                 disabled={here}
+                title={projects.mode === 'daemon' && projects.folderOf(p.id) ? `The conversation will work in ${projects.folderOf(p.id)}` : undefined}
                 onClick={() => {
                   fileInto(menuRow.id, p.id)
                   closeMenu()

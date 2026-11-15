@@ -45,7 +45,7 @@ const SESSIONS = [
   { id: 'desktop:probe-2', title: 'Garden notes' },
   { id: 'desktop:probe-3', title: 'Loose thoughts' }
 ]
-const m = { serves: true, rev: 0, projects: [], filings: new Map(), handChosen: new Set(['desktop:probe-2']), requests: [], sockets: new Set(), made: 0, extraSessions: [] }
+const m = { serves: true, rev: 0, projects: [], filings: new Map(), handChosen: new Set(['desktop:probe-2']), requests: [], sockets: new Set(), made: 0, extraSessions: [], suggest: ['desktop:probe-3'] }
 const resetModel = (serves) => {
   m.serves = serves
   m.rev = 0
@@ -54,6 +54,7 @@ const resetModel = (serves) => {
   m.requests = []
   m.made = 0
   m.extraSessions = []
+  m.suggest = ['desktop:probe-3']
 }
 const proj = (id, name) => ({
   id,
@@ -130,7 +131,9 @@ const rest = createServer((req, res) => {
       return json(res, 200, { ok: true, id: p.id, unfiled: n })
     }
     if (url === '/api/chat-project-suggestions') {
-      return json(res, 200, { suggestions: m.filings.has('desktop:probe-3') ? {} : { 'desktop:probe-3': { key: 'new-thing', label: 'new-thing', share: 1, calls: 4, project: null } }, rev: m.rev })
+      const out = {}
+      for (const id of m.suggest) if (!m.filings.has(id)) out[id] = { key: 'new-thing', label: 'new-thing', share: 1, calls: 4, project: null }
+      return json(res, 200, { suggestions: out, rev: m.rev })
     }
     const filing = /^\/api\/sessions\/([^/]+)\/project$/.exec(path)
     if (filing && req.method === 'PUT') {
@@ -171,12 +174,13 @@ for (const s of [rest, wsHttp]) await new Promise((r) => s.listen(0, '127.0.0.1'
 
 // ── one app, one scratch profile, for one situation ──────────────────────────────────────────────────────────────────────────────
 const profiles = []
-async function open({ localStore, migrated }) {
+async function open({ localStore, migrated, served = false }) {
   const profile = mkdtempSync(join(tmpdir(), 'beacon-chat-projects-profile-'))
   profiles.push(profile)
   const settings = []
   if (localStore) settings.push(`INSERT INTO settings VALUES ('sessions:projects:v1', '${JSON.stringify(localStore).replace(/'/g, "''")}');`)
   if (migrated) settings.push(`INSERT INTO settings VALUES ('chat-projects:migrated:v1', '{"done":true}');`)
+  if (served) settings.push(`INSERT INTO settings VALUES ('chat-projects:served:v1', '1');`)
   execFileSync('sqlite3', [join(profile, 'beacon.db'), `CREATE TABLE gateway_profiles (name TEXT PRIMARY KEY, api_base TEXT NOT NULL, ws_url TEXT NOT NULL, is_default INTEGER DEFAULT 0, pin TEXT);
   INSERT INTO gateway_profiles VALUES ('standin', 'http://127.0.0.1:${rest.address().port}', 'ws://127.0.0.1:${wsHttp.address().port}', 1, NULL);
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
@@ -291,6 +295,31 @@ try {
     await a.quit()
   }
 
+  // ── A2: accepting a batch of suggestions, one of them with a folder already chosen ──────────────────────────────────────────────
+  {
+    resetModel(true)
+    m.suggest = ['desktop:probe-3', 'desktop:probe-2'] // probe-2 has a folder chosen for it
+    const a = await open({ localStore: null, migrated: false })
+    await a.until(() => a.text(), (v) => /2 sessions could go in a project/.test(v))
+    check(/2 sessions could go in a project/.test(await a.text()), 'A2: two suggestions from the Prometheus')
+    await a.ev(`document.querySelector('.project-review-toggle').click(); true`)
+    await a.until(() => a.ev(`!!document.querySelector('.project-review-btn')`), (v) => v === true)
+    await a.ev(`[...document.querySelectorAll('.project-review-btn:not(.is-quiet)')][0].click(); true`)
+    const sawQuestion = []
+    const watch = setInterval(() => a.ev(`!!document.querySelector('[data-testid=project-question]')`).then((v) => v && sawQuestion.push(1)).catch(() => undefined), 50)
+    const made2 = await a.until(() => a.asked('POST', /^\/api\/chat-projects$/), (v) => v.length > 0)
+    check(made2.length === 1 && made2[0].body.name === 'new-thing', 'A2: accepting makes the project, once')
+    const p2 = await a.until(() => a.asked('PUT', /probe-2\/project$/), (v) => v.length >= 2)
+    clearInterval(watch)
+    check(p2.length === 2 && p2[0].body.keep_workspace === undefined && p2[1].body.keep_workspace === true, 'A2: a folder already chosen: asked, then filed as a label only, never moved')
+    check(a.asked('PUT', /probe-3\/project$/).length === 1 && a.asked('PUT', /probe-3\/project$/)[0].body.keep_workspace === undefined, 'A2: the other is filed normally')
+    const noteText = await a.until(() => a.ev(`document.querySelector('[data-testid=project-note]')?.innerText ?? ''`), (v) => /Moved 1 conversation/.test(v))
+    check(/Moved 1 conversation to “new-thing”/.test(noteText) && /One conversation already had a folder chosen for it/.test(noteText), 'A2: one note says both: how many were moved, and that one kept its folder', noteText)
+    check(sawQuestion.length === 0, 'A2: no question was put to the person for a batch: nothing was decided for them, and it was said afterwards')
+    check(m.filings.get('desktop:probe-2') && m.filings.get('desktop:probe-3'), 'A2: both are filed')
+    await a.quit()
+  }
+
   // ── B: today's Prometheus: no projects, and local ones ────────────────────────────────────────────────────────────────────────
   {
     resetModel(false)
@@ -330,15 +359,42 @@ try {
     resetModel(true)
     m.projects = [{ id: 'cp_000000000401', name: 'Moved kitchen' }]
     m.filings.set('desktop:probe-1', 'cp_000000000401')
-    const local = { projects: [{ id: 'p1', name: 'Local kitchen' }], assign: { 'desktop:probe-1': 'p1' }, dismissed: { 'desktop:probe-3': 'new-thing' } }
+    // The stored store holds entries this version would drop on reading (a case-duplicate name, a filing to a project that is gone, a
+    // field it doesn't know): a dismissal must leave every one of them exactly where it is.
+    const local = { projects: [{ id: 'p1', name: 'Local kitchen' }, { id: 'p2', name: 'LOCAL KITCHEN' }], assign: { 'desktop:probe-1': 'p1', 'desktop:ghost': 'p-gone' }, dismissed: {}, future: { keep: ['me'] } }
     const d = await open({ localStore: local, migrated: true })
     check((await d.until(d.labels, (v) => v.includes('Moved kitchen'))).join() === 'Moved kitchen', 'D: once the local projects have been moved, the Prometheus\'s are drawn, and the local ones are not', (await d.labels()).join())
     check((await d.inGroup('Moved kitchen', 'Plan the kitchen')) === true, 'D: with its filing')
-    check(!/could go in a project/.test(await d.text()), 'D: a suggestion the person said no to, on this computer, stays gone')
-    await sleep(500)
-    const kept = execFileSync('sqlite3', [d.profile + '/daemons/legacy-1/cache.db', "select value from settings where key='sessions:projects:v1'"]).toString().trim()
-    check(JSON.parse(kept).projects[0].name === 'Local kitchen' && JSON.parse(kept).assign['desktop:probe-1'] === 'p1', 'D: the local copy is exactly as it was: its project and its filing are still there')
+    check(/1 session could go in a project/.test(await d.until(d.text, (v) => /could go in a project/.test(v))), 'D: there is a suggestion for a loose conversation')
+    await d.rightClick(d.row('Loose thoughts'))
+    check(await d.clickItem('Don’t suggest'), 'D: its menu offers to stop suggesting')
+    await d.until(() => d.text(), (v) => !/could go in a project/.test(v))
+    check(!/could go in a project/.test(await d.text()), 'D: a suggestion the person said no to stays gone')
+    await sleep(600)
+    const kept = JSON.parse(execFileSync('sqlite3', [d.profile + '/daemons/legacy-1/cache.db', "select value from settings where key='sessions:projects:v1'"]).toString().trim())
+    check(JSON.stringify(kept.projects) === JSON.stringify(local.projects) && JSON.stringify(kept.assign) === JSON.stringify(local.assign) && JSON.stringify(kept.future) === JSON.stringify(local.future), 'D: the local copy is exactly as it was after the dismissal: both projects, both filings (one to a project that is gone) and the field it does not know')
+    check(kept.dismissed['desktop:probe-3'] === 'new-thing', 'D: and the dismissal is kept on this computer')
+    check(writes().length === 0, 'D: and nothing was written to the Prometheus', JSON.stringify(writes()))
     await d.quit()
+  }
+
+  // ── E: a Prometheus that has served projects and is not saying so now ───────────────────────────────────────────────────────────
+  {
+    resetModel(false)
+    const e = await open({ localStore: null, migrated: false, served: true })
+    await sleep(1500)
+    await e.rightClick(e.row('Loose thoughts'))
+    await e.clickItem('New project')
+    await e.until(() => e.ev(`!!document.querySelector('.project-naming input')`), (v) => v === true)
+    await e.app.page.send('Input.insertText', { text: 'Made too early' })
+    await e.app.page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    await e.app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    check(/still loading from Prometheus/.test(await e.until(() => e.ev(`document.querySelector('[data-testid=project-note]')?.innerText ?? ''`), (v) => v.length > 0)), 'E: a Prometheus that has served projects and is not saying so now: a project is not made, and Beacon says why')
+    await sleep(400)
+    const stored = execFileSync('sqlite3', [e.profile + '/daemons/legacy-1/cache.db', "select count(*) from settings where key='sessions:projects:v1'"]).toString().trim()
+    check(stored === '0' && (await e.labels()).length === 0, 'E: and nothing was made locally, which would have kept the Prometheus\'s projects from ever being drawn')
+    check(m.requests.filter((r) => /chat-project/.test(r.path)).length === 0, 'E: it was asked nothing about projects either')
+    await e.quit()
   }
 } finally {
   for (const s of [rest, wsHttp]) s.close()

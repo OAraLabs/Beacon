@@ -31,6 +31,9 @@ export type ProjectsRequest = (method: string, path: string, body?: unknown) => 
 
 export class ChatProjectsHub {
   private available = false
+  /** A `subscribed` reply has been heard, or the wait for one is over. */
+  private known = false
+  private decideTimer: ReturnType<typeof setTimeout> | null = null
   private list: ProjectList | null = null
   private filings: Record<string, string> = Object.create(null)
   /** The latest filings the daemon's session list gave, kept even before the daemon has said it serves projects (the list can land first). */
@@ -46,19 +49,37 @@ export class ChatProjectsHub {
     private readonly deps: {
       request: ProjectsRequest
       onState: (s: ChatProjectsState) => void
+      /** How long a Prometheus that says nothing is waited for before its silence is taken to mean "no projects" (one too old to
+       *  reply to a subscribe never will). */
+      decideAfterMs?: number
     }
-  ) {}
+  ) {
+    this.startWaiting()
+  }
+
+  private startWaiting(): void {
+    if (this.decideTimer) clearTimeout(this.decideTimer)
+    this.decideTimer = setTimeout(() => {
+      this.decideTimer = null
+      if (this.known) return
+      this.known = true
+      this.emit()
+    }, this.deps.decideAfterMs ?? 6000)
+    this.decideTimer.unref?.()
+  }
 
   state(): ChatProjectsState {
     return this.available
-      ? { available: true, list: this.list, filings: { ...this.filings }, suggestions: { ...this.suggestions }, problem: this.problem }
-      : noChatProjects()
+      ? { known: true, available: true, list: this.list, filings: { ...this.filings }, suggestions: { ...this.suggestions }, problem: this.problem }
+      : { ...noChatProjects(), known: this.known }
   }
 
   /** A new connection (maybe another Prometheus): forget everything, say nothing is available until it says so. */
   reset(): void {
     this.gen++
     this.available = false
+    this.known = false
+    this.startWaiting()
     this.list = null
     this.filings = Object.create(null)
     this.seenFilings = null
@@ -74,7 +95,10 @@ export class ChatProjectsHub {
   onGatewayEvent(ev: { type?: string; payload?: unknown }): void {
     if (ev.type === 'subscribed') {
       const now = advertisesChatProjects(ev.payload)
+      const wasKnown = this.known
+      this.known = true
       if (now === this.available) {
+        if (!wasKnown) this.emit()
         // A reconnect to the same Prometheus: changes made while the socket was down sent no frame Beacon has seen.
         if (now) void this.refresh()
         return

@@ -16,7 +16,7 @@ import { ONBOARDING_BROWSING_KEY, ONBOARDING_KNOWN_KEY, ONBOARDING_LAN_ASKED_KEY
 import { PANEL_OPEN_KEY, PANEL_PANE_KEY, PANEL_WIDTH_KEY, SESSION_LIST_WIDTH_SETTING_KEY } from './side-panel'
 import { SESSION_GROUPS_SETTING_KEY } from './session-groups'
 import { SESSION_PROJECTS_SETTING_KEY, SESSION_UNFILED_SETTING_KEY } from './session-projects'
-import { CHAT_PROJECTS_MIGRATED_KEY } from './chat-projects-view'
+import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY } from './chat-projects-view'
 import { SPLIT_LAYOUT_KEY } from './split-panes'
 import { THEME_KEY } from './theme'
 import { CLOSE_MODE_KEY, TRAY_HINT_SHOWN_KEY } from './tray-hint'
@@ -46,6 +46,7 @@ export const PROMETHEUS_SETTING_KEYS: readonly string[] = [
   SESSION_PROJECTS_SETTING_KEY,
   SESSION_UNFILED_SETTING_KEY,
   CHAT_PROJECTS_MIGRATED_KEY, // whether THIS Prometheus has had the local projects moved to it
+  CHAT_PROJECTS_SERVED_KEY, // whether THIS Prometheus has ever been seen serving projects
   LAST_SESSION_KEY,
   SPLIT_LAYOUT_KEY,
   'capture:session', // QuickCapture's last target (a session id)

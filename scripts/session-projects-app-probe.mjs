@@ -197,6 +197,9 @@ try {
   return wentToChats
   }
   check((await toChats()) === true, 'navigated to Chats (the sessions sidebar is mounted)')
+  // This profile has no local projects and its Prometheus never answers, so the sidebar takes six seconds to be sure that Prometheus keeps
+  // none of its own (chat-projects-view: a project made in that moment could keep a Prometheus's own from ever being drawn).
+  await sleep(7000)
   const listed = await until(() => ev(`!document.querySelector('.session-group-head[aria-expanded="false"]') && document.querySelectorAll('.session-list .session-row').length`), 10000)
   check(listed > 20, 'the sidebar rendered the cached sessions', listed)
   if (!listed) {

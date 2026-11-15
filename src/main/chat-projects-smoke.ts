@@ -34,7 +34,7 @@ import {
 import { ChatProjectsHub, type ProjectsRequest } from './chat-projects'
 import { isProjectRoute } from './connection/rest'
 
-const EXPECTED = 105
+const EXPECTED = 109
 let failures = 0
 let checks = 0
 function assert(cond: boolean, label: string, detail?: unknown): void {
@@ -220,7 +220,7 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
   const main = src('src/main/index.ts')
   assert(/const projects = new ChatProjectsHub\(\{\s*request: \(method, path, body\) => conn\.projectsCall\(method, path, body\)/.test(main) && !/new ChatProjectsHub/.test(main.replace(/const projects = new ChatProjectsHub/, '')), 'one hub is made for each connection, and it asks through THAT connection: never whichever one is current later')
   assert(/projects\.onGatewayEvent\(ev as \{ type\?: string; payload\?: unknown \}\)/.test(main) && /onListed: \(rows\) => projects\.setFilings\(rows\)/.test(main), "the hub hears the connection's frames and the daemon's session list")
-  assert(/if \(chatProjects === projects\) broadcast\(IPC\.CHAT_PROJECTS_CHANGED, s\)/.test(main) && /registerChatProjectsHandlers\(\(\) => chatProjects\)/.test(main), 'a hub that has been replaced says nothing to the window, and the window reaches only the current one')
+  assert(/if \(chatProjects !== projects\) return[\s\S]{0,400}broadcast\(IPC\.CHAT_PROJECTS_CHANGED, s\)/.test(main) && /registerChatProjectsHandlers\(\(\) => chatProjects\)/.test(main), 'a hub that has been replaced says nothing to the window, and the window reaches only the current one')
   assert(/chatProjects\?\.reset\(\) \/\/ the one for the connection before this/.test(main) && /chatProjects\?\.reset\(\)\s*chatProjects = null\s*broadcast\(IPC\.CHAT_PROJECTS_CHANGED, noChatProjects\(\)\)/.test(main), 'a connection that is replaced, or forgotten with its key, takes its hub with it: nothing more is asked of that Prometheus, and the window is told there are no projects')
   assert(/if \(r\.status === 0\) throw Object\.assign/.test(src('src/main/connection/index.ts')), 'no answer at all is never taken for an answer the key was tried on: it cannot clear a refused key')
   const ipc = src('src/main/chat-projects-ipc.ts')
@@ -420,6 +420,18 @@ async function hubChecks(): Promise<void> {
     await settle()
     assert(during === 1 && co.asked.length === 4, 'reads are one at a time: three asks while one is out make exactly one more read (a list and the suggestions), not three', { during, total: co.asked.length })
   }
+{
+  // Whether Beacon has heard what the Prometheus does: a reply, or the end of the wait for one (an old Prometheus never replies).
+  const quiet = new ChatProjectsHub({ request: async () => ({ status: 200, body: null }), onState: () => undefined, decideAfterMs: 40 })
+  assert(quiet.state().known === false && quiet.state().available === false, 'before the Prometheus has said anything, its state is "not known yet", which is not "no projects"')
+  await new Promise((r) => setTimeout(r, 90))
+  assert(quiet.state().known === true && quiet.state().available === false, 'one that stays silent is taken to serve none, once the wait is over')
+  const replies = new ChatProjectsHub({ request: async () => ({ status: 200, body: null }), onState: () => undefined, decideAfterMs: 5000 })
+  replies.onGatewayEvent(subscribed(['voice_input']))
+  assert(replies.state().known === true && replies.state().available === false, 'one that replies without projects is known at once, without waiting')
+  replies.reset()
+  assert(replies.state().known === false, 'a new connection starts not knowing again')
+}
 {
   // Filings from the session list.
   const w = world()

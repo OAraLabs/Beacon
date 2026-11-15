@@ -34,14 +34,51 @@ export function localHasProjects(local: ProjectStore): boolean {
   return local.projects.length > 0 || Object.keys(local.assign).length > 0
 }
 
-export type ProjectsMode = 'local' | 'daemon'
+/** Set (once, per Prometheus) the first time it is seen serving projects. A Prometheus that served them and now says nothing (offline,
+ *  or still connecting) is waited for rather than taken for one that never did. */
+export const CHAT_PROJECTS_SERVED_KEY = 'chat-projects:served:v1'
 
-/** Which projects the sidebar draws. `local` until everything above is known and true: while anything is still being read, it is local. */
-export function projectsMode(o: { state: ChatProjectsState; migrated: boolean | null; local: ProjectStore | null }): ProjectsMode {
-  const { state, migrated, local } = o
-  if (!state.available || !state.list || state.list.role !== 'owner') return 'local'
-  if (migrated === null || local === null) return 'local'
+/** `wait`: not known yet. The local projects are drawn as they are, but nothing that would make or change a project is done: a
+ *  project made here in that moment would become the local projects that keep the Prometheus's from ever being drawn. */
+export type ProjectsMode = 'local' | 'daemon' | 'wait'
+
+/**
+ * Which projects the sidebar draws.
+ *   * `wait` while anything this rule needs is still being read; while a Prometheus that has served projects before (or has had the
+ *     local ones moved to it) is not answering now; and while the Prometheus's own answer is still on its way AND there are no local
+ *     projects yet (the one moment a project made here could keep its projects from ever being drawn). With local projects already
+ *     there and a Prometheus that has never served any, nothing waits: it is local, at once, as it always was;
+ *   * `local` for a Prometheus that has never served them, and one that does but this Beacon may not change (not its owner), and one
+ *     that does while the local projects have not been moved to it;
+ *   * `daemon` once all of the rule at the top of this file is true.
+ */
+export function projectsMode(o: { state: ChatProjectsState; migrated: boolean | null; local: ProjectStore | null; servedBefore: boolean | null }): ProjectsMode {
+  const { state, migrated, local, servedBefore } = o
+  if (migrated === null || local === null || servedBefore === null) return 'wait'
+  if (!state.available) {
+    if (migrated || servedBefore) return 'wait'
+    return !state.known && !localHasProjects(local) ? 'wait' : 'local'
+  }
+  if (!state.list) return 'wait' // it serves them; its list is still being read
+  if (state.list.role !== 'owner') return 'local'
   return migrated || !localHasProjects(local) ? 'daemon' : 'local'
+}
+
+/**
+ * The stored local store with its `dismissed` replaced and NOTHING else changed: every project, every filing and every field it
+ * has, including any this version would drop on reading it. Null when what is stored cannot be read as an object (nothing is written
+ * over it). With nothing stored, a store holding only the dismissals.
+ */
+export function writeDismissedOnly(stored: string | null | undefined, dismissed: Record<string, string>): string | null {
+  if (stored === null || stored === undefined || stored === '') return JSON.stringify({ projects: [], assign: {}, dismissed })
+  let v: unknown
+  try {
+    v = JSON.parse(stored)
+  } catch {
+    return null
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  return JSON.stringify({ ...(v as Record<string, unknown>), dismissed })
 }
 
 /** The store the sidebar draws, from the daemon's projects and filings, plus the dismissals that stay on this computer. */
@@ -96,7 +133,10 @@ export function filingOutcome(
   ctx: { sessionId: string; title: string; project: Pick<ChatProject, 'id' | 'name' | 'folder'> | null; keep: boolean; unfiling: boolean }
 ): FilingOutcome {
   if (result.ok) {
-    if (ctx.unfiling) return { kind: 'done', note: null }
+    if (ctx.unfiling) {
+      const here = typeof result.workspace === 'string' && result.workspace ? `It works in ${shortFolder(result.workspace)}.` : "It works in Prometheus's own workspace."
+      return { kind: 'done', note: `Taken out of the project. ${here}` }
+    }
     const where = ctx.project?.name ? `“${ctx.project.name}”` : 'the project'
     if (ctx.keep) return { kind: 'done', note: `Filed in ${where}. Its own folder was left as it was.` }
     return {
@@ -147,4 +187,13 @@ export function batchNote(n: number): string {
   return n === 1
     ? 'One conversation already had a folder chosen for it, so it was filed without changing its folder.'
     : `${n} conversations already had a folder chosen for them, so they were filed without changing their folders.`
+}
+
+/** What a batch of filings did, in one note (each filing's own note would replace the one before it). */
+export function batchSummary(o: { project: string; folder: string | null; moved: number; labelled: number; refused: number; why: string | null }): string {
+  const parts: string[] = []
+  if (o.moved > 0) parts.push(`Moved ${o.moved} conversation${o.moved === 1 ? '' : 's'} to “${o.project}”${o.folder ? `. ${o.moved === 1 ? 'It now works' : 'They now work'} in ${shortFolder(o.folder)}` : ''}.`)
+  if (o.labelled > 0) parts.push(batchNote(o.labelled))
+  if (o.refused > 0) parts.push(`${o.refused} could not be filed${o.why ? `: ${o.why}` : '.'}`)
+  return parts.join(' ')
 }

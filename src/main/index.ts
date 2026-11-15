@@ -81,6 +81,7 @@ import { OwnerPromotion } from './owner-promotion'
 import { registerOwnerPromotionHandlers } from './owner-promotion-ipc'
 import { ChatProjectsHub } from './chat-projects'
 import { noChatProjects } from '@shared/chat-projects'
+import { CHAT_PROJECTS_SERVED_KEY } from '@shared/chat-projects-view'
 import { registerChatProjectsHandlers } from './chat-projects-ipc'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
@@ -625,9 +626,17 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
   const projects = new ChatProjectsHub({
     request: (method, path, body) => conn.projectsCall(method, path, body),
     onState: (s) => {
-      if (chatProjects === projects) broadcast(IPC.CHAT_PROJECTS_CHANGED, s)
+      if (chatProjects !== projects) return
+      // Remembered, per Prometheus: one that has served projects and says nothing now (offline, still connecting) is waited for, not taken
+      // for one that never did (src/shared/chat-projects-view.ts).
+      if (s.available && !servedNoted) {
+        servedNoted = true
+        repo?.setSetting(CHAT_PROJECTS_SERVED_KEY, '1')
+      }
+      broadcast(IPC.CHAT_PROJECTS_CHANGED, s)
     }
   })
+  let servedNoted = false
   chatProjects = projects
   broadcast(IPC.CHAT_PROJECTS_CHANGED, projects.state())
   connection.on('status', onStatus)
