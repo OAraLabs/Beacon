@@ -40,6 +40,7 @@ export class ChatProjectsHub {
   private seenFilings: Record<string, string> | null = null
   private suggestions: Record<string, Suggestion> = Object.create(null)
   private problem: string | null = null
+  private migration: import('@shared/chat-projects-migration').MigrationState | null = null
   /** Bumped by `reset()`: an answer that lands after it belongs to a connection that is gone, and is dropped. */
   private gen = 0
   private reading: Promise<void> | null = null
@@ -70,7 +71,7 @@ export class ChatProjectsHub {
 
   state(): ChatProjectsState {
     return this.available
-      ? { known: true, available: true, list: this.list, filings: { ...this.filings }, suggestions: { ...this.suggestions }, problem: this.problem }
+      ? { known: true, available: true, list: this.list, filings: { ...this.filings }, suggestions: { ...this.suggestions }, problem: this.problem, migration: this.migration }
       : { ...noChatProjects(), known: this.known }
   }
 
@@ -85,6 +86,7 @@ export class ChatProjectsHub {
     this.seenFilings = null
     this.suggestions = Object.create(null)
     this.problem = null
+    this.migration = null
     this.reading = null
     this.readAgain = false
     this.emit()
@@ -110,6 +112,7 @@ export class ChatProjectsHub {
         this.filings = Object.create(null)
         this.suggestions = Object.create(null)
         this.problem = null
+        this.migration = null
         this.gen++
         this.reading = null
         this.readAgain = false
@@ -125,6 +128,13 @@ export class ChatProjectsHub {
     const change = readChangeFrame(ev)
     // A rev we don't have: the list is read again. (A frame is a hint, and none comes when the agent edits a folder itself.)
     if (change && (this.list?.rev === null || this.list === null || change.rev !== this.list.rev)) void this.refresh()
+  }
+
+  /** What the move of the local projects is doing, for the window. Ignored for a connection that has been replaced. */
+  setMigration(m: import('@shared/chat-projects-migration').MigrationState): void {
+    if (!this.available) return
+    this.migration = m
+    this.emit()
   }
 
   /** The daemon's session list, for which conversation is filed where. A daemon that doesn't say leaves what we have alone; an empty

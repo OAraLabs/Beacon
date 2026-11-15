@@ -34,7 +34,7 @@ import {
 import { ChatProjectsHub, type ProjectsRequest } from './chat-projects'
 import { isProjectRoute } from './connection/rest'
 
-const EXPECTED = 109
+const EXPECTED = 112
 let failures = 0
 let checks = 0
 function assert(cond: boolean, label: string, detail?: unknown): void {
@@ -194,10 +194,10 @@ assert(!advertisesChatProjects({ server_capabilities: ['voice_input', 'approval_
 
 // ── a route a window may ask, and an id that is one segment ─────────────────────────────────────────────────────────────────
 {
-  const yes: Array<[string, string]> = [['GET', '/api/chat-projects'], ['POST', '/api/chat-projects'], ['PUT', '/api/chat-projects/cp_000000000001'], ['DELETE', '/api/chat-projects/cp_000000000001'], ['GET', '/api/chat-project-suggestions'], ['PUT', '/api/sessions/desktop%3Aabc/project'], ['POST', '/api/sessions']]
+  const yes: Array<[string, string]> = [['GET', '/api/chat-projects'], ['POST', '/api/chat-projects'], ['PUT', '/api/chat-projects/cp_000000000001'], ['DELETE', '/api/chat-projects/cp_000000000001'], ['GET', '/api/chat-project-suggestions'], ['PUT', '/api/sessions/desktop%3Aabc/project'], ['POST', '/api/sessions'], ['GET', '/api/sessions']]
   assert(yes.every(([m, p]) => isProjectRoute(m, p)), 'each project route, with its own method, is allowed')
   const no: Array<[string, string]> = [
-    ['POST', '/api/chat-projects/cp_1'], ['GET', '/api/sessions'], ['DELETE', '/api/sessions/x/project'], ['PUT', '/api/approvals/x/approve'],
+    ['POST', '/api/chat-projects/cp_1'], ['PUT', '/api/sessions'], ['DELETE', '/api/sessions'], ['DELETE', '/api/sessions/x/project'], ['PUT', '/api/approvals/x/approve'],
     ['GET', '/api/chat-projects/..'], ['PUT', '/api/chat-projects/.'], ['PUT', '/api/sessions/../project'], ['PUT', '/api/sessions/%2e%2e/project'],
     ['DELETE', '/api/chat-projects/%2E%2E'], ['PUT', '/api/sessions/a%2fb/project'], ['PUT', '/api/sessions/a%5cb/project'], ['PUT', '/api/sessions/a\\b/project'],
     ['GET', '/api/chat-projects/cp_1?x=/../approvals'], ['PUT', '/api/sessions/.\t./project'], ['PUT', '/api/sessions/.\n./project'], ['PUT', '/api/sessions/a b/project'], ['GET', '/api/chat-projects/cp_1\r'], ['GET', '/api/chat-projects/x/files'], ['GET', '/api/chat-projects/']
@@ -431,6 +431,19 @@ async function hubChecks(): Promise<void> {
   assert(replies.state().known === true && replies.state().available === false, 'one that replies without projects is known at once, without waiting')
   replies.reset()
   assert(replies.state().known === false, 'a new connection starts not knowing again')
+}
+{
+  // What the move of the local projects tells the window.
+  const w = world()
+  const note = { status: 'done' as const, projects: 2, moved: 3, leftovers: 1, alreadyFiled: 0, skippedProjects: 0, message: null, fresh: true }
+  w.hub.setMigration(note)
+  assert(w.hub.state().migration === null, 'a Prometheus that does not serve projects has no move to report')
+  w.hub.onGatewayEvent(subscribed(['projects']))
+  await settle()
+  w.hub.setMigration(note)
+  assert(w.hub.state().migration?.moved === 3 && w.states.at(-1)?.migration?.status === 'done', 'what the move did is in the state the window is sent')
+  w.hub.reset()
+  assert(w.hub.state().migration === null, 'and goes with the connection')
 }
 {
   // Filings from the session list.

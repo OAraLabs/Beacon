@@ -566,7 +566,9 @@ const PROJECT_ROUTES_ALLOWED: ReadonlyArray<readonly [string, RegExp]> = [
   ['DELETE', /^\/api\/chat-projects\/[^/?#]+$/],
   ['GET', /^\/api\/chat-project-suggestions$/],
   ['PUT', /^\/api\/sessions\/[^/?#]+\/project$/],
-  ['POST', /^\/api\/sessions$/]
+  ['POST', /^\/api\/sessions$/],
+  // Read only: the Prometheus's own list of conversations, for the move of the local projects to it.
+  ['GET', /^\/api\/sessions$/]
 ]
 export function isProjectRoute(method: string, path: string): boolean {
   // The path is joined to the address as text and read by a URL parser afterwards, which resolves `.` and `..` segments, and a

@@ -282,8 +282,19 @@ export const PROJECT_ROUTES = {
     }
   }),
   start: (projectId: string) => ({ method: 'POST', path: '/api/sessions', body: { gateway: 'desktop', chat_project_id: projectId } }),
-  suggestions: () => ({ method: 'GET', path: '/api/chat-project-suggestions' })
+  suggestions: () => ({ method: 'GET', path: '/api/chat-project-suggestions' }),
+  /** The Prometheus's own session list: which conversations it has (the move asks it once). */
+  sessions: () => ({ method: 'GET', path: '/api/sessions' })
 } as const
+
+/** The daemon's session list as conversation id → the project it is filed in (null: none), or null when the answer was not a list. A row
+ *  that does not say (a daemon that has no projects) counts as not filed. */
+export function readSessionList(status: number, body: unknown): Map<string, string | null> | null {
+  if (status !== 200 || !Array.isArray(body)) return null
+  const rows = new Map<string, string | null>()
+  for (const row of body) if (isObj(row) && typeof row.session_id === 'string' && row.session_id) rows.set(row.session_id, typeof row.chat_project_id === 'string' ? row.chat_project_id : null)
+  return rows
+}
 
 const IMPORT_KEY_HEAD = 'beacon-desktop:'
 /** The `import_key` of a project moved from this computer: `beacon-desktop:<local id>`, printable ASCII with no space (the daemon refuses one), at most 200 characters. Null if
@@ -310,10 +321,12 @@ export interface ChatProjectsState {
   suggestions: Record<string, Suggestion>
   /** Beacon's words about the last read that failed, or null. The last good list stays on screen. */
   problem: string | null
+  /** The move of this computer's projects to this Prometheus (src/main/chat-projects-migration.ts); null until it has started. */
+  migration: import('./chat-projects-migration').MigrationState | null
 }
 
 export function noChatProjects(): ChatProjectsState {
-  return { known: false, available: false, list: null, filings: {}, suggestions: {}, problem: null }
+  return { known: false, available: false, list: null, filings: {}, suggestions: {}, problem: null, migration: null }
 }
 
 export type ChatProjectsOp =
