@@ -9,12 +9,16 @@
 //      is changed on the Prometheus;
 //   D  it serves them and the local projects have been moved: its projects are drawn, and the local copy is left exactly as it was.
 //
+//   G  it serves projects: a project's instructions and reference files, in the window its menu opens: save, an edit made elsewhere
+//      (told, then a conflict the person settles), a file that would shadow another, files added, replaced, saved and deleted.
+//
 // The stand-in answers with the daemon's REAL answers where it refuses (src/main/fixtures/chat_projects.json, recorded from the daemon's
 // own routes). Its own scratch profile and loopback port; the user's profile and Prometheus are not touched.
 //
 //   npm run build && npm run probe:chat-projects
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -37,7 +41,7 @@ const check = (ok, label, extra) => {
 const json = (res, code, body) => res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(body))
 
 const fx = JSON.parse(readFileSync(new URL('../src/main/fixtures/chat_projects.json', import.meta.url), 'utf8'))
-const recorded = (label) => fx.exchanges.find((e) => e.label === label).body
+const recorded = (label) => [...fx.exchanges, ...fx.content.exchanges].find((e) => e.label === label).body
 
 // ── the stand-in Prometheus ─────────────────────────────────────────────────────────────────────────────────────────────────────
 const SESSIONS = [
@@ -45,7 +49,7 @@ const SESSIONS = [
   { id: 'desktop:probe-2', title: 'Garden notes' },
   { id: 'desktop:probe-3', title: 'Loose thoughts' }
 ]
-const m = { serves: true, rev: 0, projects: [], filings: new Map(), handChosen: new Set(['desktop:probe-2']), requests: [], sockets: new Set(), made: 0, extraSessions: [], suggest: ['desktop:probe-3'], badFolder: false }
+const m = { instr: { content: '', rev: '' }, shadow: false, files: new Map(), serves: true, rev: 0, projects: [], filings: new Map(), handChosen: new Set(['desktop:probe-2']), requests: [], sockets: new Set(), made: 0, extraSessions: [], suggest: ['desktop:probe-3'], badFolder: false }
 const resetModel = (serves) => {
   m.serves = serves
   m.rev = 0
@@ -56,7 +60,12 @@ const resetModel = (serves) => {
   m.extraSessions = []
   m.suggest = ['desktop:probe-3']
   m.badFolder = false
+  m.instr = { content: '', rev: '' }
+  m.shadow = false
+  m.files = new Map()
 }
+const revOf = (text) => createHash('sha256').update(text).digest('hex').slice(0, 16)
+const fileRow = (name) => ({ name, size: m.files.get(name).byteLength, mtime: 1793667600, mime: name.endsWith('.md') ? 'text/markdown' : 'text/plain' })
 const proj = (id, name) => ({
   id,
   name,
@@ -88,13 +97,16 @@ const sessionRows = () =>
 // What was written to the Prometheus, other than Beacon's own handshake (it proves who is answering before it sends a key).
 const writes = () => m.requests.filter((r) => r.method !== 'GET' && r.path !== '/api/identity/challenge')
 const rest = createServer((req, res) => {
-  let raw = ''
-  req.on('data', (c) => (raw += c))
+  const chunks = []
+  req.on('data', (c) => chunks.push(c))
   req.on('end', () => {
+    const buf = Buffer.concat(chunks)
     const url = (req.url ?? '').split('?')[0]
-    const body = raw ? JSON.parse(raw) : null
+    const query = (req.url ?? '').includes('?') ? (req.url ?? '').split('?')[1] : ''
+    const fileRoute = /^\/api\/chat-projects\/[^/]+\/files\/[^/]+$/.test(url)
+    const body = !fileRoute && buf.length ? JSON.parse(buf.toString()) : null
     const path = decodeURIComponent(url)
-    m.requests.push({ method: req.method, path, body })
+    m.requests.push({ method: req.method, path, body, query, bytes: fileRoute && buf.length ? buf : null })
     if (url === '/api/hello') return json(res, 200, { v: '0.9.21', name: 'Stand-in', agent: 'Atlas', fp: 'd'.repeat(16), pair: 'approve', tls: false })
     if (url === '/api/status') return json(res, 200, { state: 'idle', provider: 'anthropic', model: 'stub-model' })
     if (url === '/api/sessions' && req.method === 'GET') return json(res, 200, sessionRows())
@@ -116,6 +128,34 @@ const rest = createServer((req, res) => {
       m.projects.push(p)
       frame('created', p.id)
       return json(res, 201, { ok: true, project: proj(p.id, p.name), created: true })
+    }
+    const instr = /^\/api\/chat-projects\/([^/]+)\/instructions$/.exec(path)
+    if (instr && req.method === 'GET') return json(res, 200, { ...m.instr, max_chars: 12000, effective: m.instr.content ? [{ path: '/stand-in/projects/kitchen-remodel/PROMETHEUS.md', chars: m.instr.content.length }] : [] })
+    if (instr && req.method === 'PUT') {
+      if (body.base_rev !== m.instr.rev) return json(res, 409, { error: 'the instructions changed since they were read', kind: 'conflict', content: m.instr.content, rev: m.instr.rev })
+      if (m.shadow && !body.shadow_ok) return json(res, 409, recorded('save that would shadow it'))
+      m.instr = { content: body.content, rev: revOf(body.content) }
+      frame('instructions', instr[1])
+      return json(res, 200, { ok: true, rev: m.instr.rev })
+    }
+    if (/^\/api\/chat-projects\/[^/]+\/files$/.test(path) && req.method === 'GET') return json(res, 200, { files: [...m.files.keys()].map(fileRow) })
+    const fileOne = /^\/api\/chat-projects\/([^/]+)\/files\/(.+)$/.exec(path)
+    if (fileOne) {
+      const name = fileOne[2]
+      if (req.method === 'PUT') {
+        if (name.startsWith('.')) return json(res, 400, { error: 'a file name is one segment', kind: 'bad_name' })
+        if (m.files.has(name) && query !== 'replace=true') return json(res, 409, recorded('add it again'))
+        m.files.set(name, buf)
+        frame('files', fileOne[1])
+        return json(res, 200, { ok: true, file: { name, size: buf.byteLength, mtime: 1793667600 } })
+      }
+      if (!m.files.has(name)) return json(res, 404, { error: 'no such reference file', kind: 'unknown_file' })
+      if (req.method === 'GET') return res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment' }).end(m.files.get(name))
+      if (req.method === 'DELETE') {
+        m.files.delete(name)
+        frame('files', fileOne[1])
+        return json(res, 200, { ok: true })
+      }
     }
     const one = /^\/api\/chat-projects\/([^/]+)$/.exec(path)
     if (one && req.method === 'PUT') {
@@ -324,6 +364,132 @@ try {
     await a.quit()
   }
 
+  // ── G: a project's instructions and reference files ───────────────────────────────────────────────────────────────────────────
+  {
+    resetModel(true)
+    m.projects = [{ id: 'cp_000000000101', name: 'Kitchen remodel' }]
+    m.made = 200
+    const g = await open({ localStore: null, migrated: false })
+    await g.until(g.labels, (v) => v.length >= 1)
+    const scratch = mkdtempSync(join(tmpdir(), 'beacon-chat-projects-files-'))
+    profiles.push(scratch)
+    const dlg = (open, save) => g.app.mainEval(`(() => { const d = __electron.dialog; d.showOpenDialog = async () => (${JSON.stringify(open)} ? { canceled: false, filePaths: ${JSON.stringify(open ?? [])} } : { canceled: true, filePaths: [] }); d.showSaveDialog = async () => (${JSON.stringify(save)} ? { canceled: false, filePath: ${JSON.stringify(save)} } : { canceled: true }); return true })()`)
+    const modal = () => g.ev(`document.querySelector('[data-testid=project-settings]')?.innerText ?? ''`)
+    const click = (id) => g.ev(`(() => { const b = document.querySelector('[data-testid=${id}]'); if (!b || b.disabled) return false; b.click(); return true })()`)
+    // A button that is off while the last call is still being read is waited for, not skipped.
+    const clickWhenReady = (id) => g.until(() => click(id), (v) => v === true, 5000)
+    const type = async (text) => {
+      await g.ev(`(() => { const t = document.querySelector('[data-testid=project-instructions]'); t.focus(); t.select(); return true })()`)
+      await g.app.page.send('Input.insertText', { text })
+    }
+    const val = () => g.ev(`document.querySelector('[data-testid=project-instructions]')?.value ?? null`)
+    const reqs = (method, re) => g.asked(method, re)
+
+    check((await g.rightClick(g.head('Kitchen remodel'))) && (await g.clickItem('Instructions and files')), 'G: a project\'s menu offers "Instructions and files…"')
+    check(/No reference files yet/.test(await g.until(modal, (v) => /No reference files yet/.test(v))) && (await val()) === '', 'G: the window opens on the Prometheus\'s instructions (none yet) and files (none yet)')
+    check(reqs('GET', /instructions$/).length === 1 && reqs('GET', /files$/).length === 1, 'G: both were read once')
+    check((await click('project-instructions-save')) === false, 'G: Save is off until something is changed')
+
+    await type('Be brief.')
+    check(/9 of 12,000 characters/.test(await g.until(() => g.ev(`document.querySelector('[data-testid=project-instructions-count]')?.innerText ?? ''`), (v) => /9 of/.test(v))), 'G: the count shows against the limit the Prometheus gave')
+    check(await click('project-instructions-save'), 'G: Save is on once the text changes')
+    const put1 = await g.until(() => reqs('PUT', /instructions$/), (v) => v.length >= 1)
+    check(put1.length === 1 && put1[0].body.content === 'Be brief.' && put1[0].body.base_rev === '' && put1[0].body.shadow_ok === undefined, 'G: a save sends the text and the revision it was made from, and no permission to shadow anything')
+    check(/Saved/.test(await g.until(modal, (v) => /Saved/.test(v))) && m.instr.content === 'Be brief.', 'G: and says so')
+
+    // Changed elsewhere, nothing unsaved here: the window follows.
+    m.instr = { content: 'Be brief. Metric units.', rev: revOf('Be brief. Metric units.') }
+    frame('instructions', 'cp_000000000101')
+    check((await g.until(val, (v) => v === 'Be brief. Metric units.')) === 'Be brief. Metric units.', 'G: an edit made elsewhere shows up by itself when nothing here was changed')
+
+    // Changed elsewhere while this one is being edited: told, then a conflict the person settles.
+    await type('Be brief and kind.')
+    m.instr = { content: 'Elsewhere.', rev: revOf('Elsewhere.') }
+    frame('instructions', 'cp_000000000101')
+    check(/changed on Prometheus while you were editing/.test(await g.until(modal, (v) => /while you were editing/.test(v))) && (await val()) === 'Be brief and kind.', 'G: an edit elsewhere while this one is unsaved is told, and what was typed is kept')
+    await click('project-instructions-save')
+    const conflictText = await g.until(() => g.ev(`document.querySelector('[data-testid=project-instructions-theirs]')?.innerText ?? ''`), (v) => v.length > 0)
+    check(conflictText === 'Elsewhere.' && m.instr.content === 'Elsewhere.' && /Nothing was saved/.test(await modal()), 'G: a save from the revision that was read is a conflict: what is there is shown, and nothing was overwritten')
+    await click('project-instructions-use-theirs')
+    check((await val()) === 'Elsewhere.' && (await g.ev(`!document.querySelector('[data-testid=project-instructions-conflict]')`)), 'G: "Use what is there" drops the draft for the Prometheus\'s text')
+    await type('Mine, after theirs.')
+    await click('project-instructions-save')
+    const put2 = await g.until(() => reqs('PUT', /instructions$/), (v) => v.length >= 4)
+    check(put2[put2.length - 1].body.base_rev === revOf('Elsewhere.') && m.instr.content === 'Mine, after theirs.', 'G: after taking theirs, the next save is made from their revision and goes through')
+    m.instr = { content: 'Again elsewhere.', rev: revOf('Again elsewhere.') }
+    frame('instructions', 'cp_000000000101')
+    await g.until(val, (v) => v === 'Again elsewhere.')
+    await type('Mine, over it.')
+    m.instr = { content: 'A third edit.', rev: revOf('A third edit.') }
+    await click('project-instructions-save')
+    await g.until(() => g.ev(`!!document.querySelector('[data-testid=project-instructions-conflict]')`), (v) => v === true)
+    await click('project-instructions-keep-mine')
+    await g.until(() => m.instr.content === 'Mine, over it.', (v) => v === true)
+    check(m.instr.content === 'Mine, over it.', 'G: "Keep mine and save over it" saves from the revision that was shown: the person decided, having seen it')
+
+    // A stale revision and a file that would be shadowed together: the person is asked about each once, and the save lands.
+    m.shadow = true
+    await type('Both at once.')
+    m.instr = { content: 'Elsewhere, again.', rev: revOf('Elsewhere, again.') }
+    await click('project-instructions-save')
+    await g.until(() => g.ev(`!!document.querySelector('[data-testid=project-instructions-conflict]')`), (v) => v === true)
+    await click('project-instructions-keep-mine')
+    await g.until(() => g.ev(`!!document.querySelector('[data-testid=project-instructions-shadow]')`), (v) => v === true)
+    await click('project-instructions-save-anyway')
+    await g.until(() => m.instr.content === 'Both at once.', (v) => v === true)
+    const lastPut = reqs('PUT', /instructions$/).slice(-1)[0]
+    check(m.instr.content === 'Both at once.' && lastPut.body.base_rev === revOf('Elsewhere, again.') && lastPut.body.shadow_ok === true, 'G: a conflict and a file that would be shadowed, one after the other, are two questions and then a save: no loop, and "Save anyway" is made from the revision that was shown')
+    m.shadow = false
+
+    // A file that would be shadowed.
+    m.shadow = true
+    await type('Shadowing.')
+    const before = reqs('PUT', /instructions$/).length
+    await click('project-instructions-save')
+    const sh = await g.until(() => g.ev(`document.querySelector('[data-testid=project-instructions-shadow]')?.innerText ?? ''`), (v) => v.length > 0)
+    check(/CLAUDE\.md/.test(sh) && /Nothing was saved/.test(sh) && m.instr.content === 'Both at once.', 'G: a save that would stop another file being read says which, and saves nothing', sh)
+    await click('project-instructions-save-anyway')
+    const anyway = await g.until(() => reqs('PUT', /instructions$/), (v) => v.length > before + 1)
+    check(anyway[anyway.length - 1].body.shadow_ok === true && m.instr.content === 'Shadowing.', 'G: only "Save anyway" sends the permission')
+    m.shadow = false
+
+    // Files.
+    writeFileSync(join(scratch, 'notes.md'), '# Notes\nBuy milk.\n')
+    await dlg([join(scratch, 'notes.md')], null)
+    await clickWhenReady('project-files-add')
+    check((await g.until(() => g.ev(`[...document.querySelectorAll('[data-testid=project-file-name]')].map((e) => e.textContent).join()`), (v) => v === 'notes.md')) === 'notes.md', 'G: a file chosen in the system panel is added and listed')
+    const up = reqs('PUT', /files\/notes\.md$/)
+    check(up.length === 1 && up[0].bytes?.toString() === '# Notes\nBuy milk.\n' && up[0].query === '', 'G: it went up as the file\'s own bytes under its own name, without ?replace')
+    check(!up[0].body, 'G: and nothing about this computer\'s path went with it')
+    await clickWhenReady('project-files-add')
+    check(/notes\.md is already there/.test(await g.until(() => g.ev(`document.querySelector('[data-testid=project-files-report]')?.innerText ?? ''`), (v) => v.length > 0)) && m.files.get('notes.md').toString() === '# Notes\nBuy milk.\n', 'G: the same name again is said to be there, and left alone')
+    writeFileSync(join(scratch, 'other-name.md'), '# Notes\nBuy milk and eggs.\n')
+    await dlg([join(scratch, 'other-name.md')], null)
+    await clickWhenReady('project-file-replace')
+    const rep = await g.until(() => reqs('PUT', /files\/notes\.md$/), (v) => v.length >= 3)
+    check(rep[rep.length - 1].query === 'replace=true' && m.files.get('notes.md').toString() === '# Notes\nBuy milk and eggs.\n', 'G: Replace… puts the chosen file (whatever it is called here) in that row\'s place, with ?replace=true, because the person asked for that on that file')
+    const out = join(scratch, 'saved-copy.md')
+    await dlg(null, out)
+    await clickWhenReady('project-file-save')
+    check((await g.until(() => { try { return readFileSync(out, 'utf8') } catch { return '' } }, (v) => v.length > 0)) === '# Notes\nBuy milk and eggs.\n', 'G: Save as… writes the file where the person chose, byte for byte')
+    await clickWhenReady('project-file-delete')
+    check(/Delete from Prometheus's computer\?/.test(await modal()) && reqs('DELETE', /files\/notes\.md$/).length === 0 && m.files.size === 1, 'G: Delete asks first, and nothing is deleted yet')
+    await clickWhenReady('project-file-delete-yes')
+    check((await g.until(() => reqs('DELETE', /files\/notes\.md$/), (v) => v.length === 1)).length === 1 && (await g.until(modal, (v) => /No reference files yet/.test(v))).length > 0 && m.files.size === 0, 'G: confirming deletes that one file, and the list is empty')
+    writeFileSync(join(scratch, '.hidden'), 'x')
+    await dlg([join(scratch, '.hidden')], null)
+    await clickWhenReady('project-files-add')
+    check(/\.hidden: Prometheus can't use that file name/.test(await g.until(() => g.ev(`document.querySelector('[data-testid=project-files-report]')?.innerText ?? ''`), (v) => v.length > 0)), 'G: a name the Prometheus refuses is said, in plain words, with the name')
+
+    // Closing with unsaved text.
+    await type('Unsaved words.')
+    await click('project-settings-close')
+    check(/not saved/.test(await g.until(() => g.ev(`document.querySelector('[data-testid=project-settings-discard]')?.innerText ?? ''`), (v) => v.length > 0)) && (await g.ev(`!!document.querySelector('[data-testid=project-settings]')`)), 'G: closing with unsaved text asks first')
+    await click('project-settings-discard-yes')
+    check((await g.until(() => g.ev(`!document.querySelector('[data-testid=project-settings]')`), (v) => v === true)) === true && m.instr.content === 'Shadowing.', 'G: and discarding closes the window and sends nothing')
+    await g.quit()
+  }
+
   // ── B: today's Prometheus: no projects, and local ones ────────────────────────────────────────────────────────────────────────
   {
     resetModel(false)
@@ -338,6 +504,8 @@ try {
     await sleep(500)
     check(writes().length === 0, 'B: and nothing was written to the Prometheus', JSON.stringify(writes()))
     check(((await b.text()).match(/Moved to/g) ?? []).length === 0 && (await b.ev(`!!document.querySelector('[data-testid=project-note]')`)) === false, 'B: and there is no note about a folder: a local move changes none')
+    await b.rightClick(b.head('Local kitchen'))
+    check((await b.until(() => b.ev(`!!document.querySelector('.ctx-menu')`), (v) => v === true)) === true && !(await b.ev(`!![...document.querySelectorAll('.ctx-menu [role=menuitem]')].find((x) => /Instructions and files/.test(x.textContent))`)), 'B: a local project\'s menu has no "Instructions and files…": they belong to a Prometheus that keeps projects')
     await b.quit()
   }
 

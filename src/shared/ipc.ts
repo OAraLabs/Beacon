@@ -49,6 +49,7 @@ export const IPC = {
   CHAT_PROJECTS_STATE: 'chat-projects:state', // renderer -> main (invoke): what main knows of this Prometheus's projects
   CHAT_PROJECTS_CHANGED: 'chat-projects:changed', // main -> renderer: the same, when it changes
   CHAT_PROJECTS_DO: 'chat-projects:do', // renderer -> main (invoke): one change to them (@shared/chat-projects ChatProjectsOp)
+  CHAT_PROJECTS_CONTENT: 'chat-projects:content', // renderer -> main (invoke): a project's instructions and reference files (@shared/chat-projects-content ContentOp)
   PAIRING_REQUESTS: 'pairing:requests', // main -> renderer: who is waiting for this Prometheus's owner to say yes (an owner's Beacon only)
   PAIRING_LIST: 'pairing:list', // renderer -> main: the same, once
   PAIRING_APPROVE: 'pairing:approve', // renderer -> main: approve one, with the four digits the owner typed from the new device
@@ -1094,6 +1095,8 @@ export interface BeaconBridge {
     state(): Promise<import('./chat-projects').ChatProjectsState>
     onState(cb: (s: import('./chat-projects').ChatProjectsState) => void): Unsubscribe
     run(op: import('./chat-projects').ChatProjectsOp): Promise<import('./chat-projects').ChatProjectsResult>
+    /** A project's instructions and reference files, on that Prometheus. Files are chosen and saved in the system's own panels, opened by main. */
+    content(op: import('./chat-projects-content').ContentOp): Promise<import('./chat-projects-content').ContentResult>
   }
   /** The OWNER's side of joining: a new device is asking this Prometheus to let it connect. A Beacon that is not an owner never sees anyone. */
   pairing: {

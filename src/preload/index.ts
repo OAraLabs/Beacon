@@ -231,7 +231,8 @@ const api: BeaconBridge = {
       ipcRenderer.on(IPC.CHAT_PROJECTS_CHANGED, handler)
       return () => ipcRenderer.removeListener(IPC.CHAT_PROJECTS_CHANGED, handler)
     },
-    run: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_DO, op)
+    run: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_DO, op),
+    content: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_CONTENT, op)
   },
   join: {
     begin: (req) => ipcRenderer.invoke(IPC.JOIN_BEGIN, req),

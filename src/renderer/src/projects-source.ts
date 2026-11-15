@@ -62,6 +62,8 @@ export interface ProjectsSource {
   startIn(projectId: string): void
   /** The project's folder on the Prometheus's computer (daemon mode), for a tooltip. */
   folderOf(projectId: string): string | null
+  /** The Prometheus's revision of its project list: it moves when a project's instructions or files change (daemon mode; else null). */
+  listRev: number | null
   /** A question the Prometheus asked back about a filing; null when none. */
   question: { words: ReturnType<typeof questionWords>; q: FilingQuestion } | null
   /** Answer it with one of its choices, or null to cancel (nothing is sent). */
@@ -368,6 +370,7 @@ export function useProjectsSource(onOpenSession: (sessionId: string) => void): P
     removeProject: removeProjectAction,
     startIn,
     folderOf: (id) => (daemon ? (projectOf(id)?.folder ?? null) : null),
+    listRev: daemon ? (state.list?.rev ?? null) : null,
     question: asked ? { words: questionWords(asked), q: asked } : null,
     answer,
     note,

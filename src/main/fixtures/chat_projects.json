@@ -3,6 +3,520 @@
   "capabilities": [
     "projects"
   ],
+  "content": {
+    "exchanges": [
+      {
+        "label": "files, none yet",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/files",
+        "status": 200,
+        "request": null,
+        "body": {
+          "files": []
+        }
+      },
+      {
+        "label": "instructions, none yet",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/instructions",
+        "status": 200,
+        "request": null,
+        "body": {
+          "content": "",
+          "rev": "",
+          "max_chars": 12000,
+          "effective": []
+        }
+      },
+      {
+        "label": "save instructions",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/instructions",
+        "status": 200,
+        "request": {
+          "content": "Be brief.",
+          "base_rev": ""
+        },
+        "body": {
+          "ok": true,
+          "rev": "213c22ed7234eb11"
+        }
+      },
+      {
+        "label": "instructions",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/instructions",
+        "status": 200,
+        "request": null,
+        "body": {
+          "content": "Be brief.",
+          "rev": "213c22ed7234eb11",
+          "max_chars": 12000,
+          "effective": [
+            {
+              "path": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/docs/PROMETHEUS.md",
+              "chars": 9
+            }
+          ]
+        }
+      },
+      {
+        "label": "save, but somebody saved since (a stale revision)",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/instructions",
+        "status": 409,
+        "request": {
+          "content": "Mine.",
+          "base_rev": ""
+        },
+        "body": {
+          "error": "the instructions changed since they were read",
+          "kind": "conflict",
+          "content": "Be brief.",
+          "rev": "213c22ed7234eb11"
+        }
+      },
+      {
+        "label": "save, too long",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/instructions",
+        "status": 400,
+        "request": {
+          "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "base_rev": "213c22ed7234eb11"
+        },
+        "body": {
+          "error": "at most 12000 characters (the loader's per-file limit)",
+          "kind": "too_long"
+        }
+      },
+      {
+        "label": "save, not a text",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/instructions",
+        "status": 400,
+        "request": {
+          "content": 5,
+          "base_rev": "213c22ed7234eb11"
+        },
+        "body": {
+          "error": "send {\"content\": \"...\", \"base_rev\": \"...\"}",
+          "kind": "bad_request"
+        }
+      },
+      {
+        "label": "instructions where another convention file is",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000005/instructions",
+        "status": 200,
+        "request": null,
+        "body": {
+          "content": "",
+          "rev": "",
+          "max_chars": 12000,
+          "effective": [
+            {
+              "path": "/private/tmp/beacon-chat-projects-fixture/world/projects-root/shadow/CLAUDE.md",
+              "chars": 20
+            }
+          ]
+        }
+      },
+      {
+        "label": "save that would shadow it",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000005/instructions",
+        "status": 409,
+        "request": {
+          "content": "New.",
+          "base_rev": ""
+        },
+        "body": {
+          "error": "a PROMETHEUS.md here would stop the loader reading CLAUDE.md",
+          "kind": "would_shadow",
+          "files": [
+            "CLAUDE.md"
+          ]
+        }
+      },
+      {
+        "label": "save anyway",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000005/instructions",
+        "status": 200,
+        "request": {
+          "content": "New.",
+          "base_rev": "",
+          "shadow_ok": true
+        },
+        "body": {
+          "ok": true,
+          "rev": "d6924223112656a3"
+        }
+      },
+      {
+        "label": "instructions, the file is a folder",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000006/instructions",
+        "status": 409,
+        "request": null,
+        "body": {
+          "error": "PROMETHEUS.md is not a regular file",
+          "kind": "not_a_file"
+        }
+      },
+      {
+        "label": "instructions, the project's folder was deleted",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000007/instructions",
+        "status": 409,
+        "request": null,
+        "body": {
+          "error": "gone is not there any more",
+          "kind": "folder_missing"
+        }
+      },
+      {
+        "label": "add a file",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/files/notes.md",
+        "status": 200,
+        "request": {
+          "bytes": 18,
+          "sha256": "2857a0c05108875b49dde2c9171560e554f1fc102fe66481cd13bb5581711f3d"
+        },
+        "body": {
+          "ok": true,
+          "file": {
+            "name": "notes.md",
+            "size": 18,
+            "mtime": 1793667600.0
+          }
+        }
+      },
+      {
+        "label": "add it again",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/files/notes.md",
+        "status": 409,
+        "request": {
+          "bytes": 8,
+          "sha256": "b5b79e2b70a4030a0d207081f0982cccc59a5d906d506d1975b1dfc91cb4bc0c"
+        },
+        "body": {
+          "error": "a reference file has that name; send ?replace=true to overwrite it",
+          "kind": "exists"
+        }
+      },
+      {
+        "label": "add it again, replacing",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/files/notes.md?replace=true",
+        "status": 200,
+        "request": {
+          "bytes": 27,
+          "sha256": "a747f13ad4502c83d4cf64dd11676805a3616d7101ba152a7bdd8fd027a759c0"
+        },
+        "body": {
+          "ok": true,
+          "file": {
+            "name": "notes.md",
+            "size": 27,
+            "mtime": 1793667600.0
+          }
+        }
+      },
+      {
+        "label": "add a file, a name that is not allowed",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/files/.hidden",
+        "status": 400,
+        "request": {
+          "bytes": 1,
+          "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+        },
+        "body": {
+          "error": "a file name is one segment: no slash, no leading or trailing dot or space, at most 120 characters",
+          "kind": "bad_name"
+        }
+      },
+      {
+        "label": "add a file, a name with a space and accents",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/files/r%C3%A9sum%C3%A9%20draft.txt",
+        "status": 200,
+        "request": {
+          "bytes": 6,
+          "sha256": "ab4ff0780be67e1eef32bd012331f8896311f5fbe326c1d65dc542b99987aca3"
+        },
+        "body": {
+          "ok": true,
+          "file": {
+            "name": "résumé draft.txt",
+            "size": 6,
+            "mtime": 1793667600.0
+          }
+        }
+      },
+      {
+        "label": "add a web page",
+        "as": "op",
+        "method": "PUT",
+        "path": "/api/chat-projects/cp_000000000004/files/page.html",
+        "status": 200,
+        "request": {
+          "bytes": 25,
+          "sha256": "5c140d35dcb46a622e2cedf5ef5cc3638cdffd1c118c9331f8c84669f0b74783"
+        },
+        "body": {
+          "ok": true,
+          "file": {
+            "name": "page.html",
+            "size": 25,
+            "mtime": 1793667600.0
+          }
+        }
+      },
+      {
+        "label": "files",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/files",
+        "status": 200,
+        "request": null,
+        "body": {
+          "files": [
+            {
+              "name": "notes.md",
+              "size": 27,
+              "mtime": 1793667600.0,
+              "mime": "text/markdown"
+            },
+            {
+              "name": "page.html",
+              "size": 25,
+              "mtime": 1793667600.0,
+              "mime": "text/html"
+            },
+            {
+              "name": "résumé draft.txt",
+              "size": 6,
+              "mtime": 1793667600.0,
+              "mime": "text/plain"
+            }
+          ]
+        }
+      },
+      {
+        "label": "get a file",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/files/notes.md",
+        "status": 200,
+        "request": null,
+        "bytes_b64": "IyBOb3RlcwpCdXkgbWlsayBhbmQgZWdncy4K",
+        "headers": {
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "content-disposition": "attachment",
+          "content-type": "text/markdown; charset=utf-8"
+        }
+      },
+      {
+        "label": "get a web page",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/files/page.html",
+        "status": 200,
+        "request": null,
+        "bytes_b64": "PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+        "headers": {
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "content-disposition": "attachment",
+          "content-type": "application/octet-stream"
+        }
+      },
+      {
+        "label": "get a file that is not there",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/files/nope.txt",
+        "status": 404,
+        "request": null,
+        "body": {
+          "error": "no such reference file",
+          "kind": "unknown_file"
+        }
+      },
+      {
+        "label": "delete a file",
+        "as": "op",
+        "method": "DELETE",
+        "path": "/api/chat-projects/cp_000000000004/files/notes.md",
+        "status": 200,
+        "request": null,
+        "body": {
+          "ok": true
+        }
+      },
+      {
+        "label": "delete it again",
+        "as": "op",
+        "method": "DELETE",
+        "path": "/api/chat-projects/cp_000000000004/files/notes.md",
+        "status": 404,
+        "request": null,
+        "body": {
+          "error": "no such reference file",
+          "kind": "unknown_file"
+        }
+      },
+      {
+        "label": "instructions, as a chat-only device",
+        "as": "a",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000004/instructions",
+        "status": 403,
+        "request": null,
+        "body": {
+          "error": "operator_only",
+          "detail": "this device may chat and manage its own sessions and device; everything else belongs to the owner (the master token or an owner device)"
+        }
+      },
+      {
+        "label": "instructions, a project that is not there",
+        "as": "op",
+        "method": "GET",
+        "path": "/api/chat-projects/cp_000000000000/instructions",
+        "status": 404,
+        "request": null,
+        "body": {
+          "error": "no such project",
+          "kind": "unknown_project"
+        }
+      }
+    ],
+    "frames": [
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 12,
+          "project_id": "cp_000000000004",
+          "change": "created",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 13,
+          "project_id": "cp_000000000004",
+          "change": "instructions",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 14,
+          "project_id": "cp_000000000005",
+          "change": "created",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 15,
+          "project_id": "cp_000000000005",
+          "change": "instructions",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 16,
+          "project_id": "cp_000000000006",
+          "change": "created",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 17,
+          "project_id": "cp_000000000007",
+          "change": "created",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 18,
+          "project_id": "cp_000000000004",
+          "change": "files",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 19,
+          "project_id": "cp_000000000004",
+          "change": "files",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 20,
+          "project_id": "cp_000000000004",
+          "change": "files",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 21,
+          "project_id": "cp_000000000004",
+          "change": "files",
+          "session_id": null
+        }
+      },
+      {
+        "type": "chat_project_changed",
+        "payload": {
+          "rev": 22,
+          "project_id": "cp_000000000004",
+          "change": "files",
+          "session_id": null
+        }
+      }
+    ],
+    "project": "cp_000000000004"
+  },
   "sessions": {
     "filed": "desktop:b3760005-0000-0000-0000-000000000000",
     "hand_chosen_folder": "desktop:b3760007-0000-0000-0000-000000000000",
