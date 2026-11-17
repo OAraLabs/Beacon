@@ -1,5 +1,6 @@
 import { advertisesApprovalCritical, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
-import { APPROVAL_CRITICAL_WAIT_MS, CAP_INITIAL, approveRefusal, capStep, isApprovalAnswerPath, noteCritical, type ApprovalSurface, type CapEvent, type CapState } from '@shared/approval-critical'
+import { argumentsIncomplete } from '@shared/approval-arguments'
+import { APPROVAL_CRITICAL_WAIT_MS, CAP_INITIAL, approveRefusal, capStep, isApprovalAnswerPath, noteArgumentsCut, noteCritical, type ApprovalSurface, type CapEvent, type CapState } from '@shared/approval-critical'
 import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { notEncrypted } from '@shared/plain-lan'
 import { DEVICES_PATH, roleFromDevices, type DeviceRole } from '@shared/device-role'
@@ -99,9 +100,17 @@ export class ConnectionManager extends EventEmitter {
           // Prometheus at an address can be upgraded, or rolled back, between two connections.
           if (ev.type === 'subscribed') this.capEvent({ said: advertisesApprovalCritical(ev.payload) })
           // What each request said about being critical, kept for the answer (resolveApproval).
+          // A request that is answered is done: its id is not held against a later request that happens to reuse it.
+          if (ev.type === 'approval_resolved') {
+            const rid = (ev.payload as { request_id?: unknown } | undefined)?.request_id
+            if (typeof rid === 'string') this.cutBook.delete(rid)
+          }
           if (ev.type === 'approval_pending') {
             const a = rawToApproval(ev.payload as RawApprovalPush)
-            if (a) noteCritical(this.criticalBook, a.requestId, a.critical)
+            if (a) {
+              noteCritical(this.criticalBook, a.requestId, a.critical)
+              noteArgumentsCut(this.cutBook, a.requestId, argumentsIncomplete(a.arguments, a.argumentsCut))
+            }
           }
           this.emit('gatewayEvent', ev)
         },
@@ -249,6 +258,8 @@ export class ConnectionManager extends EventEmitter {
   private capTimer: NodeJS.Timeout | null = null
   /** What each pending request said about being critical (frame and poll), for resolveApproval. */
   private readonly criticalBook = new Map<string, boolean | undefined>()
+  /** Requests whose arguments the daemon said it cut: answered on their card (resolveApproval). */
+  private readonly cutBook = new Set<string>()
   private capEvent(e: CapEvent): void {
     const was = this.cap.value
     const next = capStep(this.cap, e)
@@ -439,7 +450,10 @@ export class ConnectionManager extends EventEmitter {
   /** The daemon's GLOBAL pending-approval queue (REST poll; approvals carry no session id). */
   listApprovals(): Promise<ApprovalRequest[]> {
     return this.trackAuth(this.rest.listApprovals()).then((list) => {
-      for (const a of list) noteCritical(this.criticalBook, a.requestId, a.critical)
+      for (const a of list) {
+        noteCritical(this.criticalBook, a.requestId, a.critical)
+        noteArgumentsCut(this.cutBook, a.requestId, argumentsIncomplete(a.arguments, a.argumentsCut))
+      }
       return list
     })
   }
@@ -452,7 +466,7 @@ export class ConnectionManager extends EventEmitter {
    * surface forgets (@shared/approval-critical `approveRefusal`). Nothing is sent when refused.
    */
   resolveApproval(requestId: string, decision: ApprovalDecision, from?: ApprovalSurface): Promise<void> {
-    const refusal = approveRefusal(decision, from, this.criticalBook.get(requestId), this.cap.value ?? undefined)
+    const refusal = approveRefusal(decision, from, this.criticalBook.get(requestId), this.cap.value ?? undefined, this.cutBook.has(requestId))
     if (refusal) return Promise.reject(new Error(refusal))
     return this.trackAuth(this.rest.resolveApproval(requestId, decision))
   }
