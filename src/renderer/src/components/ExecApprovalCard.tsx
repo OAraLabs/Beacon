@@ -495,3 +495,6 @@ export function ExecApprovalCard({
     </div>
   )
 }
+
+// The Home Assistant card (HomeApprovalCard) is the same kind of card, so it takes the same skin.
+export { card as approvalCardStyle, header as approvalHeaderStyle, noGrantNote as approvalNoteStyle, verbChip as approvalVerbChip, keysHint as approvalKeysHint }
