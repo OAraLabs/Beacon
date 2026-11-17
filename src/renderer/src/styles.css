@@ -5570,6 +5570,35 @@ body.is-resizing-panel {
   font-size: 9.5px;
   color: var(--ink4);
 }
+/* One line about what just happened to a project or a filing (it keeps its place, so nothing under it moves). */
+.project-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line3);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.project-note > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-note-x {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink3);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0 2px;
+}
 .ctx-menu-foot {
   margin-top: 4px;
   padding: 5px 8px 3px;

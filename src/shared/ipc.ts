@@ -46,6 +46,10 @@ export const IPC = {
   PATHA_CHECK: 'patha:check', // renderer -> main: can Prometheus be set up on THIS Mac? (facts + verdict; downloads nothing)
   JOIN_BEGIN: 'join:begin', // renderer -> main: ask the chosen computer to let this Mac join (names go in; the key, the poll secret and the token never come out)
   JOIN_POLL: 'join:poll', // renderer -> main: one look at the wait for approval (a token that arrived is kept by main and never returned)
+  CHAT_PROJECTS_STATE: 'chat-projects:state', // renderer -> main (invoke): what main knows of this Prometheus's projects
+  CHAT_PROJECTS_CHANGED: 'chat-projects:changed', // main -> renderer: the same, when it changes
+  CHAT_PROJECTS_DO: 'chat-projects:do', // renderer -> main (invoke): one change to them (@shared/chat-projects ChatProjectsOp)
+  CHAT_PROJECTS_CONTENT: 'chat-projects:content', // renderer -> main (invoke): a project's instructions and reference files (@shared/chat-projects-content ContentOp)
   PAIRING_REQUESTS: 'pairing:requests', // main -> renderer: who is waiting for this Prometheus's owner to say yes (an owner's Beacon only)
   PAIRING_LIST: 'pairing:list', // renderer -> main: the same, once
   PAIRING_APPROVE: 'pairing:approve', // renderer -> main: approve one, with the four digits the owner typed from the new device
@@ -494,6 +498,8 @@ export interface SessionSummary {
   watermark?: number
   /** Daemon-owned pin (Prometheus#351). Every client agrees because none of them owns it. */
   pinned?: boolean
+  /** The project the daemon has the conversation filed in: a string, null when unfiled, undefined when the daemon has no projects. */
+  chatProjectId?: string | null
 }
 
 /**
@@ -728,6 +734,8 @@ export interface ApprovalRequest {
    * VERBATIM and re-derives nothing; see @shared/approval-arguments for what that forbids.
    */
   arguments?: import('./approval-arguments').ApprovalArguments
+  /** The daemon says it cut the arguments (`arguments_cut: true`). Undefined unless it says so; no daemon sends it yet. */
+  argumentsCut?: boolean
   /**
    * A WORKER'S REQUEST (Prometheus #720): the background worker that asked. Undefined on an
    * ordinary request. @shared/workers names it on the card.
@@ -1087,6 +1095,14 @@ export interface BeaconBridge {
     begin(req: import('./join').JoinBeginRequest): Promise<import('./join').BeginResult>
     poll(): Promise<import('./join').PollOutcome>
     cancel(): Promise<void>
+  }
+  /** The projects the Prometheus Beacon is on keeps (@shared/chat-projects). Nothing is asked of one that doesn't serve them. */
+  chatProjects: {
+    state(): Promise<import('./chat-projects').ChatProjectsState>
+    onState(cb: (s: import('./chat-projects').ChatProjectsState) => void): Unsubscribe
+    run(op: import('./chat-projects').ChatProjectsOp): Promise<import('./chat-projects').ChatProjectsResult>
+    /** A project's instructions and reference files, on that Prometheus. Files are chosen and saved in the system's own panels, opened by main. */
+    content(op: import('./chat-projects-content').ContentOp): Promise<import('./chat-projects-content').ContentResult>
   }
   /** The OWNER's side of joining: a new device is asking this Prometheus to let it connect. A Beacon that is not an owner never sees anyone. */
   pairing: {

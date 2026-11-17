@@ -23,13 +23,14 @@ import {
   capStep,
   refusalWords,
   isApprovalAnswerPath,
+  noteArgumentsCut,
   noteCritical,
   type CapEvent,
   type CapState
 } from '@shared/approval-critical'
 import type { ApprovalDecision } from '@shared/ipc'
 
-const MIN_CHECKS = 132
+const MIN_CHECKS = 132 + 12
 let checks = 0
 let failures = 0
 function check(cond: boolean, name: string, detail = ''): void {
@@ -130,6 +131,26 @@ for (const from of ['key', 'row', 'notification', 'card', undefined] as unknown[
   check(approveRefusal(deny, from, true, true) === null, `deny is never refused (from ${String(from)})`)
 }
 check(approveRefusal(null, 'row', true, true) === null && approveRefusal(undefined, 'row', true, true) === null, 'no decision is not an approve (the daemon call rejects it as before)')
+// Arguments the daemon said it cut: answered on the card (its button), not from a row or a notification.
+for (const from of ['row', 'notification', undefined, null, '', 'CARD', {}] as unknown[]) {
+  check(approveRefusal(approve, from, false, false, true) === CARD_ONLY_REFUSAL, `an approve of a request whose arguments were cut is refused from ${JSON.stringify(from) ?? String(from)}, even one that is not critical`)
+}
+check(approveRefusal(approve, 'card', false, false, true) === null && approveRefusal(approve, 'key', false, false, true) === null, 'from the card (its button, or the key on the card in view) it goes ahead')
+check(approveRefusal(approve, 'row', false, false, false) === null && approveRefusal(approve, 'row', false, false, undefined) === null && approveRefusal(deny, 'row', false, false, true) === null, 'a request not said to be cut keeps its row; a deny is never refused')
+{
+  const book = new Set<string>()
+  noteArgumentsCut(book, 'a', true)
+  noteArgumentsCut(book, 'a', undefined)
+  noteArgumentsCut(book, 'b', false)
+  check(book.has('a') && !book.has('b'), 'a cut is remembered, and a later frame or poll row that does not say never clears it')
+  for (let i = 0; i < CRITICAL_BOOK_MAX + 20; i++) noteArgumentsCut(book, `r${i}`, true)
+  check(book.size === CRITICAL_BOOK_MAX && !book.has('a'), 'the book is bounded: the oldest are forgotten')
+}
+{
+  const conn = readFileSync(new URL('../../src/main/connection/index.ts', import.meta.url), 'utf8')
+  check(/approveRefusal\(decision, from, this\.criticalBook\.get\(requestId\), this\.cap\.value \?\? undefined, this\.cutBook\.has\(requestId\)\)/.test(conn) && (conn.match(/noteArgumentsCut\(this\.cutBook/g) ?? []).length === 2, 'main notes a cut from the pushed frame and from the poll, and consults it for every answer')
+  check(/if \(ev\.type === 'approval_resolved'\) \{[\s\S]{0,160}this\.cutBook\.delete\(rid\)/.test(conn) && /argumentsIncomplete\(a\.arguments, a\.argumentsCut\)/.test(conn), 'an answered request is dropped from it, and what is noted is the same "not all shown" the card warns about')
+}
 check(/only on its card/.test(CARD_ONLY_REFUSAL) && /Nothing was approved/.test(CARD_ONLY_REFUSAL), 'the refusal says where to approve it, and that nothing happened')
 
 console.log('3. the book')
@@ -223,11 +244,11 @@ console.log('4. wiring')
   check(!/approvalCriticalWait|approvalCriticalSaid|private approvalCritical\b/.test(conn), 'the old hand-kept fields are gone: there is one source of this state')
   // Every approve in main goes through the second rule.
   const resolveFn = conn.slice(conn.indexOf('  resolveApproval('), conn.indexOf('  resolveApproval(') + 900)
-  check(/resolveApproval\(requestId: string, decision: ApprovalDecision, from\?: ApprovalSurface\): Promise<void> \{\s*const refusal = approveRefusal\(decision, from, this\.criticalBook\.get\(requestId\), this\.cap\.value \?\? undefined\)\s*if \(refusal\) return Promise\.reject\(new Error\(refusal\)\)/.test(resolveFn), 'the connection asks approveRefusal before any answer is sent, with what the request said and what its Prometheus advertises')
+  check(/resolveApproval\(requestId: string, decision: ApprovalDecision, from\?: ApprovalSurface\): Promise<void> \{\s*const refusal = approveRefusal\(decision, from, this\.criticalBook\.get\(requestId\), this\.cap\.value \?\? undefined, this\.cutBook\.has\(requestId\)\)\s*if \(refusal\) return Promise\.reject\(new Error\(refusal\)\)/.test(resolveFn), 'the connection asks approveRefusal before any answer is sent, with what the request said and what its Prometheus advertises')
   const writeFn = conn.slice(conn.indexOf('  writeDaemon(path: string'), conn.indexOf('  writeDaemon(path: string') + 900)
   check(/if \(isApprovalAnswerPath\(path\)\) return Promise\.reject\(/.test(writeFn) && writeFn.indexOf('isApprovalAnswerPath(path)') < writeFn.indexOf('this.rest.writeDaemon(') && (conn.match(/this\.rest\.writeDaemon\(/g) ?? []).length === 2, 'the general daemon write refuses an approval answer before anything is sent, on both of its ways out')
   check(resolveFn.indexOf('approveRefusal(') < resolveFn.indexOf('this.rest.resolveApproval(') && (conn.match(/this\.rest\.resolveApproval\(/g) ?? []).length === 1, 'and the daemon is called in that one place, after it')
-  check(/if \(ev\.type === 'approval_pending'\)[\s\S]{0,200}noteCritical\(this\.criticalBook, a\.requestId, a\.critical\)/.test(conn) && /listApprovals\(\): Promise<ApprovalRequest\[\]> \{[\s\S]{0,300}for \(const a of list\) noteCritical\(this\.criticalBook, a\.requestId, a\.critical\)/.test(conn), 'the book is written from both ways a request arrives: the frame and the poll')
+  check(/if \(ev\.type === 'approval_pending'\)[\s\S]{0,200}noteCritical\(this\.criticalBook, a\.requestId, a\.critical\)/.test(conn) && /listApprovals\(\): Promise<ApprovalRequest\[\]> \{[\s\S]{0,300}for \(const a of list\) \{\s*noteCritical\(this\.criticalBook, a\.requestId, a\.critical\)/.test(conn), 'the book is written from both ways a request arrives: the frame and the poll')
   const ipc = read('src/main/ipc.ts')
   check(/resolveApproval\(req\.requestId, req\.decision, req\.from\)/.test(ipc) && !/resolveApproval\(req\.requestId, req\.decision\)/.test(ipc), "the window's answer is passed on with where it was given")
   const main = read('src/main/index.ts')

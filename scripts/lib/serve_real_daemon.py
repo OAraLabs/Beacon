@@ -50,6 +50,8 @@ ap.add_argument("--per-source", type=int, default=20, help="pairing.max_pending_
 ap.add_argument("--setup-mode", action="store_true", help="serve setup mode (create_setup_app), as `oara daemon` does with no config")
 ap.add_argument("--no-auth", action="store_true", help="the full app with no API token (web.api_token unset)")
 ap.add_argument("--daemon-limits", action="store_true", help="the daemon's own pairing limits, not the probes' generous ones")
+ap.add_argument("--conversations", action="store_true", help="give the app a conversation store and a projects root, as the daemon has (chat projects need one)")
+ap.add_argument("--seed-sessions", default="", help="with --conversations: comma-separated session ids, each given one message so it exists")
 ap.add_argument("--node-key", action="store_true", help="make the node key first, as a first run does (Prometheus 0.9.18+: /api/status names node_pub, the challenge answers)")
 args = ap.parse_args()
 
@@ -140,6 +142,33 @@ if args.setup_mode:
         setup_port = _s.getsockname()[1]
     app = create_setup_app(PairingState(), api_port=setup_port, ws_port=args.ws_port, bind="127.0.0.1", state=SetupModeState())
     args.no_ws = True  # setup mode has no bridge
+elif args.conversations:
+    # The daemon's own wiring of a conversation store (the shape tests/support/device_world.engine_over builds): enough of LCMEngine to persist
+    # through the real store. The projects root is a folder under this scratch home, never the real one.
+    from prometheus.memory.lcm_conversation_store import LCMConversationStore
+    from prometheus.memory.lcm_types import MessagePart
+
+    conv = LCMConversationStore(home / "lcm.db")
+
+    class _Engine:
+        conversation_store = conv
+        summary_store = None
+
+        def ingest_sync(self, session_id, role, content, turn_index=0, content_json=None, provenance="user", is_trusted=True):
+            m = MessagePart(role=role, content=content, session_id=session_id, turn_index=turn_index, provenance=provenance, is_trusted=is_trusted)
+            conv.add_message(session_id, m)
+            return m.message_id
+
+        async def maybe_compact(self, session_id):
+            return None
+
+    mgr = SessionManager()
+    mgr.lcm_engine = _Engine()
+    config["projects"] = {"root": str(home / "projects-root")}
+    app = create_app(config, session_mgr=mgr, lcm_engine=mgr.lcm_engine, device_store=store)
+    seeded = [s for s in args.seed_sessions.split(",") if s]
+    for sid in seeded:
+        conv.add_message(sid, MessagePart(role="user", content="hello", session_id=sid, turn_index=0))
 else:
     app = create_app(config, device_store=store)
 if plan is not None:
@@ -188,7 +217,7 @@ async def _main() -> None:
     assert name[0] == "127.0.0.1" and name[1] > 0 and name[1] not in (8005, 8006, 8010, 8011), name
     import hashlib
 
-    ready = {"ready": True, "mode": "setup" if args.setup_mode else "daemon", "auth": not args.no_auth, "port": name[1], "fp": hashlib.sha256(der).hexdigest()[:16], "module": prometheus.__file__, "ws": bridge is not None, "frames": bool(bridge is not None and hasattr(bridge, "attach_pairing"))}
+    ready = {"ready": True, "mode": "setup" if args.setup_mode else "daemon", "auth": not args.no_auth, "port": name[1], "seeded": [s for s in args.seed_sessions.split(",") if s], "fp": hashlib.sha256(der).hexdigest()[:16], "module": prometheus.__file__, "ws": bridge is not None, "frames": bool(bridge is not None and hasattr(bridge, "attach_pairing"))}
     tasks = [task]
     if plan is not None:
         from prometheus.web.server import start_web

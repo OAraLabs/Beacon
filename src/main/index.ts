@@ -79,6 +79,14 @@ import { MainModelSetting } from './main-model'
 import { registerMainModelHandlers } from './main-model-ipc'
 import { OwnerPromotion } from './owner-promotion'
 import { registerOwnerPromotionHandlers } from './owner-promotion-ipc'
+import { ChatProjectsHub } from './chat-projects'
+import { ChatProjectsMigration } from './chat-projects-migration'
+import { noChatProjects } from '@shared/chat-projects'
+import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY, parseMigrated } from '@shared/chat-projects-view'
+import { SESSION_PROJECTS_SETTING_KEY } from '@shared/session-projects'
+import { registerChatProjectsHandlers } from './chat-projects-ipc'
+import { ChatProjectContent } from './chat-projects-content'
+import { markDownloaded } from './quarantine'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
 import { pairTlsPorts } from '@shared/devices'
@@ -424,6 +432,10 @@ app.on('open-file', (e, path) => {
 // The connection + cache live in the main process and outlive any window (spec §3.2/§3.3). The
 // connection is (re)built by bringUpConnection — at startup if configured, or on first-run save.
 let connection: ConnectionManager | null = null
+/** The projects of the Prometheus `connection` talks to (@shared/chat-projects), made with it and replaced with it. */
+let chatProjects: ChatProjectsHub | null = null
+/** The same connection's way to a project's instructions and reference files. */
+let chatContent: ChatProjectContent | null = null
 /**
  * The live link: the gateway `connection` was brought up with and the key it uses there, set TOGETHER and only once the address may be
  * used (null until then, and while there is none). Every module that talks to "the connected Prometheus" with a key (the network and
@@ -614,16 +626,69 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
     if (refused || connection !== conn) return
     connectedLink = { gateway: gw, token }
   })
+  // This Prometheus's projects (@shared/chat-projects): a hub made for THIS connection, so what it asks goes to the Prometheus that
+  // was connected when it was made, and a project id from another one is never in front of it.
+  chatProjects?.reset() // the one for the connection before this: nothing it still has out is shown or applied
+  const projects = new ChatProjectsHub({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    onState: (s) => {
+      if (chatProjects !== projects) return
+      // Remembered, per Prometheus: one that has served projects and says nothing now (offline, still connecting) is waited for, not taken
+      // for one that never did (src/shared/chat-projects-view.ts).
+      if (s.available && !servedNoted) {
+        servedNoted = true
+        repo?.setSetting(CHAT_PROJECTS_SERVED_KEY, '1')
+      }
+      broadcast(IPC.CHAT_PROJECTS_CHANGED, s)
+      // The move of this computer's projects to this Prometheus: once it has said it serves them, its list is read and this Beacon is its
+      // owner, and the folder is confirmed as its own. Cheap to ask again (it knows if it is running or done, and backs off after a miss).
+      if (s.available && s.list?.role === 'owner' && cache && !cache.isHeld()) void migration.run().catch(() => undefined)
+    }
+  })
+  let servedNoted = false
+  // Per connection, like the hub: it asks THIS Prometheus, and reads and records in THIS Prometheus's folder.
+  const folderRepo = folder.repo
+  const migration = new ChatProjectsMigration({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    readOwn: () => folderRepo.getSetting(SESSION_PROJECTS_SETTING_KEY),
+    readOthers: () =>
+      (folders?.listInstances() ?? [])
+        .filter((i) => i.id !== folder.id)
+        .map((i) => ({ folderId: i.id, raw: folders!.getSettingFor(i.id, SESSION_PROJECTS_SETTING_KEY) })),
+    isDone: () => parseMigrated(folderRepo.getSetting(CHAT_PROJECTS_MIGRATED_KEY)),
+    writeDone: (value) => folderRepo.setSetting(CHAT_PROJECTS_MIGRATED_KEY, value),
+    isCurrent: () => chatProjects === projects, // replaced or forgotten: it stops asking, and writes nothing
+    report: (m) => {
+      void (async () => {
+        // Before the window is told it is done, it is given the conversations' filings from the Prometheus's own list: otherwise it would
+        // draw the Prometheus's projects with every conversation unfiled for a moment, which looks like a loss.
+        if (m.status === 'done' && m.fresh) await cache?.listSessions().catch(() => undefined)
+        if (chatProjects !== projects) return
+        projects.setMigration(m)
+        if (m.status === 'done') void projects.refresh()
+      })()
+    }
+  })
+  chatProjects = projects
+  chatContent = new ChatProjectContent({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    bytes: (method, path, opts) => conn.projectsBytes(method, path, opts),
+    available: () => projects.state().available,
+    isCurrent: () => chatProjects === projects,
+    markDownloaded
+  })
+  broadcast(IPC.CHAT_PROJECTS_CHANGED, projects.state())
   connection.on('status', onStatus)
   connection.on('stream', onStreamFrame)
   connection.on('gatewayEvent', (ev) => {
+    projects.onGatewayEvent(ev as { type?: string; payload?: unknown })
     // A pairing frame names a device and an address. The watcher takes it, and it goes nowhere else: not the activity feed, not a notification.
     if (pairingWatcher.takesFrame(ev.type, ev.payload, typeof ev.ts === 'number' ? ev.ts / 1000 : undefined)) return
     broadcast(IPC.GATEWAY_EVENT, ev)
     maybeNotifyTask(ev as { type?: string; payload?: Record<string, unknown> })
     handleApprovalFrame(conn, ev as { type?: string; payload?: Record<string, unknown> })
   })
-  cache = new CacheService(folder.repo, connection, { held: fp === null })
+  cache = new CacheService(folder.repo, connection, { held: fp === null, onListed: (rows) => projects.setFilings(rows) })
   cache.attach()
   if (fp === null) confirmIdentity(conn, cache, gw, folder.id)
   if (before !== null && before !== folder.id) broadcast(IPC.CACHE_FOLDER_CHANGED, null)
@@ -870,6 +935,11 @@ function forgetConnection(): SetupForgetResult {
       connection.stop()
       connection = null
     }
+    // Its projects go with it: no Prometheus is kept, so nothing may be asked of the one that was, with the key just cleared.
+    chatProjects?.reset()
+    chatProjects = null
+    chatContent = null
+    broadcast(IPC.CHAT_PROJECTS_CHANGED, noChatProjects())
     applyPins(null)
     connectedLink = null
     cache = null
@@ -1955,7 +2025,9 @@ function notifyApproval(
   description: string,
   args?: ApprovalArguments,
   /** What the daemon said (ApprovalRequest.critical). */
-  critical?: boolean
+  critical?: boolean,
+  /** What the daemon said (ApprovalRequest.argumentsCut): it cut the arguments, so the notification cannot show the whole call. */
+  argumentsCut?: boolean
 ): void {
   if (notifiedApprovalIds.has(requestId)) return
   notifiedApprovalIds.add(requestId)
@@ -1970,7 +2042,7 @@ function notifyApproval(
 
   // A critical request offers no answer here; it is answered in Beacon. Judged against what the
   // Prometheus that ASKED advertises, not whichever one is connected now.
-  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy?.getStatus().approvalCritical))
+  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy?.getStatus().approvalCritical), argumentsCut === true)
   const actions =
     process.platform === 'darwin' && plan.offersActions
       ? ([
@@ -2003,7 +2075,7 @@ function handleApprovalFrame(raisedBy: ConnectionManager, ev: { type?: string; p
   const p = ev.payload ?? {}
   if (ev.type === 'approval_pending') {
     const a = rawToApproval(p as RawApprovalPush)
-    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments, a.critical)
+    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments, a.critical, a.argumentsCut)
   } else if (ev.type === 'approval_resolved') {
     const rid = typeof p.request_id === 'string' ? p.request_id : null
     if (rid) notifiedApprovalIds.delete(rid)
@@ -2174,6 +2246,7 @@ app.whenReady().then(() => {
     return code.ok ? { ...code, name: rec.label } : code
   })
   registerPairPinHandlers(pairPin) // Devices → Enrol: the pairing code's TLS pin, before the token is minted
+  registerChatProjectsHandlers(() => chatProjects, () => chatContent) // projects on the Prometheus: asked only where it says it serves them
   registerOwnerPromotionHandlers(ownerPromotion) // Settings → Make this Beacon an owner: the one-time code for an owner token
   registerMainModelHandlers(mainModelSetting) // Config → Models → Main model: which AI Prometheus thinks with (restart: the network setting's)
   app.on('before-quit', () => {
@@ -2324,7 +2397,7 @@ app.whenReady().then(() => {
       // shaped like an ApprovalRequest rather than known to be one. Idempotent on an
       // already-coerced map, and it is the same function both daemon mappers use.
       if (a && typeof a.requestId === 'string')
-        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments), a.critical === true ? true : a.critical === false ? false : undefined)
+        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments), a.critical === true ? true : a.critical === false ? false : undefined, a.argumentsCut === true)
     }
   })
   // A conversation's working folder (@shared/work-folder). MAIN decides whether Prometheus shares

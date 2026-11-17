@@ -37,6 +37,7 @@ import {
   advertisesApprovalCritical,
   answeredInApp,
   isCardOnly,
+  isRowCardOnly,
   APPROVAL_CRITICAL_CAPABILITY,
   notificationPlan,
   rawToApproval,
@@ -56,7 +57,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53 + 39 + 15
+const MIN_CHECKS = 53 + 39 + 19 + 5
 
 let failures = 0
 let checks = 0
@@ -240,6 +241,12 @@ const plainPlan = notificationPlan('bash', 'git push origin main')
 check(plainPlan.offersActions === true, 'a request with NO arguments still offers its buttons — the fallback is targeted, not blanket')
 check(plainPlan.body === 'bash: git push origin main', 'and its body is unchanged, verbatim')
 check(notificationPlan('bash', 'git push', {}).offersActions === true, 'an empty argument map is the nothing-to-show case, not a payload')
+// A daemon that says it cut the arguments (`arguments_cut`): the notification cannot show the whole call, even with none to count.
+const cutPlan = notificationPlan('bash', 'git push origin main', undefined, false, true)
+check(cutPlan.offersActions === false && cutPlan.body.includes('part of this was cut; approve in Beacon') && cutPlan.body.startsWith('bash'), 'a request the daemon says it cut offers no buttons, and says why, even with no arguments listed')
+check(notificationPlan('bash', 'git push', { command: 'ls' }, false, true).offersActions === false, 'and arguments plus a daemon that says it cut them are no more answerable from a notification')
+check(notificationPlan('bash', 'git push', undefined, false, false).offersActions === true && notificationPlan('bash', 'git push', undefined, false, undefined as unknown as boolean).offersActions === true, 'with nothing cut and no arguments, a notification still offers its buttons (unchanged)')
+check(notificationPlan('bash', 'rm -rf build', undefined, true, true).offersActions === false && notificationPlan('bash', 'rm -rf build', undefined, true, true).body.includes('answer it in Beacon'), 'a critical request still says it is answered in Beacon, whatever else is true of it')
 
 console.log('\n=== 5. main actually WIRES it — the pure plan is worthless unwired ===')
 // Everything above proves notificationPlan decides correctly. None of it proves main ASKS.
@@ -312,8 +319,8 @@ console.log('\n=== 6. critical — the daemon says a request is answered in the 
   check(notificationPlan('write_file', 'write', { path: '/tmp/a' }, false).body === notificationPlan('write_file', 'write', { path: '/tmp/a' }).body, 'and a request with arguments that is not critical reads as it did')
 
   // main wires it: per connection, from the subscribed reply, on both paths.
-  check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical: the frame path as mapped, the poll path re-checked where it crosses from the page')
-  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\)\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
+  check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical, a\.argumentsCut\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined, a\.argumentsCut === true\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical and about cutting the arguments: the frame path as mapped, the poll path re-checked where it crosses from the page')
+  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\), argumentsCut === true\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
   // What a Prometheus advertises, and how the connection keeps it, is approval-critical-smoke's (the rule is run through its sequences there).
   check(/handleApprovalFrame\(conn, ev as/.test(mainSrc), 'and the frames reach it with the connection they came over')
   check(/&& plan\.offersActions\s*\? \(\[[\s\S]{0,160}\] as Electron\.NotificationAction\[\]\)\s*: \[\]/.test(mainSrc) && (mainSrc.match(/text: 'Approve'/g) ?? []).length === 1, 'the Approve button exists in one place, behind the plan: a plan with no actions makes a notification with none')
@@ -340,7 +347,23 @@ console.log('\n=== 7. a critical request is approved from its full card and nowh
     check(/onShowApproval\?\.\(/.test(src.slice(show, approve)) && !/onResolveApproval/.test(src.slice(show, approve)), `${name}: "Answer on the card" answers nothing`)
   }
   const view = comp('MainView')
-  check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalCardOnly\}/g) ?? []).length === 3 && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule, made once in the main view, handed to the card and to all three short surfaces')
+  check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && /const approvalRowCardOnly = useCallback\(\(id: string\) => isRowCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalRowCardOnly\}/g) ?? []).length === 3 && !/approvalCardOnly=\{approvalCardOnly\}/.test(view) && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule for the card (critical), and the same plus "the daemon cut the arguments" for all three short surfaces: made once in the main view, never the card told it is critical for a cut')
+  {
+    const cut = (id: string, extra: Partial<ApprovalRequest>): ApprovalRequest => ({ requestId: id, toolName: 'bash', description: '', createdAt: 0, extents: {}, ...extra })
+    const rows = [cut('c', { critical: false, argumentsCut: true }), cut('n', { critical: false }), cut('x', { critical: false, argumentsCut: false }), cut('k', { critical: true, argumentsCut: true })]
+    check(isRowCardOnly('c', rows, false) && isRowCardOnly('c', rows, true) && isRowCardOnly('c', rows, undefined), 'a request whose arguments the daemon cut leads to the card from every short row, whatever the Prometheus advertises')
+    check(!isRowCardOnly('n', rows, false) && !isRowCardOnly('x', rows, false) && isRowCardOnly('k', rows, false), 'one that says nothing about being cut, or says it was not, keeps its row; a critical one still goes to the card')
+    check(!isCardOnly('c', rows, false) && !isCardOnly('c', rows, true), 'and the card is not told it is critical for a cut: it shows its own notice')
+    // What today's daemon actually sends: its own markers inside the arguments, with no `arguments_cut` flag.
+    const marked = [
+      cut('m1', { critical: false, arguments: { command: 'cat /etc/hosts (+1200 more chars)' } }),
+      cut('m2', { critical: false, arguments: { api_key: 'sk-***', path: '/tmp/x' } }),
+      cut('m3', { critical: false, arguments: { command: 'ls', '…': '(4 more argument(s) not shown)' } }),
+      cut('m4', { critical: false, arguments: { command: 'ls -la', path: '/tmp' } })
+    ]
+    check(isRowCardOnly('m1', marked, false) && isRowCardOnly('m2', marked, false) && isRowCardOnly('m3', marked, false) && !isRowCardOnly('m4', marked, false), 'the daemon\'s own markers (a value cut at its end, part of one masked, "more arguments not shown") send the row to the card, flag or no flag; plain arguments keep the row')
+    check(isRowCardOnly('gone', rows, true) === isCardOnly('gone', rows, true) && isRowCardOnly('gone', rows, false) === isCardOnly('gone', rows, false), 'an id that is not in the list is judged as before')
+  }
   {
     const c = comp('ExecApprovalCard')
     // Nothing in a card may change size when it takes focus: a line that came and went moved the
