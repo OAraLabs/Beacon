@@ -14,6 +14,7 @@
 import fixture from './fixtures/chat_projects.json'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -35,8 +36,9 @@ import { chatProjectWords } from '@shared/chat-projects'
 import { ChatProjectContent, type ContentPanels, type ProjectsBytes } from './chat-projects-content'
 import type { ProjectsRequest } from './chat-projects'
 import { RestClient, isProjectContentRoute, isProjectRoute } from './connection/rest'
+import { markDownloaded } from './quarantine'
 
-const EXPECTED = 69
+const EXPECTED = 74
 let failures = 0
 let checks = 0
 function assert(cond: boolean, label: string, detail?: unknown): void {
@@ -368,6 +370,37 @@ async function classChecks(): Promise<void> {
     const u = await p.run.run({ op: 'upload', id: P }, { ...noPanels, pickFiles: async () => [fileAt('notes.md', '# Notes\nBuy milk.\n')] })
     assert(!i.ok && failedOf(i).kind === 'unreachable' && !d.ok && !wrote && !u.ok && p.sent.length === 0, 'a connection that was replaced shows nothing, writes no file, and sends no upload')
   }
+  // A saved file is marked as downloaded, before it takes its place.
+  {
+    const seen: Array<{ path: string; targetThere: boolean }> = []
+    const out = join(dir, 'marked.md')
+    const mk = (mark: (path: string) => Promise<boolean>): ChatProjectContent => {
+      const p = probe()
+      void p
+      return new ChatProjectContent({
+        request: async () => ({ status: 200, body: null }),
+        bytes: async () => ({ status: 200, body: null, bytes: Buffer.from('# Notes\n'), contentType: null }),
+        available: () => true,
+        isCurrent: () => true,
+        markDownloaded: mark
+      })
+    }
+    const r = await mk(async (path) => (seen.push({ path, targetThere: existsSync(out) }), true)).run({ op: 'download', id: P, name: 'notes.md' }, { ...noPanels, pickSaveAs: async () => out })
+    assert(r.ok && seen.length === 1 && seen[0].path === `${out}.beacon-part` && !seen[0].targetThere && readFileSync(out, 'utf8') === '# Notes\n', 'a saved file is marked as downloaded while it is still beside its place: it is never there unmarked')
+    const out2 = join(dir, 'unmarkable.md')
+    const bad = await mk(async () => { throw new Error('no xattr here') }).run({ op: 'download', id: P, name: 'notes.md' }, { ...noPanels, pickSaveAs: async () => out2 })
+    const no = await mk(async () => false).run({ op: 'download', id: P, name: 'notes.md' }, { ...noPanels, pickSaveAs: async () => join(dir, 'unmarked.md') })
+    const thrown = await mk(() => { throw new Error('thrown at once') }).run({ op: 'download', id: P, name: 'notes.md' }, { ...noPanels, pickSaveAs: async () => join(dir, 'thrown.md') })
+    assert(bad.ok && thrown.ok && readFileSync(out2, 'utf8') === '# Notes\n' && no.ok, 'a file system that cannot hold the mark (or a marker that fails) does not fail the save')
+    const f = fileAt('q.txt', 'x')
+    const done = await markDownloaded(f, process.platform)
+    if (process.platform === 'darwin') {
+      const v = execFileSync('/usr/bin/xattr', ['-p', 'com.apple.quarantine', f]).toString().trim()
+      assert(done && /^0081;[0-9a-f]{8,};Beacon;[0-9A-F-]{36}$/.test(v), 'on macOS the file carries com.apple.quarantine, as a browser download does', v)
+    } else assert(!done, 'where there is no such mark, nothing is done')
+    assert(!(await markDownloaded(f, 'linux')) && !(await markDownloaded(join(dir, 'not-there.txt'), 'darwin')), 'not macOS: nothing is done; a file that is not there is not marked and nothing throws')
+  }
+
   // A connection replaced WHILE the bytes are out.
   {
     const p = probe()
@@ -444,6 +477,7 @@ async function transportChecks(): Promise<void> {
   assert(/const op = validContentOp\(raw\)\s*if \(!op\) return refusal\(400, null\)\s*const content = currentContent\(\)/.test(ipc) && !/ipcMain/.test(ipc), 'an op is validated in main before it reaches the class')
   const cls = src('src/main/chat-projects-content.ts')
   assert(!/dialog|BrowserWindow/.test(cls) && /pickFiles\(/.test(cls), 'the class opens no panel of its own: the window that asked supplies them')
+  assert(/isCurrent: \(\) => chatProjects === projects,\s*markDownloaded\s*\}\)/.test(main), 'main gives it the marker')
 }
 
 void classChecks()
