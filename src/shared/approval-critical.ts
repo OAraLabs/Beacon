@@ -77,10 +77,31 @@ export const CARD_ONLY_REFUSAL = 'This request can be approved only on its card 
  * Prometheus advertises (`advertised`: undefined while that is not known). Anything that does not
  * plainly say it came from the card is treated as not from the card.
  */
-export function approveRefusal(decision: ApprovalDecision | null | undefined, from: unknown, critical: boolean | undefined, advertised: boolean | undefined): string | null {
+export function approveRefusal(
+  decision: ApprovalDecision | null | undefined,
+  from: unknown,
+  critical: boolean | undefined,
+  advertised: boolean | undefined,
+  /** The person would not see the whole call (the daemon said it cut the arguments, or its own markers say so): a short row or a notification shows a tool name and not what was cut, so the
+   *  answer is given where the whole call and the warning are in front of the person. The `A` key is the card's own (the card is in view). */
+  argumentsCut?: boolean
+): string | null {
   if (!decision || decision.kind !== 'approve') return null
   if (from === 'card') return null
+  if (argumentsCut === true && from !== 'key') return CARD_ONLY_REFUSAL
   return answeredInApp(critical, advertised) ? CARD_ONLY_REFUSAL : null
+}
+
+/** Note that a request's arguments are not all shown (`argumentsIncomplete`). Sticky, like the critical flag: a later frame or poll row that does not say never clears it. */
+export function noteArgumentsCut(book: Set<string>, requestId: string, cut: boolean | undefined): void {
+  if (cut !== true) return
+  book.delete(requestId) // re-noted: newest end
+  book.add(requestId)
+  while (book.size > CRITICAL_BOOK_MAX) {
+    const oldest = book.values().next().value
+    if (oldest === undefined) break
+    book.delete(oldest)
+  }
 }
 
 /** How long after a request's card appears or moves in the stack an APPROVE of it is

@@ -193,3 +193,12 @@ export function describeArguments(args: ApprovalArguments | undefined, arguments
     hasInvisibles: lines.some((l) => l.invisibles)
   }
 }
+
+/**
+ * Is the person NOT seeing the whole call? The daemon said it cut the arguments, or its own markers are in what it sent (a value cut at
+ * its end, a value with part masked, the "N more argument(s) not shown" row). The card says so in its notice; the short rows and main use
+ * this to send the answer to the card.
+ */
+export function argumentsIncomplete(args: ApprovalArguments | undefined, argumentsCut: boolean | undefined): boolean {
+  return describeArguments(args, argumentsCut)?.incomplete === true
+}

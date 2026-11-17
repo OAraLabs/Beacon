@@ -37,6 +37,7 @@ import {
   advertisesApprovalCritical,
   answeredInApp,
   isCardOnly,
+  isRowCardOnly,
   APPROVAL_CRITICAL_CAPABILITY,
   notificationPlan,
   rawToApproval,
@@ -56,7 +57,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53 + 39 + 19
+const MIN_CHECKS = 53 + 39 + 19 + 5
 
 let failures = 0
 let checks = 0
@@ -346,7 +347,23 @@ console.log('\n=== 7. a critical request is approved from its full card and nowh
     check(/onShowApproval\?\.\(/.test(src.slice(show, approve)) && !/onResolveApproval/.test(src.slice(show, approve)), `${name}: "Answer on the card" answers nothing`)
   }
   const view = comp('MainView')
-  check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalCardOnly\}/g) ?? []).length === 3 && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule, made once in the main view, handed to the card and to all three short surfaces')
+  check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && /const approvalRowCardOnly = useCallback\(\(id: string\) => isRowCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalRowCardOnly\}/g) ?? []).length === 3 && !/approvalCardOnly=\{approvalCardOnly\}/.test(view) && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule for the card (critical), and the same plus "the daemon cut the arguments" for all three short surfaces: made once in the main view, never the card told it is critical for a cut')
+  {
+    const cut = (id: string, extra: Partial<ApprovalRequest>): ApprovalRequest => ({ requestId: id, toolName: 'bash', description: '', createdAt: 0, extents: {}, ...extra })
+    const rows = [cut('c', { critical: false, argumentsCut: true }), cut('n', { critical: false }), cut('x', { critical: false, argumentsCut: false }), cut('k', { critical: true, argumentsCut: true })]
+    check(isRowCardOnly('c', rows, false) && isRowCardOnly('c', rows, true) && isRowCardOnly('c', rows, undefined), 'a request whose arguments the daemon cut leads to the card from every short row, whatever the Prometheus advertises')
+    check(!isRowCardOnly('n', rows, false) && !isRowCardOnly('x', rows, false) && isRowCardOnly('k', rows, false), 'one that says nothing about being cut, or says it was not, keeps its row; a critical one still goes to the card')
+    check(!isCardOnly('c', rows, false) && !isCardOnly('c', rows, true), 'and the card is not told it is critical for a cut: it shows its own notice')
+    // What today's daemon actually sends: its own markers inside the arguments, with no `arguments_cut` flag.
+    const marked = [
+      cut('m1', { critical: false, arguments: { command: 'cat /etc/hosts (+1200 more chars)' } }),
+      cut('m2', { critical: false, arguments: { api_key: 'sk-***', path: '/tmp/x' } }),
+      cut('m3', { critical: false, arguments: { command: 'ls', '…': '(4 more argument(s) not shown)' } }),
+      cut('m4', { critical: false, arguments: { command: 'ls -la', path: '/tmp' } })
+    ]
+    check(isRowCardOnly('m1', marked, false) && isRowCardOnly('m2', marked, false) && isRowCardOnly('m3', marked, false) && !isRowCardOnly('m4', marked, false), 'the daemon\'s own markers (a value cut at its end, part of one masked, "more arguments not shown") send the row to the card, flag or no flag; plain arguments keep the row')
+    check(isRowCardOnly('gone', rows, true) === isCardOnly('gone', rows, true) && isRowCardOnly('gone', rows, false) === isCardOnly('gone', rows, false), 'an id that is not in the list is judged as before')
+  }
   {
     const c = comp('ExecApprovalCard')
     // Nothing in a card may change size when it takes focus: a line that came and went moved the
