@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { approveTooSoon, refusalWords, type ApprovalSurface } from '@shared/approval-critical'
+import { HOME_TARGET, type FileOffer } from '@shared/os-entry'
+import { OfferedFilesDialog } from './OfferedFilesDialog'
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react'
 import type { ApprovalDecision, ApprovalRequest, SessionSummary } from '@shared/ipc'
 import {
   VOICE_SESSION_ID,
@@ -25,7 +28,8 @@ import {
   type DictationOutcome
 } from '@shared/dictation'
 import type { GatewayEvent } from '@shared/gateway-events'
-import { applyApprovalFrame } from '@shared/approval-push'
+import { applyApprovalFrame, isCardOnly, isRowCardOnly } from '@shared/approval-push'
+import { useApprovalCriticalAdvertised } from '../approval-critical-store'
 import { BEACON_GATEWAY } from '@shared/session-sources'
 import { SearchOverlay } from './SearchOverlay'
 import type { SearchSummaryHit } from '@shared/search'
@@ -58,6 +62,9 @@ import { ComposeRelay } from '../browser/ComposeRelay'
 import { BrowserHostRelay } from '../browser/BrowserHostRelay'
 import { PaneLinkRelay } from '../browser/PaneLinkRelay'
 import type { ComposerInsert } from '@shared/browser-pane'
+import { starters } from '@shared/saved-prompts'
+import { useSavedPrompts } from '../saved-prompts-store'
+import { SavedPromptsDialog } from './SavedPromptsDialog'
 import type { FileEntry, FileListDTO } from '@shared/daemon-api'
 import { SidePanel } from './SidePanel'
 import {
@@ -94,7 +101,10 @@ import { MissionHome } from './MissionHome'
 import { ChatHome, type HomeStart } from './ChatHome'
 import type { PendingFile } from '../attachments-io'
 import { noteView } from '../view-trail-store'
-import { DEFAULT_VIEW, NAV_VIEWS, usesPillRow, viewLabel, type ViewId } from '@shared/views'
+import { DEFAULT_VIEW, NAV_VIEWS, usesPillRow as usesPillRowIn, viewLabel, type ViewId } from '@shared/views'
+import { configTabVisible, homeLabel, navTreeFor, viewInMode, viewVisible } from '@shared/ui-mode'
+import { setUiMode, useUiMode } from '../ui-mode-store'
+import { TodayHome } from './TodayHome'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HOME, LAST_SESSION_KEY, beginFromHome, resolveLaunchTarget, type ChatTarget } from '@shared/chat-home'
 import {
@@ -199,6 +209,37 @@ export function MainView() {
   /** The approvals as last rendered, for resolveApproval (a stable callback) to read the request it is answering. */
   const approvalsRef = useRef<ApprovalRequest[]>([])
   approvalsRef.current = approvals
+  /** For each pending request, its place in the stack and when it came to be there (appeared, or
+   *  moved because one above it left or arrived). See APPROVAL_SETTLE_MS: only a card that itself
+   *  just appeared or moved is protected, so a change elsewhere in the stack costs nothing. */
+  const approvalPlaces = useRef(new Map<string, { index: number; at: number }>())
+  const approvalIds = approvals.map((a) => a.requestId).join('\n')
+  // A layout effect: recorded before the new stack is painted, so no click on what is now shown
+  // can be judged against where things were.
+  useLayoutEffect(() => {
+    const now = Date.now()
+    const ids = approvalIds ? approvalIds.split('\n') : []
+    const places = approvalPlaces.current
+    for (const id of [...places.keys()]) if (!ids.includes(id)) places.delete(id)
+    ids.forEach((id, index) => {
+      if (places.get(id)?.index !== index) places.set(id, { index, at: now })
+    })
+  }, [approvalIds])
+  // Which requests may be approved only from their full card (Prometheus marked them critical).
+  const criticalAdvertised = useApprovalCriticalAdvertised()
+  const approvalCardOnly = useCallback((id: string) => isCardOnly(id, approvals, criticalAdvertised), [approvals, criticalAdvertised])
+  // The short surfaces also lead to the card when the daemon said it cut the arguments; the card itself is not told it is critical for that.
+  const approvalRowCardOnly = useCallback((id: string) => isRowCardOnly(id, approvals, criticalAdvertised), [approvals, criticalAdvertised])
+  // The approvals area (the stack of cards). `A`/`D` answer only the card focus is on.
+  const approvalsArea = useRef<HTMLDivElement | null>(null)
+  /** From a row that cannot answer a request itself: put focus on THAT request's card, in view. */
+  const showApproval = useCallback((id: string) => {
+    for (const el of approvalsArea.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []) {
+      if (el.dataset.approvalId !== id) continue
+      el.scrollIntoView({ block: 'nearest' })
+      el.focus()
+    }
+  }, [])
   /** The approval ids STILL in the daemon's queue, as a set. The progress pane's desktop log joins
    *  a step's `approvalRequestId` against this to decide whether to render an approve/deny control
    *  inline — a step whose request has been answered keeps its row but has nothing left to act on.
@@ -557,7 +598,19 @@ export function MainView() {
    * nothing renders from it directly.
    */
   const daemonLastSeen = useRef(0)
-  const [view, setView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
+  // Everyday or full (@shared/ui-mode). The view ON SCREEN is the chosen one, or the home when
+  // this mode has put the chosen one away (a remembered view, a card's link, the switch itself):
+  // derived, so a hidden view is never drawn even for a frame.
+  const uiMode = useUiMode()
+  const [chosenView, setChosenView] = useState<ViewId>(() => keptView ?? DEFAULT_VIEW)
+  const view = viewInMode(chosenView, uiMode)
+  // What is REMEMBERED is the view that was shown, never a put-away one that was asked for: a
+  // later "Show everything" then stays where the person is instead of jumping to it.
+  const uiModeRef = useRef(uiMode)
+  uiModeRef.current = uiMode
+  const setView = useCallback((v: ViewId) => setChosenView(viewInMode(v, uiModeRef.current)), [])
+  /** Whether a view has a pill row in THIS mode's navigation (everyday mode's groups are smaller). */
+  const usesPillRow = (v: ViewId): boolean => usesPillRowIn(v, navTreeFor(uiMode))
   const shownView = useRef<ViewId | null>(null)
   useEffect(() => {
     keptView = view
@@ -760,6 +813,57 @@ export function MainView() {
     setComposerInsert({ text, n: ++insertSeq.current })
   }, [])
   const onInsertConsumed = useCallback(() => setComposerInsert(null), [])
+  // Files handed to Beacon from outside it (@shared/os-entry): the offer waiting for an answer, and,
+  // after a yes, the files on their way into a message box. Owned here because the answer may
+  // change which composer is up (a new conversation, or the open one).
+  const [fileOffer, setFileOffer] = useState<FileOffer | null>(null)
+  const [fileOfferNote, setFileOfferNote] = useState('')
+  // Which conversation was open (and in this window) when each offer's screen came up. "Add to
+  // this conversation" means that one for as long as the screen is up, whatever is opened since.
+  const [offerFor, setOfferFor] = useState<{ offerId: string; session: string | null } | null>(null)
+  useEffect(() => {
+    if (!fileOfferNote) return
+    const t = setTimeout(() => setFileOfferNote(''), 9000)
+    return () => clearTimeout(t)
+  }, [fileOfferNote])
+  // `target` is the one message box they are for: a conversation's id, or HOME_TARGET for the
+  // new-chat screen. Only that box takes them, and if it is not there to take them within a few
+  // seconds they are dropped: confirmed files must never turn up later in some other conversation.
+  const [fileInsert, setFileInsert] = useState<{ files: PendingFile[]; n: number; target: string } | null>(null)
+  const onFileInsertConsumed = useCallback(() => setFileInsert(null), [])
+  useEffect(() => {
+    if (!fileInsert) return
+    const t = setTimeout(
+      () =>
+        setFileInsert((cur) => {
+          if (cur?.n !== fileInsert.n) return cur
+          // Nobody took them (the conversation they were for is no longer on screen): say so.
+          setFileOfferNote('Those files were not added: the conversation they were for is no longer open here. Hand them to Beacon again.')
+          return null
+        }),
+      4000
+    )
+    return () => clearTimeout(t)
+  }, [fileInsert])
+  useEffect(() => {
+    const b = window.beacon
+    if (!b) return
+    // One may have arrived before this window existed (a cold start by "Open with").
+    void b.osEntry
+      .pending()
+      .then((o) => o && setFileOffer(o))
+      .catch(() => undefined)
+    return b.osEntry.onOffer(setFileOffer)
+  }, [])
+  // Saved prompts (@shared/saved-prompts): the dialog is hosted here so both the Chat home and the
+  // palette can open it. `draft` set → it opens on a new prompt holding that text.
+  const savedPrompts = useSavedPrompts()
+  const [promptsDialog, setPromptsDialog] = useState<{ draft?: string } | null>(null)
+  /** A saved prompt into whichever composer is up, exactly as saved. */
+  const insertSavedPrompt = useCallback((text: string) => {
+    setView('chat')
+    setComposerInsert({ text, n: ++insertSeq.current, exact: true })
+  }, [])
   const [configTab, setConfigTab] = useState<string | null>(null) // palette deep-link (Slice 8)
   const activeRef = useRef(active)
   useEffect(() => {
@@ -828,6 +932,14 @@ export function MainView() {
     void window.beacon?.sessionWindows.requestClose(id)
   }, [])
   const activePopped = active !== null && (popped.has(active) || popping === active)
+  const offerId = fileOffer?.id ?? null
+  useEffect(() => {
+    // Noted once, when the offer's screen comes up. Not for a conversation in its own window:
+    // there is no message box for it here.
+    if (offerId === null) return
+    setOfferFor((cur) => (cur?.offerId === offerId ? cur : { offerId, session: active !== null && !activePopped ? active : null }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately frozen at the moment the offer appears
+  }, [offerId])
 
   // ── Split panes: what is on screen ───────────────────────────────────────────
   const onScreen = visibleSessions(layout).filter((id) => !popped.has(id))
@@ -1361,7 +1473,7 @@ export function MainView() {
     }
   }, [])
 
-  const resolveApproval = useCallback(async (requestId: string, decision: ApprovalDecision) => {
+  const resolveApproval = useCallback(async (requestId: string, decision: ApprovalDecision, from: ApprovalSurface) => {
     // BREADCRUMB 2 — what survived the prop hop from the card.
     trace({
       point: 'mainview:resolve-enter',
@@ -1371,6 +1483,14 @@ export function MainView() {
     })
     const b = window.beacon
     if (!b) return
+    // This request's card only just appeared, or just moved (one above it was answered): what is
+    // under the pointer may not be what was there when the click began. An approve this soon is
+    // dropped. A request with no card in the stack has no place to have moved from; one whose
+    // place is not recorded yet, or not where the record says, has just moved.
+    const at = approvalsRef.current.findIndex((a) => a.requestId === requestId)
+    const place = approvalPlaces.current.get(requestId)
+    const since = at < 0 ? Infinity : place && place.index === at ? Date.now() - place.at : 0
+    if (approveTooSoon(decision, since)) return
     setApprovalErrors((m) => (m[requestId] ? { ...m, [requestId]: '' } : m)) // clear a stale rejection
     const approval = approvalsRef.current.find((a) => a.requestId === requestId)
     // Optimistic remove, except an approve of a worker's request: that one can be refused for who is asking (401 not_a_person),
@@ -1386,7 +1506,7 @@ export function MainView() {
         requestId,
         scope: decision.kind === 'approve' ? decision.scope : undefined
       })
-      await b.approvals.resolve(requestId, decision)
+      await b.approvals.resolve(requestId, decision, from)
       if (waits) remove()
     } catch (err) {
       // Not this Beacon's to approve: say so once, in place of Approve; the card stays, with Deny.
@@ -1401,7 +1521,10 @@ export function MainView() {
       // undefined)`) is what would let a scope Beacon offers but the daemon rejects look like a
       // successful approval. The request is still pending server-side, so the 3s poll restores the
       // card on its own; this only has to carry the reason back to it.
-      setApprovalErrors((m) => ({ ...m, [requestId]: String(err instanceof Error ? err.message : err) }))
+      // Refused and still pending: the card comes straight back, where it was, with why. Left to
+      // the next poll it was gone for up to three seconds, which reads as "approved".
+      if (!waits && approval) setApprovals((p) => (p.some((a) => a.requestId === requestId) ? p : [...p.slice(0, Math.max(0, at)), approval, ...p.slice(Math.max(0, at))]))
+      setApprovalErrors((m) => ({ ...m, [requestId]: refusalWords(err) }))
     }
   }, [])
 
@@ -1440,15 +1563,16 @@ export function MainView() {
   }, [togglePane, closePanel])
 
   const paletteCommands: PaletteCommand[] = [
-    ...NAV_VIEWS.map<PaletteCommand>((v) => ({
+    // Only the views this mode shows; the home goes by its name in this mode (Today or Mission).
+    ...NAV_VIEWS.filter((v) => viewVisible(v.id, uiMode)).map<PaletteCommand>((v) => ({
       id: `view:${v.id}`,
-      label: `Go to ${v.label}`,
+      label: `Go to ${v.id === 'mission' ? homeLabel(uiMode) : v.label}`,
       group: 'view',
       run: () => setView(v.id)
     })),
     // Slice 8: deep-links into the native surfaces (Config tabs) — Memory/Skills/Telemetry/… are
     // one keystroke away without growing the nav rail.
-    ...['memory', 'skills', 'telemetry', 'sentinel', 'wiki', 'cron', 'profiles'].map<PaletteCommand>((tabId) => ({
+    ...['memory', 'skills', 'telemetry', 'sentinel', 'wiki', 'cron', 'profiles'].filter((tabId) => configTabVisible(tabId, uiMode)).map<PaletteCommand>((tabId) => ({
       id: `surface:${tabId}`,
       label: `Open ${tabId[0].toUpperCase()}${tabId.slice(1)}`,
       hint: 'config',
@@ -1473,6 +1597,12 @@ export function MainView() {
       label: 'New chat',
       group: 'action',
       run: goHome
+    },
+    {
+      id: 'action:prompts',
+      label: 'Saved prompts…',
+      group: 'action',
+      run: () => setPromptsDialog({})
     },
     {
       id: 'action:reconnect',
@@ -1502,7 +1632,26 @@ export function MainView() {
       hint: '?',
       group: 'action',
       run: () => setSheetOpen(true)
-    }
+    },
+    // The Settings switch, from the keyboard: a view someone remembers and cannot find is one
+    // palette entry away, in words that say what it will do. After the fixed actions, so the
+    // list the palette opens on is unchanged.
+    {
+      id: 'action:ui-mode',
+      label: uiMode === 'everyday' ? 'Show everything (Mission, Coding, Activity…)' : 'Show only the everyday views',
+      group: 'action',
+      run: () => setUiMode(uiMode === 'everyday' ? 'full' : 'everyday')
+    },
+    // Saved prompts and starters, AFTER the fixed actions: the palette shows five rows a group, so
+    // rows put first would push Reconnect and Settings out of the list it opens on. Choosing one
+    // opens the chat view with its text in the message box; it is never sent from here.
+    ...starters(savedPrompts).map<PaletteCommand>((s) => ({
+      id: `prompt:${s.id}`,
+      label: `Use prompt: ${s.title}`,
+      hint: s.name ? `/${s.name}` : undefined,
+      group: 'action',
+      run: () => insertSavedPrompt(s.text)
+    }))
   ]
 
   // The voice controls exist only when OAra Voice is configured, or while one is running, so a
@@ -1527,18 +1676,20 @@ export function MainView() {
             flexDirection: 'column',
             gap: 8
           }}
+          ref={approvalsArea}
+          data-approvals-area=""
         >
-          {approvals.map((a, i) => (
+          {approvals.map((a) => (
             <ExecApprovalCard
               key={a.requestId}
               approval={a}
-              first={i === 0}
+              critical={approvalCardOnly(a.requestId)}
               activeSessionId={view === 'chat' ? active : null}
               error={approvalErrors[a.requestId] || null}
               cannotApprove={cannotApprove[a.requestId] ?? null}
               disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
               onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
-              onResolve={(d) => void resolveApproval(a.requestId, d)}
+              onResolve={(d, from) => void resolveApproval(a.requestId, d, from)}
             />
           ))}
         </div>
@@ -1564,7 +1715,9 @@ export function MainView() {
                   onRename={(id, t) => void rename(id, t)}
                   onNew={goHome}
                   onManage={() => setView('sessions')}
-                  onOpenStatus={() => setView('status')}
+                  // Status is put away in everyday mode: the meter is then a reading, not a link (a
+                  // click that left the conversation for Today would explain nothing).
+                  onOpenStatus={viewVisible('status', uiMode) ? () => setView('status') : undefined}
                   width={listShown}
                   onWidth={onListWidth}
                   popped={popped}
@@ -1617,6 +1770,8 @@ export function MainView() {
                   onSubmit={startFromHome}
                   insert={composerInsert}
                   onInsertConsumed={onInsertConsumed}
+                  fileInsert={fileInsert}
+                  onFileInsertConsumed={onFileInsertConsumed}
                   dockPane={panelShowing ? panel.pane : null}
                   onToggleDock={togglePane}
                   handsFreePhase={handsFreePhase}
@@ -1626,6 +1781,7 @@ export function MainView() {
                   dictated={dictated}
                   onDictationConsumed={() => setDictated(null)}
                   voiceNotice={voiceNotice}
+                  onManagePrompts={(draft) => setPromptsDialog({ draft })}
                 />
               ) : focused && activePopped ? (
                 <div className="popped-placeholder" role="status">
@@ -1664,6 +1820,8 @@ export function MainView() {
                   onDictationConsumed={() => setDictated(null)}
                   insert={focused ? composerInsert : null}
                   onInsertConsumed={onInsertConsumed}
+                  fileInsert={focused ? fileInsert : null}
+                  onFileInsertConsumed={onFileInsertConsumed}
                   handsFreePhase={focused ? handsFreePhase : undefined}
                   onHandsFreeToggle={focused && voiceOffered ? () => void onHandsFreeToggle() : undefined}
                   jumpTo={jump && jump.sessionId === target ? { messageId: jump.messageId, nonce: jump.nonce } : null}
@@ -1730,7 +1888,7 @@ export function MainView() {
                   whole reason SubNav sits outside. */}
               <ErrorBoundary
                 key={view}
-                label={`the ${viewLabel(view)} view`}
+                label={`the ${view === 'mission' ? homeLabel(uiMode) : viewLabel(view)} view`}
                 hint="The rest of Beacon still works — switch views from the rail."
               >
               {/* An approved device (not the owner): a view that reads only the owner's routes is the note instead, and never mounts,
@@ -1738,10 +1896,26 @@ export function MainView() {
                   said which (the page's first moments), such a view waits rather than asks. */}
               {ownerGate && view !== 'coding' && view !== 'loop-manager' ? (
             ownerGate === 'note' ? <OwnerOnlyNote area={view} /> : null
+          ) : view === 'mission' && uiMode === 'everyday' ? (
+            <TodayHome
+              approvals={approvals}
+              approvalCardOnly={approvalRowCardOnly}
+              onShowApproval={showApproval}
+              onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
+              onNewChat={goHome}
+              onOpenView={setView}
+              onOpenSession={(id) => {
+                void select(id)
+                setView('chat')
+              }}
+              titles={Object.fromEntries(sessions.map((s) => [s.id, titles[s.id] ?? s.title ?? '']))}
+            />
           ) : view === 'mission' ? (
             <MissionHome
               approvals={approvals}
-              onResolveApproval={(id, d) => void resolveApproval(id, d)}
+              approvalCardOnly={approvalRowCardOnly}
+              onShowApproval={showApproval}
+              onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
               onNewChat={goHome}
               onOpenView={setView}
             />
@@ -1801,7 +1975,9 @@ export function MainView() {
                   sessionId={null}
                   view={view}
                   pendingApprovalIds={pendingApprovalIds}
-                  onResolveApproval={(id, d) => void resolveApproval(id, d)}
+                  approvalCardOnly={approvalRowCardOnly}
+                  onShowApproval={showApproval}
+                  onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
                 />
               ) : null}
             </div>
@@ -1850,6 +2026,44 @@ export function MainView() {
         <SearchLayer initialQuery={searchQuery} onClose={() => setSearchQuery(null)} onJump={jumpToHit} />
       ) : null}
       {sheetOpen ? <ShortcutSheet onClose={() => setSheetOpen(false)} /> : null}
+      {fileOfferNote ? (
+        <div role="status" className="offer-note" data-testid="offer-note">
+          {fileOfferNote}
+        </div>
+      ) : null}
+      {fileOffer ? (
+        <OfferedFilesDialog
+          key={fileOffer.id}
+          offer={fileOffer}
+          // Not offered for a conversation that is in its own window: there is no message box for
+          // it here to put the files in.
+          conversation={offerFor && offerFor.offerId === fileOffer.id && offerFor.session !== null ? (titles[offerFor.session] ?? sessions.find((x) => x.id === offerFor.session)?.title ?? 'this conversation') : null}
+          onAdd={(files, where, left) => {
+            // Some of what was listed may not have been added after all: say which, where it will be seen.
+            if (left) setFileOfferNote(left)
+            // Into a message box, as attachments. Nothing is sent from here.
+            // The conversation that was open when this screen came up, which is the one its button
+            // names: not whichever is open by the time of the click.
+            const here = where === 'this' && offerFor?.offerId === fileOffer.id ? offerFor.session : null
+            if (here === null) goHome()
+            else setView('chat')
+            setFileInsert({ files, n: ++insertSeq.current, target: here ?? HOME_TARGET })
+            // The message box does not take the keyboard for this (the new-chat screen would
+            // otherwise focus itself): the files came from outside Beacon, and the next key the
+            // person presses should not land beside them with Enter one key away.
+            // (Not if the next offer's screen is already up: its "Don't add" keeps the keyboard.)
+            setTimeout(() => {
+              const el = document.activeElement
+              if (el instanceof HTMLElement && !el.closest('[data-testid="offered-files"]')) el.blur()
+            }, 80)
+          }}
+          // Only if this is still the offer on screen: main hands over the next one as soon as
+          // this one is answered, and that one must not be cleared by this one closing.
+          onFail={setFileOfferNote}
+          onClose={() => setFileOffer((cur) => (cur?.id === fileOffer.id ? null : cur))}
+        />
+      ) : null}
+      {promptsDialog ? <SavedPromptsDialog draft={promptsDialog.draft} onUse={insertSavedPrompt} onClose={() => setPromptsDialog(null)} /> : null}
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((prev) => dismissToast(prev, id))} />
       {/* Hands-free, made visible. The Voice segment always started the mic and the VAD; what it
           never did was SHOW you that, so pressing it looked like nothing happened. */}

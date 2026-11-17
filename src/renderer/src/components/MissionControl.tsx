@@ -147,11 +147,17 @@ function relTime(ms: number): string {
 
 export function MissionControl({
   approvals,
+  approvalCardOnly,
+  onShowApproval,
   onResolveApproval,
   onNewChat,
   onOpenView
 }: {
   approvals: ApprovalRequest[]
+  /** Whether a request may be approved only from its full card (Prometheus marked it critical). */
+  approvalCardOnly?: (requestId: string) => boolean
+  /** Put focus on the approval cards, with this request's in view. */
+  onShowApproval?: (requestId: string) => void
   onResolveApproval: (id: string, decision: ApprovalDecision) => void
   onNewChat: () => void
   onOpenView: (v: ViewId) => void
@@ -433,9 +439,17 @@ export function MissionControl({
                       daemon's description of each scope is shown in full. A compact inbox is the
                       wrong place to widen a permission — an unlabelled "Approve" here is how the
                       original defect looked. */}
-                  <button style={{ ...actionBtn, padding: '3px 9px', color: 'var(--online-text)' }} onClick={() => onResolveApproval(a.requestId, { kind: 'approve', scope: 'once' })}>
-                    Approve once
-                  </button>
+                  {/* A request Prometheus marked critical is approved on its full card and nowhere
+                      else: this row shows a tool name, which is not enough to say yes to one. */}
+                  {(approvalCardOnly?.(a.requestId) ?? true) ? (
+                    <button style={{ ...actionBtn, padding: '3px 9px' }} data-testid="approval-row-show" onClick={() => onShowApproval?.(a.requestId)}>
+                      Answer on the card
+                    </button>
+                  ) : (
+                    <button style={{ ...actionBtn, padding: '3px 9px', color: 'var(--online-text)' }} data-testid="approval-row-approve" onClick={() => onResolveApproval(a.requestId, { kind: 'approve', scope: 'once' })}>
+                      Approve once
+                    </button>
+                  )}
                   <button style={{ ...actionBtn, padding: '3px 9px', color: 'var(--sang-text)' }} onClick={() => onResolveApproval(a.requestId, { kind: 'deny' })}>
                     Deny
                   </button>

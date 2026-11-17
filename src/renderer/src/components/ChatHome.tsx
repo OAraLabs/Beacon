@@ -10,6 +10,9 @@ import { stageFiles, type PendingFile } from '../attachments-io'
 import { useDeviceRole } from './OwnerOnlyNote'
 import { useInstances } from '../instances-store'
 import { composerPlaceholder } from '@shared/instance-rows'
+import { insertPrompt, starters } from '@shared/saved-prompts'
+import { HOME_TARGET } from '@shared/os-entry'
+import { useSavedPrompts, useSavedPromptsStatus } from '../saved-prompts-store'
 
 // Chat home / landing: the new-conversation entry shown when no conversation is open.
 //
@@ -44,7 +47,10 @@ export function ChatHome({
   onDictateToggle,
   dictated,
   onDictationConsumed,
-  voiceNotice = ''
+  voiceNotice = '',
+  onManagePrompts,
+  fileInsert = null,
+  onFileInsertConsumed
 }: {
   onSubmit: (start: HomeStart) => void
   dockPane?: PanelPane | null
@@ -64,9 +70,21 @@ export function ChatHome({
   /** The voice line MainView owns (a refused check, a denied mic, hands-free state). Shown here as
    *  in a conversation: a Voice click on Home that fails has to say so on Home. */
   voiceNotice?: string
+  /** Opens the saved-prompts dialog; with text, straight on a new prompt holding it. Absent → no
+   *  starter row (a window that has nowhere to show the dialog). */
+  onManagePrompts?: (draft?: string) => void
+  /** Files to stage as attachments (handed over by the system and confirmed; @shared/os-entry).
+   *  Staged, never sent. Same nonce contract as `insert`. */
+  fileInsert?: { files: PendingFile[]; n: number; target: string } | null
+  onFileInsertConsumed?: () => void
 }) {
   const [draft, setDraft] = useState('')
   const instances = useInstances()
+  // Starters: the person's saved prompts, then the built-in ones they kept. Six at most here; the
+  // rest are in the dialog, the palette, and under `/` in a conversation's message box. Nothing is
+  // shown until the stored prompts have been read, so a starter someone removed never flashes up.
+  const promptList = starters(useSavedPrompts())
+  const promptsLoaded = useSavedPromptsStatus().loaded
   const [mode, setMode] = useState<ChatMode>('agent')
   const [files, setFiles] = useState<PendingFile[]>([])
   const [attachNote, setAttachNote] = useState('')
@@ -108,10 +126,23 @@ export function ChatHome({
   useEffect(() => {
     if (!insert || insert.n === lastInsertRef.current) return
     lastInsertRef.current = insert.n
-    setDraft((d) => appendComposerInsert(d, insert.text))
+    setDraft((d) => (insert.exact ? insertPrompt(d, insert.text) : appendComposerInsert(d, insert.text)))
     onInsertConsumed?.()
     setTimeout(() => ref.current?.focus(), 0)
   }, [insert, onInsertConsumed])
+
+  const lastFilesRef = useRef(0)
+  useEffect(() => {
+    // Only files meant for the new-chat screen.
+    if (!fileInsert || fileInsert.target !== HOME_TARGET || fileInsert.n === lastFilesRef.current) return
+    lastFilesRef.current = fileInsert.n
+    // Attachments send in Agent mode, so that is the mode they arrive in (the confirmation said so).
+    setMode('agent')
+    setFiles((prev) => [...prev, ...fileInsert.files])
+    onFileInsertConsumed?.()
+    // The message box is NOT given the keyboard: these files came from outside Beacon, and what
+    // the person types next should go where they were typing, not here with Enter one key away.
+  }, [fileInsert, onFileInsertConsumed])
 
   // A delivered dictation appends to the draft and is then consumed — same contract, and the same
   // nonce guard, as the thread: two identical transcripts are two insertions, and a re-render in
@@ -143,7 +174,9 @@ export function ChatHome({
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      submit()
+      // A held Enter never starts a conversation: the key that chose a saved prompt in the palette
+      // may still be down when its text lands here (same rule as the thread composer).
+      if (!e.repeat) submit()
     }
   }
 
@@ -296,6 +329,27 @@ export function ChatHome({
           </div>
           <input ref={fileInputRef} type="file" multiple onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
         </footer>
+        {onManagePrompts && promptsLoaded ? (
+          <div className="chat-home-starters" role="group" aria-label="Starters">
+            {promptList.slice(0, 6).map((s) => (
+              <button
+                key={s.id}
+                className="starter-chip"
+                title={s.text.trim().slice(0, 200)}
+                onClick={() => {
+                  // Into the box, never sent: the person reads it, finishes it, and sends it.
+                  setDraft((d) => insertPrompt(d, s.text))
+                  setTimeout(() => ref.current?.focus(), 0)
+                }}
+              >
+                {s.title}
+              </button>
+            ))}
+            <button className="starter-chip starter-chip-quiet" onClick={() => onManagePrompts(draft.trim() ? draft : undefined)}>
+              {draft.trim() ? 'Save as a prompt…' : promptList.length > 6 ? `All ${promptList.length} prompts…` : 'Edit prompts…'}
+            </button>
+          </div>
+        ) : null}
         {voiceOn ? <p className="chat-home-sub">Voice mode is on — speak, or type below.</p> : null}
       </div>
     </div>

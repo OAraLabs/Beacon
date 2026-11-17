@@ -9,6 +9,7 @@ import {
   type CaptureSourcesResult,
   type ScreenAccessState
 } from '@shared/capture'
+import { captureSources } from '@shared/quick-capture'
 import { handleFromShell, onFromShell } from './shell-windows'
 
 // Screenshot capture. Pixels are read IN MAIN via desktopCapturer and handed to
@@ -77,8 +78,52 @@ function fitToWire(img: Electron.NativeImage): CaptureGrabResult {
   return { ok: false, error: 'could not shrink the capture to a sendable size' }
 }
 
-export function registerScreenshotHandlers(): void {
-  handleFromShell(IPC.SCREENSHOT_SOURCES, async (): Promise<CaptureSourcesResult> => {
+/** Full-resolution capture of one source, fitted to the wire. Shared by the composer's picker and
+ *  the quick-capture window (which hides itself first; see CAPTURE_SHOT in index.ts). */
+export async function grabSource(sourceId: unknown): Promise<CaptureGrabResult> {
+  if (typeof sourceId !== 'string' || !sourceId) return { ok: false, error: 'no source id' }
+  try {
+    // Empirical (probe-a3-diag, 2026-08-28): capture at ANY size intermittently returns empty
+    // images when getSources calls land close together — ScreenCaptureKit needs a beat between
+    // enumerations, and the picker has just made one. So the grab RETRIES with a pause, and the
+    // pause is the load-bearing part; the size ladder is the second-order fallback.
+    // Enumerate ONLY the requested kind: at grab resolution every enumerated source is
+    // thumbnailed, so asking for both kinds renders every open window at full size per attempt —
+    // seconds of work per retry that the retry loop then multiplies.
+    const types: Array<'screen' | 'window'> = [sourceId.startsWith('screen') ? 'screen' : 'window']
+    let seen = false
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 600))
+      for (const thumbnailSize of grabSizes()) {
+        const raw = await desktopCapturer.getSources({
+          types,
+          thumbnailSize,
+          fetchWindowIcons: false
+        })
+        const src = raw.find((s) => s.id === sourceId)
+        if (!src) continue // ids can churn between enumerations; a later pass may still find it
+        seen = true
+        const img = src.thumbnail
+        if (img.isEmpty()) continue
+        const { width, height } = img.getSize()
+        if (width < 2 || height < 2) continue
+        return fitToWire(img)
+      }
+    }
+    if (!seen) return { ok: false, error: 'source is gone — it may have closed; reopen the picker' }
+    // Every attempt came back empty. If access is granted this is the transient SCK blank-frame
+    // window — do NOT send the user to System Settings for it; otherwise the un-granted TCC
+    // case really is the likely cause.
+    return { ok: false, error: accessState() === 'granted' ? transientGrabError() : emptyGrabError() }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** `ownSourceId` names a source to leave out for one asking window (the quick-capture window leaves
+ *  itself out; every other window gets null and lists itself). */
+export function registerScreenshotHandlers(ownSourceId: (sender: Electron.WebContents) => string | null = () => null): void {
+  handleFromShell(IPC.SCREENSHOT_SOURCES, async (e): Promise<CaptureSourcesResult> => {
     const access = accessState()
     try {
       const raw = await desktopCapturer.getSources({
@@ -94,7 +139,7 @@ export function registerScreenshotHandlers(): void {
           thumbDataUrl: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL()
         }))
       )
-      return { access, sources }
+      return { access, sources: captureSources(sources, ownSourceId(e.sender)) }
     } catch {
       // Enumeration failing outright reads as "nothing to capture" — the access state still lets
       // the picker say WHY when the cause is the TCC grant.
@@ -102,45 +147,7 @@ export function registerScreenshotHandlers(): void {
     }
   })
 
-  handleFromShell(IPC.SCREENSHOT_GRAB, async (_e, sourceId: string): Promise<CaptureGrabResult> => {
-    if (typeof sourceId !== 'string' || !sourceId) return { ok: false, error: 'no source id' }
-    try {
-      // Empirical (probe-a3-diag, 2026-08-28): capture at ANY size intermittently returns empty
-      // images when getSources calls land close together — ScreenCaptureKit needs a beat between
-      // enumerations, and the picker has just made one. So the grab RETRIES with a pause, and the
-      // pause is the load-bearing part; the size ladder is the second-order fallback.
-      // Enumerate ONLY the requested kind: at grab resolution every enumerated source is
-      // thumbnailed, so asking for both kinds renders every open window at full size per attempt —
-      // seconds of work per retry that the retry loop then multiplies.
-      const types: Array<'screen' | 'window'> = [sourceId.startsWith('screen') ? 'screen' : 'window']
-      let seen = false
-      for (let attempt = 0; attempt < 4; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 600))
-        for (const thumbnailSize of grabSizes()) {
-          const raw = await desktopCapturer.getSources({
-            types,
-            thumbnailSize,
-            fetchWindowIcons: false
-          })
-          const src = raw.find((s) => s.id === sourceId)
-          if (!src) continue // ids can churn between enumerations; a later pass may still find it
-          seen = true
-          const img = src.thumbnail
-          if (img.isEmpty()) continue
-          const { width, height } = img.getSize()
-          if (width < 2 || height < 2) continue
-          return fitToWire(img)
-        }
-      }
-      if (!seen) return { ok: false, error: 'source is gone — it may have closed; reopen the picker' }
-      // Every attempt came back empty. If access is granted this is the transient SCK blank-frame
-      // window — do NOT send the user to System Settings for it; otherwise the un-granted TCC
-      // case really is the likely cause.
-      return { ok: false, error: accessState() === 'granted' ? transientGrabError() : emptyGrabError() }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
-  })
+  handleFromShell(IPC.SCREENSHOT_GRAB, async (_e, sourceId: string): Promise<CaptureGrabResult> => grabSource(sourceId))
 
   onFromShell(IPC.SCREENSHOT_OPEN_SETTINGS, () => {
     if (process.platform === 'darwin')

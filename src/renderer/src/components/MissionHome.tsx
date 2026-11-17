@@ -26,11 +26,17 @@ const LEGEND: { key: string; what: string }[] = [
 
 export function MissionHome({
   approvals,
+  approvalCardOnly,
+  onShowApproval,
   onResolveApproval,
   onNewChat,
   onOpenView
 }: {
   approvals: ApprovalRequest[]
+  /** Whether a request may be approved only from its full card (Prometheus marked it critical). */
+  approvalCardOnly?: (requestId: string) => boolean
+  /** Put focus on the approval cards, with this request's in view. */
+  onShowApproval?: (requestId: string) => void
   onResolveApproval: (id: string, decision: ApprovalDecision) => void
   onNewChat: () => void
   onOpenView: (v: ViewId) => void
@@ -55,7 +61,7 @@ export function MissionHome({
         <div className="mission-right">
           {/* Onboarding Phase 2: dismissible first-flight checklist — additive; HUD untouched. */}
           <FirstFlightCard onOpenView={onOpenView} />
-          <MissionControl approvals={approvals} onResolveApproval={onResolveApproval} onNewChat={onNewChat} onOpenView={onOpenView} />
+          <MissionControl approvals={approvals} approvalCardOnly={approvalCardOnly} onShowApproval={onShowApproval} onResolveApproval={onResolveApproval} onNewChat={onNewChat} onOpenView={onOpenView} />
         </div>
       </div>
     </div>

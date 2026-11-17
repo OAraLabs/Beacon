@@ -4,6 +4,9 @@
 //
 // No Node/Electron imports (same rule as the rest of src/shared).
 
+import { SAVED_PROMPTS_KEY } from './saved-prompts'
+import { UI_MODE_KEY } from './ui-mode'
+import { TODAY_SEEN_KEY } from './today'
 import { CREDENTIAL_KIND_KEY } from './model-setup'
 import { DRAFT_PREFIX } from './drafts'
 import { LAST_SESSION_KEY } from './chat-home'
@@ -13,6 +16,7 @@ import { ONBOARDING_BROWSING_KEY, ONBOARDING_KNOWN_KEY, ONBOARDING_LAN_ASKED_KEY
 import { PANEL_OPEN_KEY, PANEL_PANE_KEY, PANEL_WIDTH_KEY, SESSION_LIST_WIDTH_SETTING_KEY } from './side-panel'
 import { SESSION_GROUPS_SETTING_KEY } from './session-groups'
 import { SESSION_PROJECTS_SETTING_KEY, SESSION_UNFILED_SETTING_KEY } from './session-projects'
+import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY } from './chat-projects-view'
 import { SPLIT_LAYOUT_KEY } from './split-panes'
 import { THEME_KEY } from './theme'
 import { CLOSE_MODE_KEY, TRAY_HINT_SHOWN_KEY } from './tray-hint'
@@ -41,9 +45,12 @@ export const PROMETHEUS_SETTING_KEYS: readonly string[] = [
   SESSION_GROUPS_SETTING_KEY,
   SESSION_PROJECTS_SETTING_KEY,
   SESSION_UNFILED_SETTING_KEY,
+  CHAT_PROJECTS_MIGRATED_KEY, // whether THIS Prometheus has had the local projects moved to it
+  CHAT_PROJECTS_SERVED_KEY, // whether THIS Prometheus has ever been seen serving projects
   LAST_SESSION_KEY,
   SPLIT_LAYOUT_KEY,
   'capture:session', // QuickCapture's last target (a session id)
+  TODAY_SEEN_KEY, // when Today was last on screen, for this Prometheus's "since you last looked"
   // The facts about that Prometheus's key (layout 3): which kind of credential it is, and the device role it last answered.
   CREDENTIAL_KIND_KEY,
   'connection.deviceRole' // src/main/index.ts DEVICE_ROLE_KEY
@@ -64,6 +71,8 @@ export const BEACON_SETTING_KEYS: readonly string[] = [
   ONBOARDING_BROWSING_KEY,
   ONBOARDING_KNOWN_KEY,
   ONBOARDING_LAN_ASKED_KEY,
+  SAVED_PROMPTS_KEY, // saved prompts are the person's, whichever Prometheus they are talking to
+  UI_MODE_KEY, // everyday or full: how this person likes Beacon
   'daemons:layout', // src/main/cache/daemon-folders.ts LAYOUT_KEY: app.db's own marker that the folders are in place
   'daemons:active' // src/main/cache/daemon-folders.ts ACTIVE_KEY: which Prometheus Beacon connects to at launch
 ]

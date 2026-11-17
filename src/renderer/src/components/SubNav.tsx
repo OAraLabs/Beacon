@@ -1,4 +1,6 @@
 import { NAV_VIEWS, subNavForView, type ViewId } from '@shared/views'
+import { navTreeFor } from '@shared/ui-mode'
+import { useUiMode } from '../ui-mode-store'
 
 // Second-level navigation (design handoff 2026-09-03, R2): lives at the top of the surface it
 // belongs to, as ONE horizontally scrollable row of pills with counts, under the page title and
@@ -19,7 +21,8 @@ export function SubNav({
   /** Per-view counts, where a count means something. Absent → the pill shows its label alone. */
   counts?: Partial<Record<ViewId, number | string>>
 }) {
-  const group = subNavForView(view)
+  // The pills are the mode's (@shared/ui-mode): everyday mode's Workspace has four, not eight.
+  const group = subNavForView(view, navTreeFor(useUiMode()))
   if (!group) return null
   return (
     <header className="subnav" data-testid="subnav">

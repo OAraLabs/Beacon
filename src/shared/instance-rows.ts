@@ -25,6 +25,7 @@ export interface InstanceRowView {
 }
 
 export const ADD_PROMETHEUS = 'Add a Prometheus…'
+export const ADD_PHONE = 'Add a phone…'
 export const UNPROVED_NOTE = "Can't prove who it is (an older Prometheus)"
 
 /** "3:12 pm". */

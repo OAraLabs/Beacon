@@ -8,6 +8,7 @@
 // FileReader is a DOM API, so this is renderer-only rather than @shared.
 
 import { base64FromDataUrl, CHAT_UPLOAD_SAFE_BYTES, oversizeAttachmentNotice } from '@shared/attachments'
+import type { ChatUploadRequest } from '@shared/ipc'
 
 /** A file staged in a composer (read to a data URL) before it is sent as a chat_upload. */
 export interface PendingFile {
@@ -60,4 +61,45 @@ export async function stageFiles(files: FileList | File[]): Promise<{ ok: Pendin
   if (fits.length === 0) return { ok: [], note }
   const read = await Promise.all(fits.map((f) => readAttachment(f).catch(() => null)))
   return { ok: read.filter((x): x is PendingFile => x !== null), note }
+}
+
+/**
+ * Send staged files: one chat_upload per file, the text riding as the caption on the LAST one
+ * (what the web client does, and what the daemon expects). Throws an UploadError if a frame could
+ * not be dispatched; its `sent` says how many files had already gone, so a caller that puts the
+ * rest back does not send those twice. One loop for every composer, quick capture included.
+ */
+export class UploadError extends Error {
+  constructor(
+    message: string,
+    readonly sent: number
+  ) {
+    super(message)
+    this.name = 'UploadError'
+  }
+}
+
+export async function sendUploads(upload: (req: ChatUploadRequest) => Promise<boolean>, sessionId: string, files: PendingFile[], text: string): Promise<void> {
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i]
+    let ok: boolean
+    try {
+      ok = await upload({
+        sessionId,
+        filename: f.name,
+        contentBase64: f.base64,
+        mimeType: f.mimeType,
+        caption: i === files.length - 1 ? text : ''
+      })
+    } catch (err) {
+      // The same words the rejection carried, plus how far the batch got.
+      throw new UploadError(err instanceof Error ? err.message : String(err), i)
+    }
+    if (!ok) throw new UploadError('not connected', i)
+  }
+}
+
+/** A capture from main as a staged file. */
+export function stagedScreenshot(base64: string, mimeType: string, name: string): PendingFile {
+  return { dataUrl: `data:${mimeType};base64,${base64}`, base64, mimeType, name, isImage: true, size: Math.floor((base64.length * 3) / 4) }
 }

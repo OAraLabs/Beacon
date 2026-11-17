@@ -18,7 +18,7 @@
  */
 
 import type { ApprovalRequest } from './ipc'
-import { coerceArguments, type ApprovalArguments } from './approval-arguments'
+import { argumentsIncomplete, coerceArguments, type ApprovalArguments } from './approval-arguments'
 
 /**
  * The daemon's snake_case pending shape — the SAME dict `serialize_pending()` serves over BOTH
@@ -55,6 +55,10 @@ export interface RawApprovalPush {
   expires_at?: unknown
   /** dict[str, str] from prospective_extents() — verb → prose. OBJECT, not array; `{}` is valid. */
   extents?: unknown
+  /** `true`: answer in the app, never from a notification (`answeredInApp`). Absent on an older daemon. */
+  critical?: unknown
+  /** `true` where a daemon says it cut the arguments itself. No daemon sends it yet; the card reads it when one does. */
+  arguments_cut?: unknown
   /**
    * dict[str, str] | None from `redact_arguments()` — the arguments being approved, scrubbed and
    * truncated daemon-side. `null` (its only empty form) means nothing worth showing.
@@ -102,11 +106,73 @@ export function rawToApproval(raw: RawApprovalPush): ApprovalRequest | null {
     // An `arguments` carried on the REST mapper alone would render a card whose decisive value
     // appears seconds late — and `A` is a one-key approve.
     arguments: coerceArguments(raw.arguments),
+    // Only a plain true is a claim; anything else is the same as not saying.
+    argumentsCut: raw.arguments_cut === true ? true : undefined,
     // Undefined unless present and well-formed: an ordinary request stays byte-identical.
     workerTaskId: typeof raw.worker_task_id === 'string' && raw.worker_task_id ? raw.worker_task_id : undefined,
     sessionId: typeof raw.session_id === 'string' && raw.session_id ? raw.session_id : undefined,
-    onceOnly: raw.once_only === true ? true : undefined
+    onceOnly: raw.once_only === true ? true : undefined,
+    // Exactly what the daemon said, or nothing: `true`, `false`, or undefined for a daemon that does
+    // not say (and for a value that is neither). What that means is `answeredInApp`'s to decide.
+    critical: raw.critical === true ? true : raw.critical === false ? false : undefined
   }
+}
+
+/**
+ * The name a daemon lists in the `subscribed` reply's `server_capabilities` when EVERY approval
+ * request it serializes says `critical`: whether it must be answered in the app, never from a
+ * notification. The daemon decides which requests those are; Beacon never classifies one itself.
+ */
+export const APPROVAL_CRITICAL_CAPABILITY = 'approval_critical'
+
+/** Whether a `subscribed` reply's payload lists that capability. Anything malformed is "no". */
+export function advertisesApprovalCritical(subscribedPayload: unknown): boolean {
+  if (!subscribedPayload || typeof subscribedPayload !== 'object') return false
+  const caps = (subscribedPayload as { server_capabilities?: unknown }).server_capabilities
+  return Array.isArray(caps) && caps.includes(APPROVAL_CRITICAL_CAPABILITY)
+}
+
+/**
+ * Whether a request's notification must offer no answer, so it is answered in Beacon.
+ *
+ * - `critical: true` always is. Only a daemon that knows the flag ever sends it.
+ * - A request that does not say (or says something that is neither true nor false) is one only
+ *   when the daemon ADVERTISES the flag: such a daemon promised a value on every request, so a
+ *   missing one is something gone wrong, and the daemon's own rule is that doubt is critical.
+ * - From a daemon that does not advertise it, a request that does not say is an ordinary one,
+ *   exactly as before the flag existed: an older Prometheus behaves as it always did.
+ * - Before a daemon has said either way, a request that does not say is treated as critical.
+ */
+export function answeredInApp(critical: boolean | undefined, advertised: boolean | undefined): boolean {
+  if (critical === true) return true
+  if (critical === false) return false
+  // The request does not say. `advertised` undefined: this Prometheus has not yet said what it does
+  // (the first moments of a connection, before its `subscribed` reply). Until it has, doubt is
+  // critical; the connection settles it within seconds either way (ConnectionManager).
+  return advertised !== false
+}
+
+/**
+ * Whether a pending request may be approved ONLY from its full card: not from a short row on
+ * Mission or Today, not inline in the desktop-prompt pane, not with the `A` key. The same rule as
+ * the notification's (`answeredInApp`), asked by request id for the surfaces that hold only an id.
+ * An id that is not in the list is judged like a request that does not say: card-only when this
+ * Prometheus advertises the flag, ordinary when it does not.
+ */
+export function isCardOnly(requestId: string, approvals: readonly ApprovalRequest[], advertised: boolean | undefined): boolean {
+  const a = approvals.find((x) => x.requestId === requestId)
+  return answeredInApp(a?.critical, advertised)
+}
+
+/**
+ * Whether a SHORT row (Mission, Today, the desktop-prompt pane) must lead to the full card instead of approving: the request is card-only
+ * (above), or the person would not be seeing the whole call (the daemon said it cut the arguments, or its own markers say a value was cut,
+ * masked or left out). The card says plainly what; a row shows a tool name. The card itself is not
+ * told it is critical for this: it shows its own notice.
+ */
+export function isRowCardOnly(requestId: string, approvals: readonly ApprovalRequest[], advertised: boolean | undefined): boolean {
+  const a = approvals.find((x) => x.requestId === requestId)
+  return answeredInApp(a?.critical, advertised) || (a !== undefined && argumentsIncomplete(a.arguments, a.argumentsCut))
 }
 
 /** The resolved frame's payload: request_id + resolution (approved|denied|expired). */
@@ -202,17 +268,32 @@ function omissionNote(count: number): string {
   return ` — ${count} argument${count === 1 ? '' : 's'} not shown; approve in Beacon`
 }
 
+/** Said in a notification that offers no answer because the daemon wants this one answered in the app. */
+const IN_APP_NOTE = ' — answer it in Beacon'
+
+/** Said when the daemon reports it cut the arguments and none came with the request to count. */
+const CUT_NOTE = ' — part of this was cut; approve in Beacon'
+
 export function notificationPlan(
   toolName: string,
   description: string,
-  args?: ApprovalArguments
+  args?: ApprovalArguments,
+  /** `answeredInApp(...)` for this request: no buttons, whatever else is true of it. */
+  inAppOnly = false,
+  /** The daemon said it cut the arguments (`arguments_cut`): there is something the notification cannot show, so no buttons. */
+  argumentsCut = false
 ): NotificationPlan {
+  // The daemon marked this request critical: it is answered in Beacon, where all of it can be
+  // read. Checked FIRST, so no later branch can hand the buttons back.
+  if (inAppOnly) {
+    return { body: `${decisionGradeBody(toolName, description, Math.max(0, BODY_BUDGET - IN_APP_NOTE.length))}${IN_APP_NOTE}`, offersActions: false }
+  }
   const count = args ? Object.keys(args).length : 0
-  if (count === 0) return { body: decisionGradeBody(toolName, description), offersActions: true }
+  if (count === 0 && !argumentsCut) return { body: decisionGradeBody(toolName, description), offersActions: true }
   // The note is RESERVED out of the budget, never appended past it — a body that
   // overran would be cut by the OS, and the first thing lost would be the sentence
   // explaining why there is nothing to tap.
-  const note = omissionNote(count)
+  const note = count === 0 ? CUT_NOTE : omissionNote(count)
   return {
     body: `${decisionGradeBody(toolName, description, Math.max(0, BODY_BUDGET - note.length))}${note}`,
     offersActions: false

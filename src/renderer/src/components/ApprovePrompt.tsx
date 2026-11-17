@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { DecideOutcome, WaitingRequest } from '@shared/join-owner'
 import { fill } from '@shared/onboarding-strings'
 import { OWNER_COPY } from '@shared/owner-strings'
+import { ownerSteps } from '@shared/join-notice'
+import { useInstances } from '../instances-store'
 
 const T = OWNER_COPY
 
@@ -27,7 +29,29 @@ export function ApprovePrompt(): React.JSX.Element | null {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  // "Review" on Config → Devices: bring back a request set aside with Not now, first.
+  const [focusId, setFocusId] = useState<string | null>(null)
+  const [owner, setOwner] = useState(false)
+  const [copied, setCopied] = useState(false)
   const field = useRef<HTMLInputElement>(null)
+  const instances = useInstances()
+  const on = instances.find((i) => i.active)
+  const steps = ownerSteps({ thisMac: /^(localhost|127\.|\[?::1\]?)/.test(on?.host ?? ''), instance: on?.label || 'Prometheus' })
+
+  useEffect(() => {
+    const review = (e: Event): void => {
+      const id = (e as CustomEvent<{ requestId?: unknown } | null>).detail?.requestId
+      if (typeof id !== 'string') return
+      setDismissed((d) => {
+        const next = new Set(d)
+        next.delete(id)
+        return next
+      })
+      setFocusId(id)
+    }
+    window.addEventListener('beacon:review-join', review)
+    return () => window.removeEventListener('beacon:review-join', review)
+  }, [])
 
   useEffect(() => {
     const p = window.beacon?.pairing
@@ -49,13 +73,15 @@ export function ApprovePrompt(): React.JSX.Element | null {
   }, [requests.length])
 
   const open = requests.filter((r) => !dismissed.has(r.requestId) && r.deadlineMs > now)
-  const current = open[0] ?? null
+  const current = open.find((r) => r.requestId === focusId) ?? open[0] ?? null
   const currentId = current?.requestId ?? null
 
   // A different request starts with an empty field and the cursor in it.
   useEffect(() => {
     setCode('')
     setMessage(null)
+    setOwner(false)
+    setCopied(false)
     if (currentId) field.current?.focus()
   }, [currentId])
 
@@ -88,7 +114,7 @@ export function ApprovePrompt(): React.JSX.Element | null {
         aria-labelledby="pair-prompt-title"
         onKeyDown={(e) => {
           if (e.key === 'Escape') notNow()
-          if (e.key === 'Enter' && ready) void answer('approve')
+          if (e.key === 'Enter' && ready && e.target === field.current) void answer('approve') // only from the code field: Enter on Copy copies
         }}
       >
         <h2 id="pair-prompt-title" style={title}>
@@ -112,6 +138,43 @@ export function ApprovePrompt(): React.JSX.Element | null {
           onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
         />
         <p style={dim}>{T.careful}</p>
+        <button
+          className="setup-test"
+          style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: 12 }}
+          aria-expanded={owner}
+          onClick={() => setOwner((o) => !o)}
+          data-testid="make-owner-how"
+        >
+          {T.makeOwner}
+        </button>
+        {owner ? (
+          <div data-testid="owner-steps" style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--c-text-dim)', lineHeight: 1.45 }}>
+            <div>{T.ownerWhy}</div>
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              {steps.steps.map((s) => (
+                <li key={s}>{s}</li>
+              ))}
+            </ol>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <code data-testid="owner-command" style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, padding: '6px 8px', borderRadius: 6, background: 'var(--c-inset)', color: 'var(--c-text)', userSelect: 'all' }}>
+                {steps.command}
+              </code>
+              <button
+                className="setup-test"
+                style={{ padding: '4px 10px', fontSize: 12 }}
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(steps.command)
+                    .then(() => setCopied(true))
+                    .catch(() => undefined)
+                }
+                data-testid="owner-copy"
+              >
+                {copied ? T.copied : T.copy}
+              </button>
+            </div>
+          </div>
+        ) : null}
         {message ? (
           <div className="setup-error" role="alert">
             {message}

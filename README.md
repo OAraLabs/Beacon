@@ -30,6 +30,10 @@ On first launch Beacon asks one question: set Prometheus up on this Mac, or join
 
 A six-entry nav rail that never expands — **Mission** · **Chats** · **Coding** · **Workspace** · **Activity** · **Config**. A surface's second level is a pill row at the top of the surface, not a tree in the rail: Chats (Chat, Sessions) · Coding (Run, Loop Manager) · Workspace (Files, Documents, Wiki, Artifacts, Checkpoints, Board, Skills, Integrations, Devices) · Activity (Live, Tool Feed, Status).
 
+### Everyday mode
+
+A new install opens on the everyday views: **Today** · **Chats** · **Workspace** (Documents, Artifacts, Wiki, Files) · **Config**, with the settings a person changes. Today is the home there: what needs you, what happened since you last looked, what is coming up. **Settings → Views → Show everything** (also in the palette) shows the full set described below, with Mission as the home. An install that already exists keeps everything until its owner turns that switch off; the mode changes what is shown and nothing else.
+
 ### Chat with a live tool timeline
 
 Streaming markdown (GFM, syntax highlighting, collapsible code blocks), per-turn **tool-call chips with live durations** (parallel dispatches render as `‖N` batches), retry/edit-last, attachments via picker/paste/drag-drop. The composer carries a **per-session model switcher** (with auth-mode badges), the **Agent | Chat** mode toggle (tools vs plain reply), and the **🔍 force-search** toggle that arms the next message to start with a real web search. Long transcripts stay fast: only the recent tail is mounted (**Show earlier** reveals the rest on demand), so a session that has run for months doesn't render thousands of markdown trees to show you the last reply. Relaunching reopens the session you were last in.

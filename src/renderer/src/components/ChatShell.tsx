@@ -10,7 +10,7 @@ import {
   utf8ByteLength
 } from '@shared/attachments'
 import { usePreview } from '../preview-store'
-import { stageFiles, type PendingFile } from '../attachments-io'
+import { sendUploads, stageFiles, type PendingFile } from '../attachments-io'
 import { MessageBody } from './MessageRenderer'
 import { Icon } from './Icon'
 import { ToolTimeline } from './ToolTimeline'
@@ -18,6 +18,8 @@ import { coalesceToolResults, groupForRender } from '@shared/timeline'
 import { finalizeRow, orderForRender } from '@shared/message-order'
 import { ModelSwitcher } from './ModelSwitcher'
 import { hostDisplayName } from '@shared/daemon-api'
+import { WorkFolderChip } from './WorkFolderChip'
+import { otherComputerName } from '@shared/work-folder'
 import { speakable, speechText } from '@shared/speech-text'
 import { initialWatermark, nextAnnouncement, spokenAnnouncement } from '@shared/live-announce'
 import { ProfilePicker } from './ProfilePicker'
@@ -67,6 +69,8 @@ import { destructiveSlash, parseLocalSlash, resolveModel, resolveSkin, slashBoun
 import { coerceTheme, THEME_LABEL, THEMES } from '@shared/theme'
 import { jumpHasNew, jumpLabel, shouldStick, showJumpPill } from '@shared/jump-latest'
 import { setTheme } from '../theme/apply-theme'
+import { insertPrompt, slashCatalogWith } from '@shared/saved-prompts'
+import { useSavedPrompts } from '../saved-prompts-store'
 import { applyAtChoice, atKey, atMatches, atQuery, chipFromToken, chipsNote, fileQueryParts, referencesFromChips, slashWithReferences, MAX_REFERENCES, type AtCandidate, type ReferenceChip } from '@shared/at-references'
 import type { FileEntry, FileListDTO } from '@shared/daemon-api'
 import { screenAccessHint, screenshotFilename } from '@shared/capture'
@@ -256,6 +260,8 @@ export function ChatShell({
   onInitialSent,
   mode = 'agent',
   onModeChange,
+  fileInsert = null,
+  onFileInsertConsumed,
   daemonLastSeen,
   voiceState = 'idle',
   voiceNotice = '',
@@ -310,6 +316,10 @@ export function ChatShell({
   /** Per-session Agent|Chat mode — held by the parent so it survives this component's remount. */
   mode?: ChatMode
   onModeChange?: (m: ChatMode) => void
+  /** Files to stage as attachments (handed over by the system and confirmed; @shared/os-entry).
+   *  Same nonce contract as `insert`. */
+  fileInsert?: { files: PendingFile[]; n: number; target: string } | null
+  onFileInsertConsumed?: () => void
   /**
    * Voice turn state, owned by MainView (a turn targets voice:beacon regardless of the
    * session shown here, and the switch remounts this component — so the state must outlive it).
@@ -535,11 +545,24 @@ export function ChatShell({
     setDraft((d) => appendDictation(d, dictated.text))
     onDictationConsumed?.()
   }, [dictated, onDictationConsumed])
+  const lastFilesRef = useRef(0)
+  useEffect(() => {
+    // Only files meant for THIS conversation.
+    if (!fileInsert || fileInsert.target !== sessionId || fileInsert.n === lastFilesRef.current) return
+    lastFilesRef.current = fileInsert.n
+    // Attachments send in Agent mode, so that is the mode they arrive in (the confirmation said
+    // so). Staged, never sent.
+    onModeChange?.('agent')
+    setPendingFiles((prev) => [...prev, ...fileInsert.files])
+    onFileInsertConsumed?.()
+    // The message box is NOT given the keyboard: these files came from outside Beacon, and what
+    // the person types next should go where they were typing, not here with Enter one key away.
+  }, [fileInsert, onFileInsertConsumed, onModeChange, sessionId])
   const lastInsertRef = useRef(0)
   useEffect(() => {
     if (!insert || insert.n === lastInsertRef.current) return
     lastInsertRef.current = insert.n
-    setDraft((d) => appendComposerInsert(d, insert.text))
+    setDraft((d) => (insert.exact ? insertPrompt(d, insert.text) : appendComposerInsert(d, insert.text)))
     onInsertConsumed?.()
     setTimeout(() => draftRef.current?.focus(), 0)
   }, [insert, onInsertConsumed])
@@ -548,6 +571,7 @@ export function ChatShell({
   // popup without eating the typed text; it re-arms as soon as the draft changes).
   const [slashHighlight, setSlashHighlight] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
+  const savedPrompts = useSavedPrompts()
   // @-references (Prometheus PR 382, the Beacon half): chips the daemon resolves against the
   // session workspace. The popup opens on an `@token` under the caret; file candidates come from
   // GET /api/files for the token's directory (Beacon is remote — it can only NAME files the daemon
@@ -614,6 +638,8 @@ export function ChatShell({
   const [exportNote, setExportNote] = useState('')
   /** Live turn readout, fed by `agent_progress`. Null when no turn is running. */
   const [activity, setActivity] = useState<Activity | null>(null)
+  /** Counts turns that ended here; the header's folder chip re-reads on it. */
+  const [turnsEnded, setTurnsEnded] = useState(0)
   /** The inline "Tidying up the conversation…" line (issue 283), fed by this session's compaction frames. */
   const [compaction, setCompaction] = useState<CompactionState>(COMPACTION_IDLE)
   const [dragging, setDragging] = useState(false)
@@ -956,6 +982,8 @@ export function ChatShell({
         }))
       }
       if (f.kind === 'done' || f.kind === 'error') setActivity(null)
+      // A turn ended: the working folder may have been set or cleared by a /workspace command in it.
+      if (f.kind === 'done' || f.kind === 'command_done') setTurnsEnded((n) => n + 1)
       // Compaction (issue 283). Every frame goes through: the rules also clear a running line when the
       // model call starts or the turn ends, and they refuse a compaction frame that does not name
       // this session, which deliversToSession above would have let through.
@@ -1269,17 +1297,7 @@ export function ChatShell({
     if (text) parts.push({ type: 'text', text })
     setMessages((prev) => [...prev, { key: clientMsgId, rowId: null, ordinal: null, role: 'user', content: parts }])
     // One chat_upload per file; the text rides as caption on the LAST (matches the web client).
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i]
-      const ok = await b.chat.upload({
-        sessionId,
-        filename: f.name,
-        contentBase64: f.base64,
-        mimeType: f.mimeType,
-        caption: i === files.length - 1 ? text : ''
-      })
-      if (!ok) throw new Error('not connected')
-    }
+    await sendUploads((req) => b.chat.upload(req), sessionId, files, text)
   }
 
   /** The Stop button (P9.1): POST /api/chat/interrupt for THIS session. The daemon broadcasts
@@ -1630,7 +1648,10 @@ export function ChatShell({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void send()
+      // A HELD Enter never sends. The key that chose a saved prompt (from the `/` list, the
+      // palette or the dialog) may still be down when its text lands here, and its auto-repeat
+      // would send text the person has not read.
+      if (!e.repeat) void send()
     }
   }
 
@@ -1638,6 +1659,13 @@ export function ChatShell({
     // Completion = "/name " (trailing space, ready for arguments) — slashQuery closes the
     // popup on its own (space ends the leading token), so no extra state dance here.
     setDraft(slashCompletion(cmd))
+    // A saved prompt's text is not a command being typed: keep both popups shut over it until the
+    // person edits (a prompt that begins with `/word` or `@name` would otherwise reopen one, and
+    // Enter would choose from it instead of sending).
+    if (cmd.prompt !== undefined) {
+      setSlashDismissed(true)
+      setAtDismissed(true)
+    }
     draftRef.current?.focus()
   }
 
@@ -1647,7 +1675,9 @@ export function ChatShell({
   const slashQ = slashQuery(draft)
   // At most SIX rows (match spec, step 17). The list opens OVER the composer, so a taller one
   // covers the message being answered — and past six the ranking is doing the work anyway.
-  const slashList = slashQ !== null && !slashDismissed ? slashMatches(slashQ).slice(0, 6) : []
+  // Saved prompts and starters ride in the same list, after the commands: `/plan` finds "Plan my
+  // day" and choosing it puts the prompt's text in the box (slashCompletion). Nothing is sent.
+  const slashList = slashQ !== null && !slashDismissed ? slashMatches(slashQ, slashCatalogWith(savedPrompts, slashQ)).slice(0, 6) : []
   const atTok = atChips.length < MAX_REFERENCES && !atDismissed && slashQ === null ? atQuery(draft, atCaret) : null
   const atList: AtCandidate[] = atTok ? atMatches(atTok.query, atEntries.dir === fileQueryParts(atTok.query).dir ? atEntries.entries : []) : []
   const atVisible = atTok !== null && atList.length > 0
@@ -1845,6 +1875,11 @@ export function ChatShell({
               disabled={profileState.effective === null}
             />
           )}
+          {/* The folder this conversation is working in, always shown where the conversation is
+              (@shared/work-folder). Not for an approved device, and not before main has said
+              which this is: the workspace routes are the owner's, and nothing is asked that
+              would be refused. */}
+          {limited || !roleHeard ? null : <WorkFolderChip sessionId={sessionId} where={otherComputerName(hostDisplayName(status.gateway))} refreshKey={turnsEnded} />}
           {/* One chip for state, host and distance — shared with Mission's banner. */}
           <HostChip />
           <button
@@ -2530,6 +2565,7 @@ export function ChatShell({
                     operator should see `/reset` clears context BEFORE choosing it. Mutually
                     exclusive with the Telegram tag by construction — a destructive command runs on
                     web (P9.2), a web:false one is refused there, so a command is never both. */}
+                {c.prompt !== undefined ? <span className="slash-prompt-tag">prompt</span> : null}
                 {c.destructive ? <span className="slash-destructive-tag">clears context</span> : null}
                 {!c.web ? <span className="slash-tel-tag">Telegram</span> : null}
               </button>

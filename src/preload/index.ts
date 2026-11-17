@@ -1,3 +1,4 @@
+import type { ApprovalSurface } from '@shared/approval-critical'
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { DiscoveryUpdate } from '@shared/discovery'
@@ -119,8 +120,8 @@ const api: BeaconBridge = {
   reloadWindow: () => ipcRenderer.send(IPC.WINDOW_RELOAD),
   approvals: {
     list: () => ipcRenderer.invoke(IPC.APPROVALS_LIST),
-    resolve: (requestId: string, decision: ApprovalDecision) =>
-      ipcRenderer.invoke(IPC.APPROVAL_RESOLVE, { requestId, decision }),
+    resolve: (requestId: string, decision: ApprovalDecision, from?: ApprovalSurface) =>
+      ipcRenderer.invoke(IPC.APPROVAL_RESOLVE, { requestId, decision, from }),
     notifyCount: (n: number) => ipcRenderer.send(IPC.APPROVALS_COUNT, n),
     notifyNew: (requests: ApprovalRequest[]) => ipcRenderer.send(IPC.APPROVALS_NEW, requests)
   },
@@ -223,6 +224,16 @@ const api: BeaconBridge = {
       return () => ipcRenderer.removeListener(IPC.PAIRING_REQUESTS, handler)
     }
   },
+  chatProjects: {
+    state: () => ipcRenderer.invoke(IPC.CHAT_PROJECTS_STATE),
+    onState: (cb) => {
+      const handler = (_e: unknown, s: Parameters<typeof cb>[0]): void => cb(s)
+      ipcRenderer.on(IPC.CHAT_PROJECTS_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.CHAT_PROJECTS_CHANGED, handler)
+    },
+    run: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_DO, op),
+    content: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_CONTENT, op)
+  },
   join: {
     begin: (req) => ipcRenderer.invoke(IPC.JOIN_BEGIN, req),
     poll: () => ipcRenderer.invoke(IPC.JOIN_POLL),
@@ -241,8 +252,24 @@ const api: BeaconBridge = {
     },
     openLoginItems: () => ipcRenderer.invoke(IPC.PATHA_OPEN_LOGIN_ITEMS)
   },
+  workFolder: {
+    where: () => ipcRenderer.invoke(IPC.WORK_FOLDER_WHERE),
+    pick: () => ipcRenderer.invoke(IPC.WORK_FOLDER_PICK)
+  },
+  osEntry: {
+    pending: () => ipcRenderer.invoke(IPC.OS_ENTRY_PENDING),
+    take: (id: string) => ipcRenderer.invoke(IPC.OS_ENTRY_TAKE, id),
+    dismiss: (id: string) => ipcRenderer.send(IPC.OS_ENTRY_DISMISS, id),
+    onOffer: (cb) => {
+      const listener = (_e: Electron.IpcRendererEvent, offer: Parameters<typeof cb>[0]): void => cb(offer)
+      ipcRenderer.on(IPC.OS_ENTRY_OFFER, listener)
+      return () => ipcRenderer.removeListener(IPC.OS_ENTRY_OFFER, listener)
+    }
+  },
   capture: {
-    openMain: (sessionId: string) => ipcRenderer.send(IPC.CAPTURE_OPEN_MAIN, sessionId)
+    openMain: (sessionId: string) => ipcRenderer.send(IPC.CAPTURE_OPEN_MAIN, sessionId),
+    hold: (on: boolean) => ipcRenderer.send(IPC.CAPTURE_HOLD, on),
+    shot: (sourceId: string) => ipcRenderer.invoke(IPC.CAPTURE_SHOT, sourceId)
   },
   screenshot: {
     sources: () => ipcRenderer.invoke(IPC.SCREENSHOT_SOURCES),
@@ -350,6 +377,7 @@ const api: BeaconBridge = {
     set: (on: boolean) => ipcRenderer.invoke(IPC.NETWORK_SET, on),
     restart: () => ipcRenderer.invoke(IPC.NETWORK_RESTART)
   },
+  phoneJoin: (id?: string) => ipcRenderer.invoke(IPC.PHONE_JOIN, id),
   pairPin: {
     decide: (host: string) => ipcRenderer.invoke(IPC.PAIR_PIN, host)
   },

@@ -343,6 +343,9 @@ export function composeSendToChat(ex: BrowserExtract, max = EXTRACT_MAX_CHARS): 
 export interface ComposerInsert {
   text: string
   n: number
+  /** A saved prompt (@shared/saved-prompts): inserted exactly as saved, trailing space included,
+   *  where a browser block is trimmed. */
+  exact?: boolean
 }
 
 /** Put a browser block into a draft: on its own paragraph, never inside the user's sentence. */

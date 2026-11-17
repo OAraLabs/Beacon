@@ -46,6 +46,10 @@ export const IPC = {
   PATHA_CHECK: 'patha:check', // renderer -> main: can Prometheus be set up on THIS Mac? (facts + verdict; downloads nothing)
   JOIN_BEGIN: 'join:begin', // renderer -> main: ask the chosen computer to let this Mac join (names go in; the key, the poll secret and the token never come out)
   JOIN_POLL: 'join:poll', // renderer -> main: one look at the wait for approval (a token that arrived is kept by main and never returned)
+  CHAT_PROJECTS_STATE: 'chat-projects:state', // renderer -> main (invoke): what main knows of this Prometheus's projects
+  CHAT_PROJECTS_CHANGED: 'chat-projects:changed', // main -> renderer: the same, when it changes
+  CHAT_PROJECTS_DO: 'chat-projects:do', // renderer -> main (invoke): one change to them (@shared/chat-projects ChatProjectsOp)
+  CHAT_PROJECTS_CONTENT: 'chat-projects:content', // renderer -> main (invoke): a project's instructions and reference files (@shared/chat-projects-content ContentOp)
   PAIRING_REQUESTS: 'pairing:requests', // main -> renderer: who is waiting for this Prometheus's owner to say yes (an owner's Beacon only)
   PAIRING_LIST: 'pairing:list', // renderer -> main: the same, once
   PAIRING_APPROVE: 'pairing:approve', // renderer -> main: approve one, with the four digits the owner typed from the new device
@@ -75,6 +79,16 @@ export const IPC = {
   WINDOW_RELOAD: 'window:reload',
   APPROVALS_NEW: 'approvals:new', // renderer -> main (send): NEW pending requests (from poll) → main decides notification. Main is the ONE notification authority (push frames feed the same path) — one dedupe set, one request gets one notification.
   CAPTURE_OPEN_MAIN: 'capture:open-main', // renderer -> main (send): quick-capture → open main on a session
+  WORK_FOLDER_WHERE: 'work-folder:where', // renderer -> main: is Prometheus on this computer, and this computer's home folder
+  WORK_FOLDER_PICK: 'work-folder:pick', // renderer -> main: the system folder picker, offered only when Prometheus is on this computer
+  // Files handed to Beacon by the system (@shared/os-entry). An offer is a list of names; nothing is
+  // read until the person says yes on the confirmation screen.
+  OS_ENTRY_OFFER: 'os-entry:offer', // main -> renderer: files were handed over; show the confirmation
+  OS_ENTRY_PENDING: 'os-entry:pending', // renderer -> main: the offer waiting, if any (one may have arrived before the window)
+  OS_ENTRY_TAKE: 'os-entry:take', // renderer -> main: yes to THAT offer; main reads the files and returns them
+  OS_ENTRY_DISMISS: 'os-entry:dismiss', // renderer -> main (send): no to that offer
+  CAPTURE_HOLD: 'capture:hold', // renderer -> main (send): keep the quick-capture window up while its file picker is open
+  CAPTURE_SHOT: 'capture:shot', // renderer -> main: hide the quick-capture window, grab one source, show it again
   EVENTS_RECENT: 'events:recent', // renderer -> main: GET /api/events/recent (activity-feed backfill)
   ARTIFACTS_LIST: 'artifacts:list', // renderer -> main: GET /api/artifacts (outbox manifest — chip matching)
   ARTIFACT_DOWNLOAD: 'artifacts:download', // renderer -> main: fetch by content id, save to ~/Downloads, reveal
@@ -181,6 +195,7 @@ export const IPC = {
   // Settings → Make this Beacon an owner (@shared/owner-promotion, Prometheus #748): the page sends the one-time code; main trades it
   // for an owner token, keeps it in place of the API token and reconnects. The token never comes back.
   // Devices → Enrol (0.4.3, @shared/devices): the pairing code's TLS pin, decided before the one-shot token is minted.
+  PHONE_JOIN: 'devices:phone-join', // renderer -> main: the no-secret join code a phone scans, for one Prometheus Beacon keeps (@shared/phone-join)
   PAIR_PIN: 'devices:pair-pin', // renderer -> main: plain, pinned (with the pin) or refused (why), for the code's host
   OWNER_PROMOTE: 'owner:promote', // renderer -> main: redeem a one-time owner code at the connected Prometheus
   // Config → Models → Main model (@shared/main-model): which AI the connected Prometheus thinks with (its GET/PUT /api/model,
@@ -279,6 +294,10 @@ export interface ConnectionStatus {
   identity?: IdentityNotice
   /** This connection goes plain to the home network (saved before Beacon refused that): src/shared/plain-lan.ts. */
   notEncrypted?: boolean
+  /** Whether this Prometheus said, in its latest `subscribed` reply, that every approval request carries `critical`
+   *  (@shared/approval-push). `false`: it said what it does and that is not among it (an older Prometheus). Absent: it has not
+   *  said yet, which lasts a few seconds at most after connecting. */
+  approvalCritical?: boolean
   /** Owner of this Prometheus, or an approved device that may only chat (src/shared/device-role.ts), from GET /api/devices after each
    *  connect, and remembered for this address and key from the last answer. Absent until known; Beacon then shows everything. */
   role?: import('./device-role').DeviceRole
@@ -479,6 +498,8 @@ export interface SessionSummary {
   watermark?: number
   /** Daemon-owned pin (Prometheus#351). Every client agrees because none of them owns it. */
   pinned?: boolean
+  /** The project the daemon has the conversation filed in: a string, null when unfiled, undefined when the daemon has no projects. */
+  chatProjectId?: string | null
 }
 
 /**
@@ -713,6 +734,8 @@ export interface ApprovalRequest {
    * VERBATIM and re-derives nothing; see @shared/approval-arguments for what that forbids.
    */
   arguments?: import('./approval-arguments').ApprovalArguments
+  /** The daemon says it cut the arguments (`arguments_cut: true`). Undefined unless it says so; no daemon sends it yet. */
+  argumentsCut?: boolean
   /**
    * A WORKER'S REQUEST (Prometheus #720): the background worker that asked. Undefined on an
    * ordinary request. @shared/workers names it on the card.
@@ -725,6 +748,13 @@ export interface ApprovalRequest {
    * every worker and desktop-task request. The card offers no lasting scope when it is set.
    */
   onceOnly?: boolean
+  /**
+   * What the daemon said about answering this from a notification: `true` means it must be
+   * answered in the app; `false` means it need not be; undefined means the daemon did not say (an
+   * older Prometheus). Main decides what a notification offers with `answeredInApp`
+   * (@shared/approval-push). Beacon never sets or guesses this.
+   */
+  critical?: boolean
 }
 
 /**
@@ -921,7 +951,8 @@ export interface BeaconBridge {
     /** Poll the daemon's GLOBAL pending-approval queue. */
     list(): Promise<ApprovalRequest[]>
     /** Approve or deny one pending action (binary; the daemon expects no body). */
-    resolve(requestId: string, decision: ApprovalDecision): Promise<void>
+    /** `from`: where in the window the answer was given. Main refuses an approve of a critical request from anywhere but 'card'. */
+    resolve(requestId: string, decision: ApprovalDecision, from?: import('./approval-critical').ApprovalSurface): Promise<void>
     /** Tell main how many approvals are pending (tray badge/menu line; Slice 9). Fire-and-forget. */
     notifyCount(n: number): void
     /** NEW pending requests seen by the poll → main decides notification (one authority, one dedupe). */
@@ -1059,6 +1090,14 @@ export interface BeaconBridge {
     poll(): Promise<import('./join').PollOutcome>
     cancel(): Promise<void>
   }
+  /** The projects the Prometheus Beacon is on keeps (@shared/chat-projects). Nothing is asked of one that doesn't serve them. */
+  chatProjects: {
+    state(): Promise<import('./chat-projects').ChatProjectsState>
+    onState(cb: (s: import('./chat-projects').ChatProjectsState) => void): Unsubscribe
+    run(op: import('./chat-projects').ChatProjectsOp): Promise<import('./chat-projects').ChatProjectsResult>
+    /** A project's instructions and reference files, on that Prometheus. Files are chosen and saved in the system's own panels, opened by main. */
+    content(op: import('./chat-projects-content').ContentOp): Promise<import('./chat-projects-content').ContentResult>
+  }
   /** The OWNER's side of joining: a new device is asking this Prometheus to let it connect. A Beacon that is not an owner never sees anyone. */
   pairing: {
     requests(): Promise<import('./join-owner').WaitingRequest[]>
@@ -1084,9 +1123,32 @@ export interface BeaconBridge {
     /** Open System Settings at Login Items, where Prometheus is switched on. Resolves whether it was opened. */
     openLoginItems(): Promise<boolean>
   }
+  /** A conversation's working folder, chosen on this computer (@shared/work-folder). Main decides
+   *  whether Prometheus is here; the page never tells it. */
+  workFolder: {
+    where(): Promise<import('./work-folder').FolderWhere>
+    /** Opens the system folder picker. 'not-here' when Prometheus is on another computer: no picker is shown. */
+    pick(): Promise<import('./work-folder').FolderPick>
+  }
+  /** Files handed to Beacon from outside it: Open with, a drop on its icon, a path on the command
+   *  line (@shared/os-entry). Main only NAMES them until `take`. */
+  osEntry: {
+    pending(): Promise<import('./os-entry').FileOffer | null>
+    /** Yes to the offer with this id. Main reads the files then, and only then. */
+    take(id: string): Promise<import('./os-entry').OfferTake>
+    dismiss(id: string): void
+    onOffer(cb: (offer: import('./os-entry').FileOffer) => void): Unsubscribe
+  }
   capture: {
     /** Quick-capture (Slice 10): hide the mini window and open the main window on a session. */
     openMain(sessionId: string): void
+    /** Keep the window up while it does not have focus (its file picker is open); false gives the
+     *  hold back. Main also drops it when the window is focused or hidden, and after two minutes
+     *  (@shared/quick-capture). */
+    hold(on: boolean): void
+    /** A screenshot taken FROM the quick-capture window: main hides the window first, so it is not in
+     *  the picture, grabs the source, and brings the window back. */
+    shot(sourceId: string): Promise<import('./capture').CaptureGrabResult>
   }
   loop: {
     /** The registered local projects (the board's sidebar). */
@@ -1171,6 +1233,8 @@ export interface BeaconBridge {
   /** Settings → Make this Beacon an owner (@shared/owner-promotion): trade `oara pair --owner`'s one-time code for an owner token,
    *  kept in place of the API token. The answer never carries the token. */
   /** Devices → Enrol (0.4.3): whether the pairing code for `host` carries the daemon's TLS pin, asked BEFORE minting. */
+  /** "Add a phone" (@shared/phone-join): the code for Prometheus `id` (the one Beacon is on when omitted), or why there is none. */
+  phoneJoin(id?: string): Promise<import('./phone-join').JoinCode & { name?: string }>
   pairPin: {
     decide(host: string): Promise<{ kind: 'plain'; node: string | null } | { kind: 'pinned'; pin: string; node: string | null } | { kind: 'refused'; message: string }>
   }

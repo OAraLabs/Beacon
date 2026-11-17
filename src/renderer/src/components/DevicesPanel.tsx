@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import qrcode from 'qrcode-generator'
 import {
   activeDevices,
+  deviceErrorWords,
   fmtDeviceTime,
   hostForPairing,
   normalizePlatform,
@@ -15,6 +15,9 @@ import {
   type MintedDevice
 } from '@shared/devices'
 import { Icon } from './Icon'
+import { qrSvg } from '../qr'
+import type { WaitingRequest } from '@shared/join-owner'
+import { OWNER_COPY } from '@shared/owner-strings'
 import { OwnerOnlyNote, useDeviceRole } from './OwnerOnlyNote'
 
 // Device enrolment — the desktop half of GRAFT-MOBILE-BRIDGE Piece 1 (Prometheus PR 310).
@@ -56,13 +59,43 @@ const warn: CSSProperties = {
   border: '1px solid var(--c-line)', background: 'var(--c-inset)', color: 'var(--c-text-dim)'
 }
 
-/** SVG, generated locally. Never a hosted image service: the payload contains a live credential,
- *  and a remote QR renderer would be exfiltrating it by construction. */
-function qrSvg(payload: string): string {
-  const qr = qrcode(0, 'M')
-  qr.addData(payload)
-  qr.make()
-  return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true })
+
+/** Devices asking to join, with Review: the "Approve new device?" prompt (ApprovePrompt) for that one, set aside or not. The device
+ *  names are the requesters' own words, shown as such. */
+function WaitingToJoin() {
+  const [waiting, setWaiting] = useState<WaitingRequest[]>([])
+  useEffect(() => {
+    const p = window.beacon?.pairing
+    if (!p) return
+    let alive = true
+    void p.requests().then((r) => alive && setWaiting(r)).catch(() => undefined)
+    const off = p.onRequests((r) => setWaiting(r))
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+  if (waiting.length === 0) return null
+  return (
+    <div data-testid="waiting-to-join" style={{ margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 11, color: 'var(--c-text-dim)', textTransform: 'uppercase', letterSpacing: 0.6 }}>{OWNER_COPY.waiting}</div>
+      {waiting.map((r) => (
+        <div key={r.requestId} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
+          <span data-untrusted style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text)' }}>
+            {r.deviceName}
+          </span>
+          <span style={{ fontSize: 10.5, color: 'var(--c-text-faint)' }}>{r.platform}</span>
+          <button
+            style={{ ...btn(false), padding: '3px 8px', fontSize: 11 }}
+            onClick={() => window.dispatchEvent(new CustomEvent('beacon:review-join', { detail: { requestId: r.requestId } }))}
+            data-testid="review-join"
+          >
+            {OWNER_COPY.review}
+          </button>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function DevicesPanel() {
@@ -86,7 +119,7 @@ export function DevicesPanel() {
     window.beacon.daemon
       .get('/api/devices')
       .then((raw) => setRows(Array.isArray(raw) ? (raw as DeviceDTO[]) : []))
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setErr(deviceErrorWords(e instanceof Error ? e.message : String(e))))
   }, [])
 
   useEffect(() => {
@@ -142,7 +175,7 @@ export function DevicesPanel() {
         // already visible and therefore revocable. See the panel comment.
         load()
       })
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setErr(deviceErrorWords(e instanceof Error ? e.message : String(e))))
       .finally(() => setBusy(false))
   }
 
@@ -151,7 +184,7 @@ export function DevicesPanel() {
     window.beacon.daemon
       .write(`/api/devices/${encodeURIComponent(d.id)}`, undefined, 'DELETE')
       .then(() => load())
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setErr(deviceErrorWords(e instanceof Error ? e.message : String(e))))
   }
 
   // Both questions, because they fail differently: a malformed payload the phone cannot parse,
@@ -203,6 +236,14 @@ export function DevicesPanel() {
                 <span style={{ fontSize: 11, color: 'var(--c-text-dim)' }}>
           {rows === null ? 'loading…' : `${live} enrolled`}
         </span>
+        <button
+          style={{ ...btn(false), padding: '4px 10px', fontSize: 12 }}
+          onClick={() => window.dispatchEvent(new CustomEvent('beacon:add-phone'))}
+          data-testid="devices-add-phone"
+          title="Show a code the phone scans to ask to join; you approve it here. No password in it."
+        >
+          Add a phone
+        </button>
         {limited ? (
           <span style={{ marginLeft: 'auto' }} />
         ) : (
@@ -257,6 +298,7 @@ export function DevicesPanel() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+        <WaitingToJoin />
         {err ? <div style={{ ...warn, color: 'var(--c-err)' }}>{err}</div> : null}
         {/* Standing, not only on click: the host is wrong NOW, and the reader should learn that
             while looking at the panel rather than after pressing a button that does nothing. */}

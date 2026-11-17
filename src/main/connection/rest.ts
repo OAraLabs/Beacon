@@ -1,3 +1,4 @@
+import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { originOf, sameOrigin } from '@shared/key-origin'
 import { pinnedFromWire } from '@shared/session-pins'
 import { isTrustedFromWire } from '@shared/provenance'
@@ -22,6 +23,8 @@ interface RawSession {
   message_count: number
   watermark?: number // per-session max rowid (cold-start unread)
   pinned?: boolean // daemon-owned pin (Prometheus#351)
+  /** The project the conversation is filed in (a Prometheus that serves projects): a string, or null when unfiled. Absent on one that doesn't. */
+  chat_project_id?: string | null
 }
 
 interface RawMessage {
@@ -278,7 +281,9 @@ export class RestClient {
       watermark: s.watermark,
       // Carried, not dropped. The comment above records what happened the last time a field was
       // discarded at this boundary: downstream concluded the daemon had nothing to offer.
-      pinned: pinnedFromWire(s.pinned)
+      pinned: pinnedFromWire(s.pinned),
+      // Undefined when the daemon doesn't say (it has no projects): different from null, which is "unfiled".
+      chatProjectId: s.chat_project_id === undefined ? undefined : typeof s.chat_project_id === 'string' ? s.chat_project_id : null
     }))
   }
 
@@ -479,11 +484,72 @@ export class RestClient {
       method,
       headers: this.headers(hasBody ? { 'Content-Type': 'application/json' } : undefined),
       ...(hasBody ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(8_000)
+      // Defining a tool server makes Prometheus CONNECT to it before it answers, and it gives that
+      // up to 30 seconds. Giving up at 8 would report a failure for a server that was then added.
+      signal: AbortSignal.timeout(path.startsWith(MCP_SERVERS_PATH) ? 40_000 : 8_000)
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${method} ${path} — ${await safeText(res)}`)
     if (res.status === 204) return null
     return res.json().catch(() => null)
+  }
+
+  /**
+   * One call about chat projects (@shared/chat-projects), answered as the status and body it got, whatever the status: what an answer
+   * means is the reader's to say. A failure to get an answer is status 0. Only the project routes may be asked: not a path of the
+   * caller's own, and not another method on them.
+   */
+  async projectsCall(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+    if (!isProjectRoute(method, path) && !isProjectContentRoute(method, path)) throw new Error(`blocked daemon path: ${method} ${path}`)
+    let res: Response
+    try {
+      res = await this.send(`${this.apiBase}${path}`, {
+        method,
+        headers: this.headers(body === undefined ? undefined : { 'Content-Type': 'application/json' }),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(10_000)
+      })
+    } catch {
+      return { status: 0, body: null }
+    }
+    const parsed = await readJsonCapped(res)
+    return { status: res.status, body: parsed }
+  }
+
+  /**
+   * A reference file, as raw bytes: the body of an upload, the answer of a download. Only the content routes may be asked, and `replace`
+   * is the one query there is. The answer is the status and, for a 200 GET of a file, the bytes; any other answer is read as JSON. A
+   * failure to get an answer is status 0. More than `maxBytes` coming back is refused (status 0), never held in memory.
+   */
+  async projectsBytes(method: string, path: string, opts: { replace?: boolean; body?: Buffer; maxBytes: number }): Promise<{ status: number; body: unknown; bytes: Buffer | null; contentType: string | null }> {
+    if (!isProjectContentRoute(method, path)) throw new Error(`blocked daemon path: ${method} ${path}`)
+    let res: Response
+    try {
+      res = await this.send(`${this.apiBase}${path}${opts.replace ? '?replace=true' : ''}`, {
+        method,
+        headers: this.headers(opts.body === undefined ? undefined : { 'Content-Type': 'application/octet-stream' }),
+        ...(opts.body === undefined ? {} : { body: new Uint8Array(opts.body) }),
+        signal: AbortSignal.timeout(120_000)
+      })
+    } catch {
+      return { status: 0, body: null, bytes: null, contentType: null }
+    }
+    const contentType = res.headers.get('content-type')
+    if (method === 'GET' && res.status === 200 && /\/files\/[^/]+$/.test(path)) {
+      // A file longer than `maxBytes`, however it says so (a length, or none at all): refused as too large, and the rest of it is never read.
+      // A body that stops short or fails is NOT a file: it is no answer (status 0), never a shorter file said to be whole.
+      if (Number(res.headers.get('content-length') ?? '0') > opts.maxBytes) {
+        await res.body?.cancel().catch(() => undefined)
+        return { status: 413, body: null, bytes: null, contentType }
+      }
+      let buf: Buffer | null
+      try {
+        buf = await readCapped(res, opts.maxBytes)
+      } catch {
+        return { status: 0, body: null, bytes: null, contentType }
+      }
+      return buf ? { status: 200, body: null, bytes: buf, contentType } : { status: 413, body: null, bytes: null, contentType }
+    }
+    return { status: res.status, body: await readJsonCapped(res), bytes: null, contentType }
   }
 
   /** GET /api/pair/requests: who is waiting for this Prometheus's owner to say yes. Owner only; a device that was itself approved is told 403. */
@@ -516,6 +582,38 @@ export interface PairListReply {
   serverNowSec: number | null
 }
 
+/** The most a JSON answer about projects may be before it is not read: the instructions (1 MB at most) and a long list of projects fit in it. */
+const PROJECT_JSON_MAX = 4 * 1024 * 1024
+
+/** A body read up to `max` bytes. Longer: null, and the rest is never held. A read that fails part way throws: what came is not the whole. */
+async function readCapped(res: Response, max: number): Promise<Buffer | null> {
+  const reader = res.body?.getReader()
+  if (!reader) return Buffer.alloc(0)
+  const chunks: Buffer[] = []
+  let n = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    n += value.byteLength
+    if (n > max) {
+      await reader.cancel().catch(() => undefined)
+      return null
+    }
+    chunks.push(Buffer.from(value))
+  }
+  return Buffer.concat(chunks)
+}
+
+/** A JSON answer, or null when it is not JSON, is too long, or did not arrive whole. */
+async function readJsonCapped(res: Response): Promise<unknown> {
+  try {
+    const buf = await readCapped(res, PROJECT_JSON_MAX)
+    return buf && buf.byteLength > 0 ? (JSON.parse(buf.toString('utf8')) as unknown) : null
+  } catch {
+    return null
+  }
+}
+
 async function safeText(res: Response): Promise<string> {
   return (await fullText(res)).slice(0, 200)
 }
@@ -525,4 +623,42 @@ async function fullText(res: Response): Promise<string> {
   } catch {
     return ''
   }
+}
+
+/** The routes of chat projects, by method (docs/design/chat-projects.md in Prometheus). Nothing else may be asked through
+ *  `projectsCall`. A project id is one path segment. */
+const PROJECT_ROUTES_ALLOWED: ReadonlyArray<readonly [string, RegExp]> = [
+  ['GET', /^\/api\/chat-projects$/],
+  ['POST', /^\/api\/chat-projects$/],
+  ['GET', /^\/api\/chat-projects\/[^/?#]+$/],
+  ['PUT', /^\/api\/chat-projects\/[^/?#]+$/],
+  ['DELETE', /^\/api\/chat-projects\/[^/?#]+$/],
+  ['GET', /^\/api\/chat-project-suggestions$/],
+  ['PUT', /^\/api\/sessions\/[^/?#]+\/project$/],
+  ['POST', /^\/api\/sessions$/],
+  // Read only: the Prometheus's own list of conversations, for the move of the local projects to it.
+  ['GET', /^\/api\/sessions$/]
+]
+/** A project's instructions and reference files: the one text file, the list of files, and each file by name (the name is one encoded segment). */
+const PROJECT_CONTENT_ROUTES_ALLOWED: ReadonlyArray<readonly [string, RegExp]> = [
+  ['GET', /^\/api\/chat-projects\/[^/?#]+\/instructions$/],
+  ['PUT', /^\/api\/chat-projects\/[^/?#]+\/instructions$/],
+  ['GET', /^\/api\/chat-projects\/[^/?#]+\/files$/],
+  ['GET', /^\/api\/chat-projects\/[^/?#]+\/files\/[^/?#]+$/],
+  ['PUT', /^\/api\/chat-projects\/[^/?#]+\/files\/[^/?#]+$/],
+  ['DELETE', /^\/api\/chat-projects\/[^/?#]+\/files\/[^/?#]+$/]
+]
+export function isProjectRoute(method: string, path: string): boolean {
+  return isRouteIn(PROJECT_ROUTES_ALLOWED, method, path)
+}
+/** The routes of a project's instructions and files (`projectsBytes`, and `projectsCall` for the text ones). */
+export function isProjectContentRoute(method: string, path: string): boolean {
+  return isRouteIn(PROJECT_CONTENT_ROUTES_ALLOWED, method, path)
+}
+function isRouteIn(allowed: ReadonlyArray<readonly [string, RegExp]>, method: string, path: string): boolean {
+  // The path is joined to the address as text and read by a URL parser afterwards, which resolves `.` and `..` segments, and a
+  // percent-encoded one (%2e, %2f, %5c) as well: so none may be in it, however the pattern below would read it.
+  // A tab or newline inside a segment is stripped by the parser too (`/api/sessions/.<TAB>./project` is `/api/project`).
+  if (/[\x00-\x20\x7f]|%2e|%2f|%5c|\\|\/\.{1,2}(\/|$)/i.test(path)) return false
+  return allowed.some(([m, re]) => m === method && re.test(path))
 }

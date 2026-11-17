@@ -76,7 +76,9 @@ export function ContextMeter({
   variant = 'rail'
 }: {
   sessionId: string
-  onOpen: () => void
+  /** Opens the full breakdown (Status). Absent where there is nowhere to open it (everyday mode
+   *  puts Status away): the footer is then a reading, not a button. */
+  onOpen?: () => void
   /** `footer`: readout + 3px bar (the sessions panel, screen 3). `composer`: the compact
    *  `5.3k/33k` + 34px meter at the right of the composer's control row (screen 1) — the reading
    *  at the moment of sending, which is when "will the next message fit" is the live question.
@@ -169,13 +171,26 @@ export function ContextMeter({
     )
   }
   if (variant === 'footer') {
-    return (
-      <button className="ctx-footer" onClick={onOpen} title={title} aria-label={title} data-testid="ctx-footer">
+    const reading = (
+      <>
         <span className="ctx-footer-row">
           <span>{known ? `${fmtTokens(usage.total)} / ${fmtTokens(usage.limit)} ctx` : 'ctx — / ?'}</span>
           <span>{known ? `${usage.pct}%` : '?'}</span>
         </span>
         {bar}
+      </>
+    )
+    if (!onOpen) {
+      const words = title.replace(/ Click for detail\.$/, '')
+      return (
+        <div className="ctx-footer" title={words} aria-label={words} role="group" data-testid="ctx-footer">
+          {reading}
+        </div>
+      )
+    }
+    return (
+      <button className="ctx-footer" onClick={onOpen} title={title} aria-label={title} data-testid="ctx-footer">
+        {reading}
       </button>
     )
   }

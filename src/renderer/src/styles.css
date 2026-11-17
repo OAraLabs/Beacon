@@ -576,6 +576,18 @@ button {
   padding: 1px 5px;
   white-space: nowrap;
 }
+/* A saved prompt in the slash list: the same quiet tag as Telegram's, since it is a kind, not a
+   warning. */
+.slash-prompt-tag {
+  font-size: 10px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
 .composer.dragging {
   outline: 2px dashed var(--accent);
   outline-offset: -5px;
@@ -4532,6 +4544,13 @@ body.is-resizing-panel {
 .approval-btn-approve:hover {
   background: var(--sang-deep);
 }
+/* The card focus is on is the one A and D answer: say which, for a keyboard and for a click alike. */
+.approval-card:focus,
+.approval-card:focus-within {
+  outline: 2px solid var(--c-arc);
+  outline-offset: 2px;
+}
+
 .approval-btn-deny {
   background: var(--line3);
   border-color: var(--line2);
@@ -5048,6 +5067,43 @@ body.is-resizing-panel {
   border: none;
   background: transparent;
 }
+/* Starters under the new-chat composer: saved prompts, then the built-in ones. Quiet pills, so
+   the composer stays the one thing the screen asks for. */
+.chat-home-starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  max-width: var(--measure, 720px);
+}
+.starter-chip {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 5px 11px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: var(--node);
+  color: var(--ink3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.starter-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink2);
+}
+.starter-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.starter-chip-quiet {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink4);
+}
 
 /* ── Onboarding v0.4.0 (docs/ONBOARDING-v0.4.0.md): Welcome, the question, the tour, the empty home ──
    One card, one decision. Built from the setup card's own pieces (.setup-card, .setup-connect,
@@ -5513,6 +5569,35 @@ body.is-resizing-panel {
   font-family: var(--font-mono);
   font-size: 9.5px;
   color: var(--ink4);
+}
+/* One line about what just happened to a project or a filing (it keeps its place, so nothing under it moves). */
+.project-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line3);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.project-note > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-note-x {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink3);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0 2px;
 }
 .ctx-menu-foot {
   margin-top: 4px;
@@ -5981,4 +6066,310 @@ body.is-resizing-panel {
 .instance-row:focus-visible {
   outline: 2px solid var(--c-arc);
   outline-offset: -2px;
+}
+
+/* ── Today: the home in everyday mode (TodayHome.tsx) ─────────────────────────────────────────
+   One reading column: a heading, then three cards that each answer one question. Tokens only;
+   the same surfaces and lines as the rest of the shell, so every skin reaches it. */
+.today {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 24px 40px;
+}
+.today-inner {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.today-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.today-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.today-date {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ink4);
+}
+.today-new {
+  padding: 8px 16px;
+  border: 1px solid var(--c-arc);
+  border-radius: 8px;
+  background: var(--c-arc);
+  color: var(--c-on-arc);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.today-new:focus-visible,
+.today-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.today-card {
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  background: var(--node);
+  padding: 14px 16px;
+}
+.today-h {
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink2);
+}
+.today-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--c-arc-soft);
+  color: var(--c-arc-text);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.today-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink4);
+}
+/* The context meter as a plain reading (everyday mode): same look, nothing to click. */
+div.ctx-footer {
+  cursor: default;
+}
+.today-more {
+  margin-top: 8px;
+}
+.today-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.today-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line2);
+}
+.today-row:first-child {
+  border-top: none;
+  padding-top: 2px;
+}
+.today-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.today-row-main {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-row-detail {
+  font-size: 12px;
+  color: var(--ink4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-mark {
+  display: inline-flex;
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+.today-mark.is-bad {
+  color: var(--c-err-text);
+}
+.today-when {
+  font-size: 12px;
+  color: var(--ink4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.today-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.today-btn-quiet {
+  color: var(--ink4);
+}
+
+/* ── The working folder chip in a conversation's header (WorkFolderChip.tsx) ───────────────────
+   The header's own chip shape; the folder's name when there is one, quieter when there is none. */
+.work-folder {
+  position: relative;
+  display: inline-flex;
+}
+.work-folder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  max-width: 190px;
+  padding: 0 9px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--line3);
+  color: var(--ink4);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.work-folder-chip.is-bound {
+  color: var(--ink);
+  border-color: var(--c-line-bright);
+}
+.work-folder-chip.is-unknown {
+  color: var(--c-warn-text);
+  border-style: dashed;
+}
+.work-folder-does {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--c-text);
+}
+.work-folder-chip:hover {
+  color: var(--ink);
+}
+.work-folder-chip:focus-visible,
+.work-folder-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.work-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-folder-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-modal);
+  /* Never wider than the conversation pane it belongs to (the pane is the container). */
+  width: min(340px, calc(100cqw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--c-line-bright);
+  border-radius: 10px;
+  background: var(--c-raise);
+  box-shadow: var(--elev-3);
+  text-align: left;
+}
+/* A narrow pane: the chip keeps its icon and its tooltip, and gives the name's room back, the way
+   the host chip steps aside at the same width. */
+@container (max-width: 620px) {
+  /* The name stays, shorter: which folder a conversation works in is the one thing this chip is
+     for, and an icon alone would make "a folder" and "no folder" look the same. */
+  .work-folder-chip {
+    max-width: 120px;
+    padding: 0 7px;
+  }
+}
+@container (max-width: 300px) {
+  .work-folder-chip {
+    max-width: 84px;
+  }
+}
+.work-folder-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.work-folder-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+.work-folder-text,
+.work-folder-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--c-text-dim);
+}
+.work-folder-note:empty {
+  display: none;
+}
+.work-folder-note.is-bad {
+  color: var(--c-err-text);
+}
+.work-folder-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.work-folder-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: 6px;
+  background: var(--c-inset);
+  color: var(--c-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.work-folder-btn.is-primary {
+  border-color: var(--c-arc);
+  background: var(--c-arc);
+  color: var(--c-on-arc);
+}
+.work-folder-btn:disabled {
+  border-color: var(--c-line);
+  background: var(--c-base);
+  color: var(--c-text-faint);
+  cursor: not-allowed;
+/* After files from outside Beacon were added: which of them could not be, said where it is seen. */
+.offer-note {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: var(--z-modal);
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 9px 14px;
+  border: 1px solid var(--c-line-bright);
+  border-radius: 8px;
+  background: var(--c-raise);
+  color: var(--c-text);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--elev-3);
 }

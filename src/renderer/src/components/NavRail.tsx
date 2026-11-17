@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react'
-import { NAV_TREE, RAIL_MAX, railDestination, railEntryActive, type NavEntry, type ViewId } from '@shared/views'
+import { RAIL_MAX, railDestination, railEntryActive, type NavEntry, type ViewId } from '@shared/views'
+import { homeLabel, navTreeFor } from '@shared/ui-mode'
+import { useUiMode } from '../ui-mode-store'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { Icon, type IconName } from './Icon'
 
@@ -69,11 +71,15 @@ function rowStyle(active: boolean, foot = false): CSSProperties {
 
 export function NavRail({ view, onSelect }: { view: ViewId; onSelect: (v: ViewId) => void }) {
   // Labels come from NAV_VIEWS via the tree's own view entries; groups carry their own label.
-  const labels = { mission: 'Mission', config: 'Config' } as Record<ViewId, string>
+  // The rail is the mode's tree (@shared/ui-mode): everything, or the everyday views, where the
+  // home is called Today.
+  const mode = useUiMode()
+  const tree = navTreeFor(mode)
+  const labels = { mission: homeLabel(mode), config: 'Config' } as Record<ViewId, string>
   // R1 is a contract, not a hope: a seventh entry is a bug, so it renders as one.
-  const entries = NAV_TREE.length > RAIL_MAX ? NAV_TREE.slice(0, RAIL_MAX) : NAV_TREE
+  const entries = tree.length > RAIL_MAX ? tree.slice(0, RAIL_MAX) : tree
   return (
-    <nav className="rail-scroll" style={rail} aria-label="Views" data-rail-entries={NAV_TREE.length}>
+    <nav className="rail-scroll" style={rail} aria-label="Views" data-rail-entries={tree.length} data-ui-mode={mode}>
       {entries.map((entry) => {
         const active = railEntryActive(entry, view)
         const label = entryLabel(entry, labels)

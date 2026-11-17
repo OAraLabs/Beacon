@@ -1,11 +1,16 @@
-import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeImage, nativeTheme, powerMonitor, screen, session, shell } from 'electron'
-import { createHash } from 'crypto'
-import { existsSync, mkdirSync } from 'fs'
+import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeImage, nativeTheme, powerMonitor, screen, session, shell,
+  dialog, utilityProcess
+} from 'electron'
+import { createHash, randomUUID } from 'crypto'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'fs'
+import { OFFER_GATHER_MS, OFFER_LOOK_MS, OFFER_READ_MS, OFFER_MAX_PATHS, OFFER_MAX_QUEUE, OFFER_MIN_SHOWN_MS, acceptableFiles, buildOffer, filePathsInArgv, mimeForName, type FileOffer, type OfferStat, type OfferTake, type TakenFile } from '@shared/os-entry'
+import { UNANSWERED, createLooker, type HelperProcess } from './offer-looker'
+import { CHAT_UPLOAD_SAFE_BYTES as OFFER_BYTES_MAX } from '@shared/attachments'
 import { dirname, isAbsolute, join, resolve } from 'path'
 import { refusedSwitches } from '@shared/release-gate'
 import { buildFlavor, debuggingAllowedHere } from './build-flavor'
 import { IPC } from '@shared/ipc'
-import { approvalActionTarget, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
+import { answeredInApp, approvalActionTarget, notificationPlan, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
 import { coerceArguments, type ApprovalArguments } from '@shared/approval-arguments'
 import { describeLoginItem, type LoginItemPlatform } from '@shared/login-item'
 import { isLegalDoc, legalDocPath, type LegalDocResult } from '@shared/legal-docs'
@@ -46,7 +51,7 @@ import { ONBOARDING_BROWSING_KEY, ONBOARDING_KNOWN_KEY, parseKnown } from '@shar
 import { helloTimeoutMs } from '@shared/hello'
 import { registerIpcHandlers } from './ipc'
 import { registerArtifactRenderProtocol, registerArtifactRenderScheme } from './artifact-protocol'
-import { firstDeepLinkInArgv, parseDeepLink } from '@shared/deeplink'
+import { LINK_BLOCKED_NOTICE, firstDeepLinkInArgv, parseDeepLink } from '@shared/deeplink'
 // The web-URL allowlist the browser pane already used. The shell window's
 // openExternal derives from the SAME predicate rather than restating a regex,
 // so the two surfaces cannot drift into different opinions of what a page is.
@@ -74,6 +79,14 @@ import { MainModelSetting } from './main-model'
 import { registerMainModelHandlers } from './main-model-ipc'
 import { OwnerPromotion } from './owner-promotion'
 import { registerOwnerPromotionHandlers } from './owner-promotion-ipc'
+import { ChatProjectsHub } from './chat-projects'
+import { ChatProjectsMigration } from './chat-projects-migration'
+import { noChatProjects } from '@shared/chat-projects'
+import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY, parseMigrated } from '@shared/chat-projects-view'
+import { SESSION_PROJECTS_SETTING_KEY } from '@shared/session-projects'
+import { registerChatProjectsHandlers } from './chat-projects-ipc'
+import { ChatProjectContent } from './chat-projects-content'
+import { markDownloaded } from './quarantine'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
 import { pairTlsPorts } from '@shared/devices'
@@ -91,7 +104,9 @@ import { PairingWatcher } from './pairing/watcher'
 import { registerIntegrationsHandlers } from './integrations-ipc'
 import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
-import { registerScreenshotHandlers } from './screenshot-ipc'
+import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
+import { folderProblem, hereVerdict, isThisComputer, type FolderPick, type FolderWhere } from '@shared/work-folder'
+import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
 import { registerBrowserPane } from './browser-pane'
 import { openPopout } from './popout-window'
 import { killAllTerminals, registerTerminalHandlers } from './terminal-ipc'
@@ -112,6 +127,9 @@ import type { InstanceSummary } from '@shared/ipc'
 import { UNKNOWN, WATCH_EVERY_MS, aiLabel, type InstanceHealth } from '@shared/instance-watch'
 import { addInstance, checkNewInstance, type AddDeps } from './add-instance'
 import { isAddRequest, type AddCheck, type AddOutcome } from '@shared/add-instance'
+import { joinNotice } from '@shared/join-notice'
+import { readTailnet } from './phone-tailnet'
+import { joinCode, phoneJoinPort, type JoinCode } from '@shared/phone-join'
 import { appendViewTrail } from './view-trail-log'
 import { InstanceWatch } from './instance-watch'
 import { createProver, NOT_PROVED, verifyEd25519 } from './identity'
@@ -236,11 +254,20 @@ function handleDeepLink(url: string): void {
   }
   // The log line is load-bearing for verification: refusals must be provable, not just visible.
   console.log(`[deeplink] ${action.kind}${action.kind === 'refused' ? `: ${action.reason}` : ` session=${action.sessionId}`}`)
-  if (action.kind === 'open') showSession(action.sessionId)
-  else {
+  if (action.kind === 'open') {
+    // A link opens a conversation this Beacon already has, from what it has cached: nothing is
+    // asked of Prometheus because a link arrived. An id nobody has seen is not made the open
+    // conversation (it would then be remembered, and reopened at the next launch).
+    if (cache?.knowsSession(action.sessionId)) return showSession(action.sessionId)
+    console.log('[deeplink] refused: no such conversation on this Beacon')
     showWindow()
-    notify('Link not opened', `${action.reason} (${url.slice(0, 80)})`, '')
+    notify('Link not opened', 'That link names a conversation this Beacon does not have.', '')
+    return
   }
+  // Fixed words. Nothing the link says is shown: whoever made the link does not get to put a
+  // line of their own on the person's screen under Beacon's name. Why is in the log line above.
+  showWindow()
+  notify(LINK_BLOCKED_NOTICE.title, LINK_BLOCKED_NOTICE.body, '')
 }
 
 const singleInstance = app.requestSingleInstanceLock()
@@ -251,6 +278,7 @@ if (!singleInstance) {
     showWindow()
     const url = firstDeepLinkInArgv(argv)
     if (url) handleDeepLink(url)
+    offerFiles(filePathsInArgv(argv), 'argv')
   })
 }
 app.on('open-url', (e, url) => {
@@ -258,9 +286,156 @@ app.on('open-url', (e, url) => {
   handleDeepLink(url)
 })
 
+// ── files handed over by the system (@shared/os-entry) ─────────────────────────
+// Open with, a file dropped on Beacon's icon ('open-file', macOS), or a path on the command line
+// (Linux and Windows, and a second launch). What arrives is only NAMED here: main looks at each
+// path (lstat, and where it really is; done by a helper process, see `looker`) and reads nothing. The offer waits for the confirmation
+// screen in the main window; a pointer click on that screen (OS_ENTRY_TAKE, naming the offer by an
+// id main minted) is the one thing that reads a file.
+//
+// Paths that arrive together (a multiple selection is one 'open-file' per file) are gathered for
+// OFFER_GATHER_MS into ONE offer before anything is shown. Once an offer is on screen its list
+// never changes: what arrives later is another offer, queued behind it. So the list a person is
+// about to answer cannot be swapped under the cursor.
+interface WaitingOffer {
+  id: string
+  stats: OfferStat[]
+}
+let gathering: { path: string; from: 'argv' | 'system' }[] = []
+let gatherTimer: NodeJS.Timeout | null = null
+const offerQueue: WaitingOffer[] = []
+/** The offer id the MAIN window has been handed. A yes is taken only for this one. */
+let shownOfferId: string | null = null
+/** When it was handed over. A yes sooner than OFFER_MIN_SHOWN_MS after is refused, whatever the page says. */
+let shownAt = 0
+/** The offer a yes is being carried out for. Its files are being read: it can no longer be said no to. */
+let takingOfferId: string | null = null
+let lastOfferRaise = 0
+
+/** Offered paths are looked at, and read, only by a helper process (offer-looker.ts): a path on a
+ *  disk that has stopped answering must not be able to hold up main or its file threads. */
+const looker = createLooker({
+  start: () => {
+    const outMain: unknown = import.meta.mainOutDir
+    if (typeof outMain !== 'string' || !outMain) throw new Error('main was built without the mainOutDir plugin')
+    const child = utilityProcess.fork(join(outMain, 'offer-look-process.js'), [], { serviceName: 'beacon-offer-look', stdio: 'ignore' })
+    return {
+      postMessage: (m) => child.postMessage(m),
+      on: ((ev: 'message' | 'exit', fn: (m: never) => void) => (ev === 'message' ? child.on('message', fn as (m: unknown) => void) : child.on('exit', fn as () => void))) as HelperProcess['on'],
+      // Ended outright. The polite way is a signal the helper would have to get round to, and one
+      // that is waiting on a disk never does.
+      kill: () => {
+        try {
+          if (child.pid !== undefined) process.kill(child.pid, 'SIGKILL')
+        } catch {
+          /* already gone */
+        }
+        return child.kill()
+      }
+    }
+  },
+  lookMs: OFFER_LOOK_MS,
+  readMs: OFFER_READ_MS,
+  idleMs: 60_000,
+  log: (line) => console.log(line)
+})
+app.on('will-quit', () => looker.stop())
+/** Batches being looked at now: they count against the queue, so a loop cannot pile them up. */
+let lookingAt = 0
+const currentOffer = (): FileOffer | null => (offerQueue.length > 0 ? buildOffer(offerQueue[0].id, offerQueue[0].stats, offerQueue.length - 1) : null)
+
+/** Hand the offer at the head of the queue to the main window, if there is one to hand it to. */
+function presentOffer(): void {
+  const offer = currentOffer()
+  if (!offer || !appReady || isQuitting) return // not while Beacon is on its way out: no window is made for an offer then
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow() // the window asks for the offer when it is up (OS_ENTRY_PENDING)
+    return
+  }
+  // Raised at most once every few seconds: a loop handing files over must not be able to keep
+  // pulling Beacon in front of what the person is doing.
+  const now = Date.now()
+  if (now - lastOfferRaise > 3000) {
+    lastOfferRaise = now
+    showWindow()
+  }
+  noteShown(offer.id)
+  mainWindow.webContents.send(IPC.OS_ENTRY_OFFER, offer)
+}
+
+/** The main window has been handed this offer, now (or already had been: the clock is not reset
+ *  by asking again). */
+function noteShown(id: string | null): void {
+  if (id !== shownOfferId) shownAt = Date.now()
+  shownOfferId = id
+}
+
+/** The offer on screen was answered (or could not be): the next one, if any, takes its place. */
+function finishOffer(id: string): void {
+  if (offerQueue[0]?.id !== id) return
+  offerQueue.shift()
+  shownOfferId = null
+  takingOfferId = null
+  presentOffer()
+}
+
+/** `from` 'argv': a command line holds paths that are not offers at all (the app's own folder in a
+ *  development run), so only regular files count. 'system': the person aimed something at Beacon,
+ *  so a folder or a missing file is shown, with why it cannot be added. */
+function offerFiles(paths: string[], from: 'argv' | 'system'): void {
+  // Bounded BEFORE anything is looked at: a loop handing over paths costs nothing past the cap.
+  for (const path of new Set(paths)) {
+    if (gathering.length >= OFFER_MAX_PATHS) break
+    if (typeof path === 'string' && path && !gathering.some((g) => g.path === path)) gathering.push({ path, from })
+  }
+  if (gathering.length === 0 || gatherTimer) return
+  gatherTimer = setTimeout(() => {
+    gatherTimer = null
+    void closeGather()
+  }, OFFER_GATHER_MS)
+}
+
+/** What was gathered becomes one offer: looked at by the helper, then queued. Before Beacon is
+ *  ready there is no helper to ask, so the paths wait (whenReady calls this again). */
+async function closeGather(): Promise<void> {
+  if (!appReady || gatherTimer || gathering.length === 0) return
+  const batch = gathering
+  gathering = []
+  if (offerQueue.length + lookingAt > OFFER_MAX_QUEUE) {
+    console.log(`[os-entry] dropped an offer of ${batch.length} path(s): ${offerQueue.length + lookingAt} already waiting`)
+    return
+  }
+  lookingAt++
+  let stats: OfferStat[]
+  try {
+    stats = await looker.look(batch.map((g) => g.path), { profile: app.getPath('userData'), home: app.getPath('home') })
+  } finally {
+    lookingAt--
+  }
+  // From a command line only what is a regular file counts, or a path whose disk did not answer
+  // (on Linux the command line is how a file is handed over, and the person should be told).
+  const kept = stats.filter((st, i) => batch[i].from === 'system' || st.kind === 'file' || st.kind === 'slow')
+  const unseen = kept.filter((st) => st.kind === 'slow').length
+  if (unseen > 0) console.log(`[os-entry] ${unseen} path(s) could not be looked at: the disk did not answer`)
+  if (kept.length === 0) return
+  offerQueue.push({ id: randomUUID(), stats: kept })
+  console.log(`[os-entry] offer of ${kept.length} path(s); ${offerQueue.length} waiting`)
+  // Shown now unless one is already on screen (it is shown when that one is answered).
+  if (shownOfferId === null) presentOffer()
+}
+
+app.on('open-file', (e, path) => {
+  e.preventDefault()
+  offerFiles([path], 'system')
+})
+
 // The connection + cache live in the main process and outlive any window (spec §3.2/§3.3). The
 // connection is (re)built by bringUpConnection — at startup if configured, or on first-run save.
 let connection: ConnectionManager | null = null
+/** The projects of the Prometheus `connection` talks to (@shared/chat-projects), made with it and replaced with it. */
+let chatProjects: ChatProjectsHub | null = null
+/** The same connection's way to a project's instructions and reference files. */
+let chatContent: ChatProjectContent | null = null
 /**
  * The live link: the gateway `connection` was brought up with and the key it uses there, set TOGETHER and only once the address may be
  * used (null until then, and while there is none). Every module that talks to "the connected Prometheus" with a key (the network and
@@ -451,16 +626,69 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
     if (refused || connection !== conn) return
     connectedLink = { gateway: gw, token }
   })
+  // This Prometheus's projects (@shared/chat-projects): a hub made for THIS connection, so what it asks goes to the Prometheus that
+  // was connected when it was made, and a project id from another one is never in front of it.
+  chatProjects?.reset() // the one for the connection before this: nothing it still has out is shown or applied
+  const projects = new ChatProjectsHub({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    onState: (s) => {
+      if (chatProjects !== projects) return
+      // Remembered, per Prometheus: one that has served projects and says nothing now (offline, still connecting) is waited for, not taken
+      // for one that never did (src/shared/chat-projects-view.ts).
+      if (s.available && !servedNoted) {
+        servedNoted = true
+        repo?.setSetting(CHAT_PROJECTS_SERVED_KEY, '1')
+      }
+      broadcast(IPC.CHAT_PROJECTS_CHANGED, s)
+      // The move of this computer's projects to this Prometheus: once it has said it serves them, its list is read and this Beacon is its
+      // owner, and the folder is confirmed as its own. Cheap to ask again (it knows if it is running or done, and backs off after a miss).
+      if (s.available && s.list?.role === 'owner' && cache && !cache.isHeld()) void migration.run().catch(() => undefined)
+    }
+  })
+  let servedNoted = false
+  // Per connection, like the hub: it asks THIS Prometheus, and reads and records in THIS Prometheus's folder.
+  const folderRepo = folder.repo
+  const migration = new ChatProjectsMigration({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    readOwn: () => folderRepo.getSetting(SESSION_PROJECTS_SETTING_KEY),
+    readOthers: () =>
+      (folders?.listInstances() ?? [])
+        .filter((i) => i.id !== folder.id)
+        .map((i) => ({ folderId: i.id, raw: folders!.getSettingFor(i.id, SESSION_PROJECTS_SETTING_KEY) })),
+    isDone: () => parseMigrated(folderRepo.getSetting(CHAT_PROJECTS_MIGRATED_KEY)),
+    writeDone: (value) => folderRepo.setSetting(CHAT_PROJECTS_MIGRATED_KEY, value),
+    isCurrent: () => chatProjects === projects, // replaced or forgotten: it stops asking, and writes nothing
+    report: (m) => {
+      void (async () => {
+        // Before the window is told it is done, it is given the conversations' filings from the Prometheus's own list: otherwise it would
+        // draw the Prometheus's projects with every conversation unfiled for a moment, which looks like a loss.
+        if (m.status === 'done' && m.fresh) await cache?.listSessions().catch(() => undefined)
+        if (chatProjects !== projects) return
+        projects.setMigration(m)
+        if (m.status === 'done') void projects.refresh()
+      })()
+    }
+  })
+  chatProjects = projects
+  chatContent = new ChatProjectContent({
+    request: (method, path, body) => conn.projectsCall(method, path, body),
+    bytes: (method, path, opts) => conn.projectsBytes(method, path, opts),
+    available: () => projects.state().available,
+    isCurrent: () => chatProjects === projects,
+    markDownloaded
+  })
+  broadcast(IPC.CHAT_PROJECTS_CHANGED, projects.state())
   connection.on('status', onStatus)
   connection.on('stream', onStreamFrame)
   connection.on('gatewayEvent', (ev) => {
+    projects.onGatewayEvent(ev as { type?: string; payload?: unknown })
     // A pairing frame names a device and an address. The watcher takes it, and it goes nowhere else: not the activity feed, not a notification.
     if (pairingWatcher.takesFrame(ev.type, ev.payload, typeof ev.ts === 'number' ? ev.ts / 1000 : undefined)) return
     broadcast(IPC.GATEWAY_EVENT, ev)
     maybeNotifyTask(ev as { type?: string; payload?: Record<string, unknown> })
     handleApprovalFrame(conn, ev as { type?: string; payload?: Record<string, unknown> })
   })
-  cache = new CacheService(folder.repo, connection, { held: fp === null })
+  cache = new CacheService(folder.repo, connection, { held: fp === null, onListed: (rows) => projects.setFilings(rows) })
   cache.attach()
   if (fp === null) confirmIdentity(conn, cache, gw, folder.id)
   if (before !== null && before !== folder.id) broadcast(IPC.CACHE_FOLDER_CHANGED, null)
@@ -707,6 +935,11 @@ function forgetConnection(): SetupForgetResult {
       connection.stop()
       connection = null
     }
+    // Its projects go with it: no Prometheus is kept, so nothing may be asked of the one that was, with the key just cleared.
+    chatProjects?.reset()
+    chatProjects = null
+    chatContent = null
+    broadcast(IPC.CHAT_PROJECTS_CHANGED, noChatProjects())
     applyPins(null)
     connectedLink = null
     cache = null
@@ -927,6 +1160,8 @@ const mainModelSetting = new MainModelSetting({
 // The owner's side of joining: who is waiting for this Prometheus's owner to say yes. It runs whenever a connection is up; a Beacon that is
 // not an owner is told 403 and the watcher stops asking. Its answers go to the page; a pairing frame goes ONLY here (see the gatewayEvent
 // handler in bringUpConnection).
+/** The join requests a notification has already been shown for, or seen while Beacon was in front. */
+let joinKnown: ReadonlySet<string> = new Set()
 const pairingWatcher = new PairingWatcher({
   list: async () => {
     try {
@@ -947,7 +1182,18 @@ const pairingWatcher = new PairingWatcher({
     const t = setTimeout(fn, ms)
     return () => clearTimeout(t)
   },
-  publish: (requests) => broadcast(IPC.PAIRING_REQUESTS, requests),
+  publish: (requests) => {
+    broadcast(IPC.PAIRING_REQUESTS, requests)
+    // A device asking while Beacon isn't in front: a notification in Beacon's own words (@shared/join-notice), never the requester's
+    // device name or address. In front, the prompt itself shows.
+    const n = joinNotice(joinKnown, requests, { focused: windowFocused(), instance: folders?.listInstances().find((i) => i.active)?.label ?? null })
+    joinKnown = n.known
+    if (n.notice && Notification.isSupported()) {
+      const note = new Notification(n.notice)
+      note.on('click', () => showWindow())
+      note.show()
+    }
+  },
   // A probe may turn asking off, so that only the daemon's frames can show a request; a release build always asks (@shared/join-owner).
   pollMs: pairingPollMs(process.env, debuggingAllowedHere())
 })
@@ -1213,6 +1459,10 @@ function buildAppMenu(): void {
     accelerator: 'CmdOrCtrl+,',
     click: openSettings
   }
+  // Quick capture from the menu as well as its global key, which another app may hold. No
+  // accelerator here: the global shortcut already answers that chord, and a second handler on the
+  // same keys would open the box and close it again.
+  const captureItem: Electron.MenuItemConstructorOptions = { id: 'quick-capture', label: 'Quick Capture', click: toggleCaptureWindow }
   const isMac = process.platform === 'darwin'
   // The About panel (role 'about') shows the name, version and Info.plist's copyright line. The credits
   // say where the license and the open-source notices are: the panel cannot link to a file.
@@ -1226,6 +1476,7 @@ function buildAppMenu(): void {
               { role: 'about' },
               { type: 'separator' },
               settingsItem,
+              captureItem,
               { type: 'separator' },
               { role: 'hide' },
               { role: 'hideOthers' },
@@ -1235,7 +1486,7 @@ function buildAppMenu(): void {
             ]
           }
         ] as Electron.MenuItemConstructorOptions[])
-      : ([{ label: 'File', submenu: [settingsItem, { type: 'separator' }, { role: 'quit' }] }] as Electron.MenuItemConstructorOptions[])),
+      : ([{ label: 'File', submenu: [settingsItem, captureItem, { type: 'separator' }, { role: 'quit' }] }] as Electron.MenuItemConstructorOptions[])),
     { role: 'editMenu' },
     // Electron's own viewMenu role, spelled out so Toggle Developer Tools (⌥⌘I) exists only where
     // debugging is allowed: a release has no such item, and its windows refuse DevTools anyway
@@ -1491,8 +1742,16 @@ function createCaptureWindow(): void {
       win.hide()
     }
   })
-  win.on('blur', () => win.hide())
+  // Hides when it loses focus, unless it asked to be held: its own file picker and its own
+  // screenshot both take focus away on purpose (@shared/quick-capture). Focus coming back, or the
+  // window going away, ends the hold.
+  win.on('blur', () => {
+    if (hidesOnBlur(captureHeld())) win.hide()
+  })
+  win.on('focus', () => holdCapture('focus'))
+  win.on('hide', () => holdCapture('hide'))
   win.on('closed', () => {
+    holdCapture('closed')
     if (captureWindow === win) captureWindow = null
   })
   // Quick-capture is a composer in its own window — the menu matters most here, where there is
@@ -1501,7 +1760,36 @@ function createCaptureWindow(): void {
   void loadShellPage(win, 'capture')
 }
 
+let captureHoldTimer: NodeJS.Timeout | null = null
+function captureHeld(): boolean {
+  return captureHoldTimer !== null
+}
+/** Something happened to the hold (@shared/quick-capture decides what it does). A hold ends by
+ *  itself after CAPTURE_HOLD_MAX_MS, and a window that is still unfocused then hides, so a hold
+ *  nothing released cannot leave the box on screen. */
+function holdCapture(ev: HoldEvent): void {
+  const held = holdAfter(captureHeld(), ev)
+  if (captureHoldTimer) clearTimeout(captureHoldTimer)
+  captureHoldTimer = null
+  if (!held) return
+  captureHoldTimer = setTimeout(() => {
+    holdCapture('timeout')
+    const win = captureWindow
+    if (win && !win.isDestroyed() && hidesOnHoldTimeout(win.isVisible(), win.isFocused())) win.hide()
+  }, CAPTURE_HOLD_MAX_MS)
+}
+/** True while CAPTURE_SHOT has the window hidden for a grab. */
+let captureShooting = false
+/** Whether an IPC sender is the quick-capture window, and that window is alive. */
+function fromCaptureWindow(sender: Electron.WebContents): boolean {
+  const win = captureWindow
+  const alive = !!win && !win.isDestroyed()
+  return isCaptureSender(sender.id, win ? { id: alive ? win.webContents.id : -1, destroyed: !alive } : null)
+}
+
 function toggleCaptureWindow(): void {
+  // Not during a screenshot: showing the box now would put it in the picture.
+  if (!toggleAllowed(captureShooting)) return
   if (!captureWindow || captureWindow.isDestroyed()) createCaptureWindow()
   const win = captureWindow!
   if (win.isVisible()) {
@@ -1735,7 +2023,11 @@ function notifyApproval(
   requestId: string,
   toolName: string,
   description: string,
-  args?: ApprovalArguments
+  args?: ApprovalArguments,
+  /** What the daemon said (ApprovalRequest.critical). */
+  critical?: boolean,
+  /** What the daemon said (ApprovalRequest.argumentsCut): it cut the arguments, so the notification cannot show the whole call. */
+  argumentsCut?: boolean
 ): void {
   if (notifiedApprovalIds.has(requestId)) return
   notifiedApprovalIds.add(requestId)
@@ -1748,7 +2040,9 @@ function notifyApproval(
   // to give up the blocked-agent alert, which is the whole point of per-kind control.
   if (!notifyAllowed(notifyPrefs, 'approval')) return
 
-  const plan = notificationPlan(toolName, description, args)
+  // A critical request offers no answer here; it is answered in Beacon. Judged against what the
+  // Prometheus that ASKED advertises, not whichever one is connected now.
+  const plan = notificationPlan(toolName, description, args, answeredInApp(critical, raisedBy?.getStatus().approvalCritical), argumentsCut === true)
   const actions =
     process.platform === 'darwin' && plan.offersActions
       ? ([
@@ -1767,7 +2061,7 @@ function notifyApproval(
     // to a clean no-op (ok:false / 404), so acting on an already-resolved
     // notification can never double-run.
     const decision: ApprovalDecision = index === 0 ? { kind: 'approve', scope: 'once' } : { kind: 'deny' }
-    void approvalActionTarget(raisedBy, connection)?.resolveApproval(requestId, decision).catch(() => undefined)
+    void approvalActionTarget(raisedBy, connection)?.resolveApproval(requestId, decision, 'notification').catch(() => undefined)
   })
   n.on('click', () => showWindow())
   n.show()
@@ -1781,7 +2075,7 @@ function handleApprovalFrame(raisedBy: ConnectionManager, ev: { type?: string; p
   const p = ev.payload ?? {}
   if (ev.type === 'approval_pending') {
     const a = rawToApproval(p as RawApprovalPush)
-    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments)
+    if (a) notifyApproval(raisedBy, a.requestId, a.toolName, a.description, a.arguments, a.critical, a.argumentsCut)
   } else if (ev.type === 'approval_resolved') {
     const rid = typeof p.request_id === 'string' ? p.request_id : null
     if (rid) notifiedApprovalIds.delete(rid)
@@ -1937,7 +2231,22 @@ app.whenReady().then(() => {
   registerModelSetupHandlers({ setup: modelSetup, newSignIn: newOpenRouterSignIn, tradeOwed: () => repo?.getSetting(CREDENTIAL_KIND_KEY) === 'master' }) // O9: the cloud AI's key, and the owner trade
   registerJoinHandlers(joinSession, pairingWatcher) // path B: ask to join, wait for approval, be connected; and the owner's side
   registerNetworkSettingHandlers(networkSetting) // Settings → Other computers: the home-network switch, and the restart
+  // "Add a phone" (@shared/phone-join): a code with no secret, for any Prometheus Beacon keeps: its address made into a name a phone
+  // can reach (this Mac's tailnet, read locally), the node key pinned for it, its name; and, for the one Beacon is on, its bind.
+  handleFromShell(IPC.PHONE_JOIN, async (_e, id: unknown): Promise<JoinCode & { name?: string }> => {
+    const list = folders?.listInstances() ?? []
+    const rec = (typeof id === 'string' ? list.find((i) => i.id === id) : undefined) ?? list.find((i) => i.active)
+    if (!rec) return { ok: false, why: 'Connect Beacon to a Prometheus first, then add a phone to it.' }
+    let bind: string | null = null
+    if (rec.active && connection) {
+      const net = (await connection.getDaemon('/api/network').catch(() => null)) as { bind?: unknown } | null
+      bind = typeof net?.bind === 'string' ? net.bind : null
+    }
+    const code = joinCode({ apiBase: rec.apiBase, nodePub: rec.nodePub, name: rec.label, tailnet: await readTailnet(process.env, debuggingAllowedHere()), bind, port: phoneJoinPort(process.env, debuggingAllowedHere()) })
+    return code.ok ? { ...code, name: rec.label } : code
+  })
   registerPairPinHandlers(pairPin) // Devices → Enrol: the pairing code's TLS pin, before the token is minted
+  registerChatProjectsHandlers(() => chatProjects, () => chatContent) // projects on the Prometheus: asked only where it says it serves them
   registerOwnerPromotionHandlers(ownerPromotion) // Settings → Make this Beacon an owner: the one-time code for an owner token
   registerMainModelHandlers(mainModelSetting) // Config → Models → Main model: which AI Prometheus thinks with (restart: the network setting's)
   app.on('before-quit', () => {
@@ -2039,7 +2348,7 @@ app.whenReady().then(() => {
   })
   registerVoiceHandlers()
   registerHandsFreeHandlers()
-  registerScreenshotHandlers()
+  registerScreenshotHandlers((sender) => (captureWindow && fromCaptureWindow(sender) ? captureWindow.getMediaSourceId() : null))
   // Browser pane: WebContentsViews hosted in main, driven by the user only (@shared/browser-pane).
   registerBrowserPane({
     getMainWindow: () => mainWindow,
@@ -2088,7 +2397,142 @@ app.whenReady().then(() => {
       // shaped like an ApprovalRequest rather than known to be one. Idempotent on an
       // already-coerced map, and it is the same function both daemon mappers use.
       if (a && typeof a.requestId === 'string')
-        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments))
+        notifyApproval(connection, a.requestId, a.toolName ?? '', a.description ?? '', coerceArguments(a.arguments), a.critical === true ? true : a.critical === false ? false : undefined, a.argumentsCut === true)
+    }
+  })
+  // A conversation's working folder (@shared/work-folder). MAIN decides whether Prometheus shares
+  // this computer's disk, and PROVES it rather than reading it off the address (a tunnel and a
+  // container are loopback too): it makes a folder with a random name and asks Prometheus to
+  // accept it for a throwaway session id, which Prometheus only does for a folder it can see. The
+  // binding is taken back and the folder removed whatever the answer. Proved once per address for
+  // as long as Beacon runs; an answer that proves nothing is asked again next time.
+  const hereProof = new Map<string, 'here' | 'tunnel'>()
+  const proveHere = async (): Promise<FolderWhere['verdict']> => {
+    const apiBase = repo?.getDefaultGatewayProfile()?.apiBase
+    if (!apiBase || !isThisComputer(apiBase)) return 'elsewhere'
+    const known = hereProof.get(apiBase)
+    if (known) return known
+    const conn = connection
+    if (!conn) return 'unknown'
+    let marker: string
+    try {
+      marker = mkdtempSync(join(realpathSync(tmpdir()), 'beacon-here-'))
+    } catch {
+      return 'unknown'
+    }
+    const route = `/api/sessions/${encodeURIComponent(`beacon:folder-check-${randomUUID()}`)}/workspace`
+    let verdict: ReturnType<typeof hereVerdict>
+    try {
+      const r = (await conn.writeDaemon(route, { path: marker }, 'PUT')) as { workspace?: unknown } | null
+      verdict = hereVerdict({ ok: true, sent: marker, answered: r?.workspace })
+    } catch (err) {
+      verdict = hereVerdict({ ok: false, message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      await conn.writeDaemon(route, undefined, 'DELETE').catch(() => undefined)
+      rmSync(marker, { recursive: true, force: true })
+    }
+    if (verdict === 'unknown') return 'unknown'
+    const kept = verdict === 'here' ? 'here' : 'tunnel'
+    hereProof.set(apiBase, kept)
+    return kept
+  }
+  const realHome = (): string => {
+    try {
+      return realpathSync(app.getPath('home'))
+    } catch {
+      return app.getPath('home')
+    }
+  }
+  handleFromShell(IPC.WORK_FOLDER_WHERE, async (): Promise<FolderWhere> => {
+    const verdict = await proveHere()
+    return { here: verdict === 'here', verdict, home: realHome() }
+  })
+  // The picker's answer is a folder the person chose in the system's own dialog; that choice is
+  // the consent to NAME it. What is named is its real path (links followed, as Prometheus will
+  // follow them), and it is checked here, in main, before the page ever sees it: a link called
+  // "notes" that leads to the home folder is refused as the home folder. Setting it is the page's
+  // PUT to Prometheus, after its own confirmation of that same real path.
+  handleFromShell(IPC.WORK_FOLDER_PICK, async (e): Promise<FolderPick> => {
+    if ((await proveHere()) !== 'here') return { kind: 'not-here' }
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const words = 'Choose a folder for your assistant to work in'
+    const opts: Electron.OpenDialogOptions = { title: words, message: words, buttonLabel: 'Choose', properties: ['openDirectory', 'createDirectory'] }
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (res.canceled || res.filePaths.length === 0) return { kind: 'cancelled' }
+    let real: string
+    try {
+      real = realpathSync(res.filePaths[0])
+    } catch {
+      return { kind: 'refused', words: 'Beacon cannot open that folder. Choose another.' }
+    }
+    const problem = folderProblem(real, realHome())
+    return problem ? { kind: 'refused', words: problem } : { kind: 'picked', path: real }
+  })
+  // Files handed over by the system: the offer, and the answer to it (@shared/os-entry). Only the
+  // MAIN window is shown offers and only it can answer one: a pop-out, the quick-capture box or
+  // the tray panel is told there is nothing waiting, and a yes from one of them is refused.
+  const fromMainWindow = (sender: Electron.WebContents): boolean => !!mainWindow && !mainWindow.isDestroyed() && sender === mainWindow.webContents
+  handleFromShell(IPC.OS_ENTRY_PENDING, async (e): Promise<FileOffer | null> => {
+    if (!fromMainWindow(e.sender)) return null
+    const offer = currentOffer()
+    noteShown(offer?.id ?? null)
+    return offer
+  })
+  onFromShell(IPC.OS_ENTRY_DISMISS, (e, id: unknown) => {
+    // Not once a yes for it is being carried out: its files are on their way into the message box.
+    if (fromMainWindow(e.sender) && typeof id === 'string' && id === shownOfferId && id !== takingOfferId) finishOffer(id)
+  })
+  handleFromShell(IPC.OS_ENTRY_TAKE, async (e, id: unknown): Promise<OfferTake> => {
+    // Yes to the offer the main window was shown, by the id main minted. Not to a path: the page
+    // never names a file to read. Not twice, and not sooner than anyone could have read the list.
+    const head = offerQueue[0]
+    if (!fromMainWindow(e.sender) || typeof id !== 'string' || !head || id !== head.id || id !== shownOfferId || takingOfferId !== null) {
+      return { ok: false, error: 'That offer is no longer waiting. Nothing was added.' }
+    }
+    if (Date.now() - shownAt < OFFER_MIN_SHOWN_MS) return { ok: false, error: 'One moment. Read the list, then click again.' }
+    takingOfferId = id
+    const files: TakenFile[] = []
+    const failed: string[] = []
+    try {
+      // Read by the helper, one file at a time. Once a disk has not answered for one file, the
+      // rest of this offer is not waited for as well.
+      let gaveUp = false
+      for (const f of acceptableFiles(head.stats)) {
+        const bytes = gaveUp ? null : await looker.read(f, OFFER_BYTES_MAX)
+        if (bytes === UNANSWERED) gaveUp = true
+        if (bytes === null || bytes === UNANSWERED) failed.push(f.name)
+        else files.push({ name: f.name, mimeType: mimeForName(f.name), base64: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64'), size: bytes.byteLength })
+      }
+    } finally {
+      finishOffer(id)
+    }
+    return { ok: true, files, failed }
+  })
+  // Only the quick-capture window may hold itself up or take a shot through itself.
+  onFromShell(IPC.CAPTURE_HOLD, (e, on: unknown) => {
+    if (fromCaptureWindow(e.sender)) holdCapture(on === true ? 'ask-on' : 'ask-off')
+  })
+  handleFromShell(IPC.CAPTURE_SHOT, async (e, sourceId: unknown) => {
+    const win = captureWindow
+    if (!win || !fromCaptureWindow(e.sender)) return { ok: false, error: 'only the quick-capture window can ask for this' }
+    if (captureShooting) return { ok: false, error: 'a capture is already being taken' }
+    // Out of the picture first, and a beat for the compositor to drop it: a shot of the screen
+    // with the box still on it is the one thing this must not produce. The toggle is a no-op
+    // until the grab is done, for the same reason.
+    captureShooting = true
+    win.hide()
+    await new Promise((r) => setTimeout(r, 250))
+    try {
+      return await grabSource(sourceId)
+    } finally {
+      captureShooting = false
+      if (!win.isDestroyed()) {
+        win.show()
+        win.focus()
+        // Some window managers refuse focus to an app that is not in front. A box that is up
+        // without focus never blurs, so nothing would ever hide it: put it on the hold's clock.
+        if (!win.isFocused()) holdCapture('shot-returned-unfocused')
+      }
     }
   })
   onFromShell(IPC.CAPTURE_OPEN_MAIN, (_e, sessionId: string) => {
@@ -2220,6 +2664,13 @@ app.whenReady().then(() => {
     pendingDeepLink = null
     handleDeepLink(u)
   }
+  // Paths on this launch's own command line (Linux and Windows "Open with" on a cold start). An
+  // 'open-file' that came before the window is already waiting; the window asks for it.
+  // Only in an installed build: a development run's own command line is the program's files.
+  if (app.isPackaged) offerFiles(filePathsInArgv(process.argv), 'argv')
+  // Paths that arrived before Beacon was ready have waited for the helper that looks at them.
+  void closeGather()
+  presentOffer()
 
   // Global summon (Slice 5): toggle Beacon from anywhere. Registration can fail if another app
   // owns the chord — log and move on, never block startup.

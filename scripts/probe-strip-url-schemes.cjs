@@ -29,5 +29,11 @@ exports.default = async function stripUrlSchemes(context) {
   if (read().CFBundleURLTypes !== undefined) execFileSync('plutil', ['-remove', 'CFBundleURLTypes', plist])
   const left = read().CFBundleURLTypes
   if (left !== undefined) throw new Error(`probe-strip-url-schemes: ${plist} still declares URL types: ${JSON.stringify(left)}`)
-  console.log(`[probe-strip-url-schemes] ${id}: Info.plist declares no URL schemes`)
+  // The same for the kinds of file the release offers itself for under Open With
+  // (electron-builder.yml fileAssociations): a probe build must never be in that list, where
+  // someone could send a file to it instead of to the installed Beacon.
+  if (read().CFBundleDocumentTypes !== undefined) execFileSync('plutil', ['-remove', 'CFBundleDocumentTypes', plist])
+  const docs = read().CFBundleDocumentTypes
+  if (docs !== undefined) throw new Error(`probe-strip-url-schemes: ${plist} still declares document types: ${JSON.stringify(docs)}`)
+  console.log(`[probe-strip-url-schemes] ${id}: Info.plist declares no URL schemes and no document types`)
 }

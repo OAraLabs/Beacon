@@ -1,14 +1,30 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { SessionSummary } from '@shared/ipc'
+import { screenAccessHint, screenshotFilename, type CaptureSourcesResult } from '@shared/capture'
+import {
+  CAPTURE_DEFAULT_TARGET,
+  CAPTURE_NEW_TARGET,
+  CAPTURE_TARGET_KEY,
+  captureCanSend,
+  captureTargets,
+  escClosesBox,
+  restoreAfterFailedSend,
+  storedCaptureTarget
+} from '@shared/quick-capture'
+import { BEACON_GATEWAY } from '@shared/session-sources'
+import { sendUploads, stagedScreenshot, stageFiles, UploadError, type PendingFile } from '../attachments-io'
 import { Icon } from './Icon'
 
 // Quick Capture (Makeover Slice 10, Track C #4) — the spotlight-style mini composer the
 // ⌘⇧Space/Ctrl+Shift+Space global hotkey summons. Sends through the SAME chat:send path (cache +
 // outbox + durable re-key), streams the reply inline, Esc hides, ⏎ sends, "Open in Beacon"
 // focuses the main window on the session. Rendered when the window loads with #capture.
+//
+// It carries more than text (@shared/quick-capture): ⌘V of files or an image, files from a picker,
+// and a screenshot, all staged as chips and sent on the main composer's upload path. The target
+// can be a new conversation. Dropping a file from another app is not offered: clicking that app
+// takes focus, and this window hides when it loses focus.
 
-const DEFAULT_TARGET = 'desktop:quick'
-const LAST_TARGET_KEY = 'capture:session'
 
 const shell: CSSProperties = {
   height: '100vh',
@@ -78,14 +94,71 @@ const linkBtn: CSSProperties = {
   font: 'inherit'
 }
 
+const toolBtn = (disabled = false): CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  fontSize: 11,
+  padding: '3px 8px',
+  borderRadius: 'var(--r-2)',
+  border: '1px solid var(--c-line)',
+  background: 'transparent',
+  color: disabled ? 'var(--c-text-faint)' : 'var(--c-text-dim)',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  font: 'inherit'
+})
+const chip: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  maxWidth: 190,
+  padding: '3px 7px',
+  fontSize: 11,
+  color: 'var(--c-text)',
+  background: 'var(--c-inset)',
+  border: '1px solid var(--c-line)',
+  borderRadius: 'var(--r-2)'
+}
+const noteStyle: CSSProperties = { fontSize: 11, color: 'var(--c-warn-text)', lineHeight: 1.4 }
+const pickerBox: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  background: 'var(--c-raise)',
+  border: '1px solid var(--c-line)',
+  borderRadius: 'var(--r-3)',
+  padding: 8
+}
+const sourceBtn = (disabled = false): CSSProperties => ({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  padding: 5,
+  border: '1px solid var(--c-line)',
+  borderRadius: 'var(--r-2)',
+  background: 'var(--c-inset)',
+  color: disabled ? 'var(--c-text-faint)' : 'var(--c-text-dim)',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  font: 'inherit',
+  fontSize: 11,
+  textAlign: 'left',
+  minWidth: 0
+})
+
 export function QuickCapture() {
   const [draft, setDraft] = useState('')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [target, setTarget] = useState(DEFAULT_TARGET)
+  const [target, setTarget] = useState(CAPTURE_DEFAULT_TARGET)
+  const [started, setStarted] = useState<string | null>(null)
   const [reply, setReply] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [sending, setSending] = useState(false)
+  const [files, setFiles] = useState<PendingFile[]>([])
+  const [note, setNote] = useState('')
+  // The screenshot picker: null = closed; `sources` null = still listing.
+  const [picker, setPicker] = useState<{ sources: CaptureSourcesResult | null; busy: boolean } | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const targetRef = useRef(target)
   useEffect(() => {
     targetRef.current = target
@@ -100,10 +173,8 @@ export function QuickCapture() {
       inputRef.current?.focus()
     }
     void b.settings
-      .get(LAST_TARGET_KEY)
-      .then((v) => {
-        if (v) setTarget(v)
-      })
+      .get(CAPTURE_TARGET_KEY)
+      .then((v) => setTarget(storedCaptureTarget(v)))
       .catch(() => undefined)
     load()
     window.addEventListener('focus', load)
@@ -121,37 +192,147 @@ export function QuickCapture() {
         setReply((r) => r + f.content)
       } else if (f.kind === 'done') {
         setStreaming(false)
+      } else if (f.kind === 'error') {
+        // A turn that died says so here too; without this the caret blinks forever.
+        setStreaming(false)
+        setNote(f.hint ? `${f.message} ${f.hint}` : f.message)
       }
     })
     return off
   }, [])
 
-  const send = async (): Promise<void> => {
-    const text = draft.trim()
-    if (!text || sending) return
+  // The file picker's answer gives the hold back, whichever answer it is. Main also drops the
+  // hold when this window is focused again, but a picker that never took focus would leave it
+  // armed, and the box would then sit over the next app clicked for up to two minutes.
+  useEffect(() => {
+    const input = fileInputRef.current
+    if (!input) return
+    const release = (): void => window.beacon?.capture.hold(false)
+    input.addEventListener('cancel', release)
+    input.addEventListener('change', release)
+    return () => {
+      input.removeEventListener('cancel', release)
+      input.removeEventListener('change', release)
+    }
+  }, [])
+
+  const addFiles = async (list: FileList | File[]): Promise<void> => {
+    const { ok, note: refused } = await stageFiles(list)
+    setNote(refused)
+    if (ok.length > 0) setFiles((prev) => [...prev, ...ok])
+    inputRef.current?.focus()
+  }
+
+  const pickFiles = (): void => {
+    // The picker takes focus, and this window hides when it loses focus: ask main to hold it up.
+    // The hold is given back when the picker answers (the effect above), when focus returns, and
+    // after two minutes whatever happens.
+    window.beacon?.capture.hold(true)
+    fileInputRef.current?.click()
+  }
+
+  const openPicker = (): void => {
     const b = window.beacon
     if (!b) return
+    setNote('')
+    setPicker({ sources: null, busy: false })
+    void b.screenshot
+      .sources()
+      .then((sources) => setPicker((p) => (p ? { ...p, sources } : p)))
+      .catch(() => {
+        setPicker(null)
+        setNote('Could not list what can be captured. Try again.')
+      })
+  }
+
+  const shoot = (sourceId: string): void => {
+    const b = window.beacon
+    if (!b || picker?.busy) return
+    setPicker((p) => (p ? { ...p, busy: true } : p))
+    // Main hides this window for the shot and shows it again; the state here rides through.
+    void b.capture
+      .shot(sourceId)
+      .then((r) => {
+        if (!r.ok) {
+          setNote(r.error)
+          setPicker((p) => (p ? { ...p, busy: false } : p))
+          return
+        }
+        setFiles((prev) => [...prev, stagedScreenshot(r.base64, r.mimeType, screenshotFilename(Date.now(), r.mimeType))])
+        setNote('')
+        setPicker(null)
+        inputRef.current?.focus()
+      })
+      .catch(() => {
+        setNote('The capture failed. Try again.')
+        setPicker((p) => (p ? { ...p, busy: false } : p))
+      })
+  }
+
+  const send = async (): Promise<void> => {
+    if (!captureCanSend(draft, files.length, sending)) return
+    const b = window.beacon
+    if (!b) return
+    const text = draft.trim()
+    const staged = files
     setSending(true)
-    setReply('')
-    setStreaming(true)
-    setDraft('')
-    void b.settings.set(LAST_TARGET_KEY, target).catch(() => undefined)
+    setNote('')
     try {
-      await b.chat.send({ sessionId: target, message: text, clientMsgId: crypto.randomUUID() })
-    } catch (err) {
-      setStreaming(false)
-      setReply(`send failed: ${String(err)}`)
+      let sessionId = target
+      if (sessionId === CAPTURE_NEW_TARGET) {
+        // Declares its gateway, as the main window's New chat does (@shared/session-sources).
+        const res = (await b.daemon.write('/api/sessions', { gateway: BEACON_GATEWAY }, 'POST').catch(() => null)) as { session_id?: string } | null
+        if (!res?.session_id) {
+          // Nothing was cleared: the text and the files are still here to send again.
+          setNote('Could not start a new conversation. Open Beacon to see whether it is connected, then try again.')
+          return
+        }
+        sessionId = res.session_id
+        targetRef.current = sessionId
+        setStarted(sessionId)
+        setTarget(sessionId)
+      }
+      setReply('')
+      setStreaming(true)
+      setDraft('')
+      setFiles([])
+      setPicker(null)
+      void b.settings.set(CAPTURE_TARGET_KEY, sessionId).catch(() => undefined)
+      try {
+        if (staged.length > 0) await sendUploads((req) => b.chat.upload(req), sessionId, staged, text)
+        else {
+          // chat.send does not throw for "not connected" or a refused send: it says so in its answer.
+          const res = await b.chat.send({ sessionId, message: text, clientMsgId: crypto.randomUUID() })
+          if (res.status === 'not-connected') throw new Error('not connected')
+          if (res.error) throw new Error(res.error)
+        }
+      } catch (err) {
+        // Put back what did NOT go: files already sent are not offered again (a retry would send
+        // them twice), and whatever was typed or attached while this was going out is kept.
+        const sent = err instanceof UploadError ? err.sent : 0
+        setStreaming(false)
+        setDraft((cur) => restoreAfterFailedSend(text, staged, sent, { draft: cur, files: [] }).draft)
+        setFiles((cur) => restoreAfterFailedSend(text, staged, sent, { draft: '', files: cur }).files)
+        const why = err instanceof Error ? err.message : String(err)
+        setNote(sent > 0 ? `${sent} of ${staged.length} files went, then: ${why}. The rest are back in the box.` : `Not sent: ${why}`)
+      }
     } finally {
       setSending(false)
     }
   }
 
   const onKey = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && e.target === inputRef.current) {
+      // Not while an input method is composing, and only the first press of a held key.
+      if (e.nativeEvent.isComposing) return
       e.preventDefault()
-      void send()
+      if (!e.repeat) void send()
     } else if (e.key === 'Escape') {
       e.preventDefault()
+      // Esc backs out of the screenshot picker first, then closes the box.
+      if (picker) return setPicker(null)
+      // Closing destroys this window, and a send is a loop running in it: wait for it.
+      if (!escClosesBox(sending)) return setNote('Still sending. Esc closes the box once it has gone.')
       // Destroys this window (a renderer window.close() never reaches main's cancelable 'close';
       // measured on Electron 33 — scripts/electron-close-semantics-probe.js). Right for a transient
       // box: the next toggle recreates it with a fresh, empty field.
@@ -159,6 +340,7 @@ export function QuickCapture() {
     }
   }
 
+  const hint = picker?.sources ? screenAccessHint(picker.sources.access) : ''
   return (
     <div style={shell} onKeyDown={onKey}>
       <div style={inputRow}>
@@ -172,12 +354,72 @@ export function QuickCapture() {
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask Prometheus…  (Enter to send · Esc to hide)"
+          onPaste={(e) => {
+            const pasted = Array.from(e.clipboardData.files)
+            if (pasted.length > 0) {
+              e.preventDefault()
+              void addFiles(pasted)
+            }
+          }}
+          placeholder="Ask Prometheus…  (Enter to send · ⌘V adds a copied file or image · Esc to hide)"
           spellCheck={false}
+          aria-label="Message"
         />
       </div>
 
-      {reply || streaming ? (
+      {files.length > 0 ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} role="group" aria-label="Attached">
+          {files.map((f, i) => (
+            <span style={chip} key={`${f.name}:${i}`} title={f.name}>
+              {f.isImage ? <img src={f.dataUrl} alt="" style={{ maxHeight: 22, maxWidth: 36, borderRadius: 3, display: 'block' }} /> : <Icon name="paperclip" size={11} />}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+              <button
+                aria-label={`Remove ${f.name}`}
+                onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                style={{ background: 'transparent', border: 'none', color: 'var(--c-text-dim)', cursor: 'pointer', padding: 0, font: 'inherit', lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Always mounted, so a screen reader hears the text arrive. */}
+      <div style={note ? noteStyle : { display: 'none' }} role="status">
+        {note}
+      </div>
+
+      {picker ? (
+        <div style={pickerBox} role="group" aria-label="Capture a screenshot">
+          {!picker.sources ? (
+            <div style={{ fontSize: 12, color: 'var(--c-text-dim)' }}>Listing screens…</div>
+          ) : hint ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+              <div style={{ fontSize: 12, color: 'var(--c-text)' }}>{hint}</div>
+              <button style={toolBtn()} onClick={() => window.beacon?.screenshot.openSettings()}>
+                Open System Settings
+              </button>
+            </div>
+          ) : picker.sources.sources.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--c-text-dim)' }}>Nothing to capture was found.</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--c-text-faint)', marginBottom: 6 }}>
+                {picker.busy ? 'Capturing…' : 'Pick what to capture. This box steps out of the picture.'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 6 }}>
+                {picker.sources.sources.map((s) => (
+                  <button key={s.id} style={sourceBtn(picker.busy)} disabled={picker.busy} onClick={() => shoot(s.id)} title={`Capture ${s.name}`}>
+                    {s.thumbDataUrl ? <img src={s.thumbDataUrl} alt="" style={{ width: '100%', borderRadius: 3, display: 'block' }} /> : null}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ) : reply || streaming ? (
         <div style={replyBox}>
           {reply}
           {streaming ? <span className="caret" /> : null}
@@ -185,19 +427,42 @@ export function QuickCapture() {
       ) : null}
 
       <div style={footRow}>
-        <select style={selectStyle} value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Target session" title="Target session">
-          {!sessions.some((s) => s.id === target) ? <option value={target}>{target}</option> : null}
-          {sessions.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.id}
+        <select style={selectStyle} value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Send to" title="Send to">
+          {captureTargets(sessions, target, undefined, started).map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
             </option>
           ))}
         </select>
-        <span style={{ flex: 1 }} />
-        <button style={linkBtn} onClick={() => window.beacon?.capture.openMain(target)}>
-          Open in Beacon <Icon name="chevron-right" size={11} />
+        <button style={toolBtn()} onClick={pickFiles} title="Attach files" aria-label="Attach files">
+          <Icon name="paperclip" size={12} />
         </button>
+        <button
+          style={toolBtn()}
+          onClick={() => (picker ? setPicker(null) : openPicker())}
+          title="Attach a screenshot"
+          aria-label="Attach a screenshot"
+          aria-pressed={picker !== null}
+        >
+          <Icon name="camera" size={12} />
+        </button>
+        <span style={{ flex: 1 }} />
+        {target !== CAPTURE_NEW_TARGET ? (
+          <button style={linkBtn} onClick={() => window.beacon?.capture.openMain(target)}>
+            Open in Beacon <Icon name="chevron-right" size={11} />
+          </button>
+        ) : null}
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          if (e.target.files) void addFiles(e.target.files)
+          e.target.value = ''
+        }}
+      />
     </div>
   )
 }

@@ -28,6 +28,10 @@ assert(pair !== null && pair.kind === 'refused' && /phone/i.test(pair.reason), '
 const unknown = parseDeepLink('beacon://exec?cmd=rm')
 assert(unknown !== null && unknown.kind === 'refused' && unknown.reason.includes('exec'), 'an unknown route is refused and NAMED')
 assert(parseDeepLink('beacon://open')?.kind === 'refused', 'open without a session is refused, not guessed')
+// A link says where to go and nothing else (the full table is smoke:os-entry's).
+const worded = parseDeepLink('beacon://open?session=beacon:abc&text=do%20something')
+assert(worded !== null && worded.kind === 'refused' && /cannot carry text/.test(worded.reason), 'open with text riding along is refused whole, not opened with the text dropped')
+assert(parseDeepLink('beacon://open?session=beacon:abc&other=1')?.kind === 'refused', 'open takes its one parameter and no other')
 assert(parseDeepLink('beacon://open?session=')?.kind === 'refused', 'an empty session id is refused')
 assert(parseDeepLink(`beacon://open?session=${'a'.repeat(200)}`)?.kind === 'refused', 'an absurdly long id is refused')
 assert(parseDeepLink('beacon://open?session=a%09b')?.kind === 'refused', 'control characters in the id are refused')

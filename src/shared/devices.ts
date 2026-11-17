@@ -276,3 +276,21 @@ export function fmtDeviceTime(seconds: number | null | undefined, now: number = 
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
+
+/**
+ * What went wrong on the Devices screen, in words that say what to do: never a status code, a route, or Electron's IPC wrapper (the
+ * phone-onboarding plan, desktop item 3). A Beacon signed in with a device key can't create a device directly (Prometheus keeps that to
+ * its main key, so a stolen phone can't enrol another); the way in for a phone is Add a phone, which needs nothing secret.
+ */
+export function deviceErrorWords(message: string): string {
+  const m = (message ?? '').replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
+  const status = /^HTTP (\d{3})\b/.exec(m)?.[1]
+  if (status === '401') return "Only this Prometheus's main key can create a device directly, and this Beacon signs in with a device key. To add a phone, use Add a phone: the phone asks to join and you approve it here."
+  if (status === '403') return /operator_only/.test(m) ? "This Beacon isn't an owner of this Prometheus, so it can't add or remove devices. Use a Beacon that is." : 'Prometheus refused that. Check this Beacon is an owner of it, then try again.'
+  if (status === '404') return 'That device is already gone.'
+  if (status === '429') return 'Too many tries just now. Wait a minute, then try again.'
+  if (status) return "That didn't work on Prometheus's side. Try again in a moment."
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|timeout|aborted|network/i.test(m)) return "Couldn't reach Prometheus. Check it's running and Beacon is connected, then try again."
+  const plain = m.replace(/^Error: /, '').trim()
+  return plain.length > 15 && plain.length < 200 && !/\/api\//.test(plain) ? plain : "That didn't work. Try again."
+}

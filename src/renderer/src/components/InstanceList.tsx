@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ADD_PROMETHEUS, instanceRows, type InstanceRowView } from '@shared/instance-rows'
+import { ADD_PHONE, ADD_PROMETHEUS, instanceRows, type InstanceRowView } from '@shared/instance-rows'
 import { useInstances } from '../instances-store'
 import { Icon } from './Icon'
 
@@ -113,6 +113,19 @@ export function InstanceRowButtons({
           data-testid="instance-add"
         >
           {ADD_PROMETHEUS}
+        </button>
+      )}
+      {compact ? null : (
+        <button
+          role={role}
+          className="instance-row instance-add"
+          onClick={() => {
+            onDone?.()
+            window.dispatchEvent(new CustomEvent('beacon:add-phone'))
+          }}
+          data-testid="phone-add"
+        >
+          {ADD_PHONE}
         </button>
       )}
     </>

@@ -1,3 +1,4 @@
+import { decideFirstUiMode } from './ui-mode-store'
 import { resumesHere } from '@shared/setup-wizard'
 import { useCallback, useEffect, useState } from 'react'
 import type { SetupResume, SetupStatus } from '@shared/ipc'
@@ -10,6 +11,7 @@ import { AppChrome } from './components/AppChrome'
 import { ConnectionSettings } from './components/ConnectionSettings'
 import { UnreachableBanner } from './components/UnreachableBanner'
 import { loadAndApplyTheme } from './theme/apply-theme'
+import { AddPhone } from './components/AddPhone'
 import { AddInstance } from './components/AddInstance'
 import { writeTrail } from './view-trail-store'
 import { useInstances } from './instances-store'
@@ -35,6 +37,8 @@ export default function App() {
   const [connGen, setConnGen] = useState(0)
   // Add a Prometheus (AddInstance): open, with an address to start from when Advanced found another Prometheus there.
   const [adding, setAdding] = useState<{ apiBase?: string; wsUrl?: string } | null>(null)
+  // Add a phone (AddPhone): open, for one Prometheus (the one Beacon is on when no id is given).
+  const [phoneFor, setPhoneFor] = useState<{ id?: string } | null>(null)
   const instances = useInstances()
 
   // With two or more Prometheus, the window says which one Beacon is on (docs/MULTI-PROMETHEUS.md §5).
@@ -49,6 +53,9 @@ export default function App() {
       return
     }
     const s: SetupStatus = await b.setup.status().catch(() => ({ needsSetup: false }))
+    // Everyday or full, decided once for an install with nothing stored (a new install starts
+    // everyday; one that already exists keeps everything). Before anything mounts.
+    await decideFirstUiMode(s.needsSetup)
     setCurrentAddress(s.currentAddress ?? keepAddress)
     setResume(s.resume)
     const browsing = s.needsSetup && s.onboarding === true ? parseBrowsing(await b.settings.get(ONBOARDING_BROWSING_KEY).catch(() => null)) : false
@@ -98,7 +105,12 @@ export default function App() {
       setAdding({ apiBase: typeof d?.apiBase === 'string' ? d.apiBase : undefined, wsUrl: typeof d?.wsUrl === 'string' ? d.wsUrl : undefined })
     }
     window.addEventListener('beacon:open-settings', onOpen)
+    const onPhone = (e: Event): void => {
+      const d = (e as CustomEvent<{ id?: unknown } | null>).detail
+      setPhoneFor({ id: typeof d?.id === 'string' ? d.id : undefined })
+    }
     window.addEventListener('beacon:add-instance', onAdd)
+    window.addEventListener('beacon:add-phone', onPhone)
     window.addEventListener('beacon:connection-changed', onChanged)
     const off = window.beacon?.connection.onOpenSettings(() => {
       writeTrail('menu or tray')
@@ -110,6 +122,7 @@ export default function App() {
     return () => {
       window.removeEventListener('beacon:open-settings', onOpen)
       window.removeEventListener('beacon:add-instance', onAdd)
+      window.removeEventListener('beacon:add-phone', onPhone)
       window.removeEventListener('beacon:connection-changed', onChanged)
       off?.()
       offFolder?.()
@@ -147,6 +160,7 @@ export default function App() {
       />
       <ApprovePrompt />
       {adding ? <AddInstance initial={adding} onClose={() => setAdding(null)} /> : null}
+      {phoneFor ? <AddPhone initialId={phoneFor.id} onClose={() => setPhoneFor(null)} /> : null}
       {settingsOpen ? (
         <ConnectionSettings
           at={settingsAt}

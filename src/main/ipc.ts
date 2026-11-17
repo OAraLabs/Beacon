@@ -1,3 +1,5 @@
+import type { ApprovalSurface } from '@shared/approval-critical'
+import { scrubWriteError } from '@shared/connectors'
 import { exportFilename, renderExport, type ExportFormat } from '@shared/session-export'
 import { ARTIFACT_PREVIEW_MAX_BYTES, previewKindFor, renderKindFor, utf8SafeEnd, type ArtifactPreview } from '@shared/artifacts'
 import type { WatchdogEvent } from '@shared/watchdog-log'
@@ -237,7 +239,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.repo.recordWatchdogEvent(ev)
   })
 
-  handleFromShell(IPC.APPROVAL_RESOLVE, async (_e, req: { requestId: string; decision: ApprovalDecision }) => {
+  handleFromShell(IPC.APPROVAL_RESOLVE, async (_e, req: { requestId: string; decision: ApprovalDecision; from?: ApprovalSurface }) => {
     // BREADCRUMB 4 — what actually ARRIVED in main. If rows 1-3 exist and this one
     // does not, the call never crossed the boundary; that is the whole question.
     if (!app.isPackaged) {
@@ -251,7 +253,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         detail: `decision.kind=${req?.decision?.kind}`
       })
     }
-    await deps.getConnection()?.resolveApproval(req.requestId, req.decision)
+    // `from` is where in the window the answer was given: the connection refuses an approve of a
+    // critical request from anywhere but its card (@shared/approval-critical).
+    await deps.getConnection()?.resolveApproval(req.requestId, req.decision, req.from)
   })
   handleFromShell(IPC.EVENTS_RECENT, async (_e, limit?: number) => deps.getConnection()?.listRecentEvents(limit) ?? [])
   handleFromShell(IPC.DAEMON_GET, async (_e, path: string) => deps.getConnection()?.getDaemon(path) ?? null)
@@ -311,8 +315,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   })
   handleFromShell(
     IPC.DAEMON_WRITE,
-    async (_e, req: { path: string; body?: unknown; method?: DaemonWriteMethod }) =>
-      deps.getConnection()?.writeDaemon(req.path, req.body, req.method) ?? null
+    async (_e, req: { path: string; body?: unknown; method?: DaemonWriteMethod }) => {
+      try {
+        return (await deps.getConnection()?.writeDaemon(req.path, req.body, req.method)) ?? null
+      } catch (err) {
+        // A refusal can quote what it was sent, and Electron prints a rejected handler's error. A
+        // secret the request carried (a tool server's sign-in header) is blanked before the error
+        // leaves here, so it reaches neither Beacon's output nor the page (@shared/connectors).
+        throw new Error(scrubWriteError(err instanceof Error ? err.message : String(err), req.body))
+      }
+    }
   )
 
   handleFromShell(IPC.SETTINGS_GET, async (_e, key: string) => deps.repo.getSetting(key))
