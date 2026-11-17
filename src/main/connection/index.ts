@@ -1,3 +1,6 @@
+import { advertisesApprovalCritical, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
+import { argumentsIncomplete } from '@shared/approval-arguments'
+import { APPROVAL_CRITICAL_WAIT_MS, CAP_INITIAL, approveRefusal, capStep, isApprovalAnswerPath, noteArgumentsCut, noteCritical, type ApprovalSurface, type CapEvent, type CapState } from '@shared/approval-critical'
 import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { notEncrypted } from '@shared/plain-lan'
 import { DEVICES_PATH, roleFromDevices, type DeviceRole } from '@shared/device-role'
@@ -37,6 +40,7 @@ import type { ProofControl } from '../identity'
  *   'status' (ConnectionStatus) — state transitions
  *   'stream' (ChatStreamFrame)  — normalized chat deltas, all sessions (filter by sessionId)
  */
+
 export class ConnectionManager extends EventEmitter {
   private readonly rest: RestClient
   private readonly socket: GatewaySocket
@@ -91,10 +95,29 @@ export class ConnectionManager extends EventEmitter {
       {
         onState: (state, meta) => this.setState(state, meta),
         onFrame: (frame: ChatStreamFrame) => this.emit('stream', frame),
-        onGatewayEvent: (ev: GatewayEvent) => this.emit('gatewayEvent', ev),
+        onGatewayEvent: (ev: GatewayEvent) => {
+          // The reply to each subscribe says what THIS daemon does. Read every time, on or off: the
+          // Prometheus at an address can be upgraded, or rolled back, between two connections.
+          if (ev.type === 'subscribed') this.capEvent({ said: advertisesApprovalCritical(ev.payload) })
+          // What each request said about being critical, kept for the answer (resolveApproval).
+          // A request that is answered is done: its id is not held against a later request that happens to reuse it.
+          if (ev.type === 'approval_resolved') {
+            const rid = (ev.payload as { request_id?: unknown } | undefined)?.request_id
+            if (typeof rid === 'string') this.cutBook.delete(rid)
+          }
+          if (ev.type === 'approval_pending') {
+            const a = rawToApproval(ev.payload as RawApprovalPush)
+            if (a) {
+              noteCritical(this.criticalBook, a.requestId, a.critical)
+              noteArgumentsCut(this.cutBook, a.requestId, argumentsIncomplete(a.arguments, a.argumentsCut))
+            }
+          }
+          this.emit('gatewayEvent', ev)
+        },
         onAuthFailure: () => this.setWsAuth('unauthorized'),
         // A redial is a new connect: whoever answers now proves who it is first, and REST waits for the same answer.
         beforeRedial: async () => {
+          this.capEvent('dial') // whoever answers the next dial says for itself
           this.cleared = null
           const clearance = this.clearance()
           const ask = this.asking
@@ -137,6 +160,7 @@ export class ConnectionManager extends EventEmitter {
 
   start(): void {
     this.halted = false
+    this.capEvent('attempt') // the first try, a manual reconnect, a wake
     if (this.started) this.cleared = null // a reconnect asks again: the Prometheus answering may not be the one that answered last
     this.started = true
     const clearance = this.clearance()
@@ -150,6 +174,7 @@ export class ConnectionManager extends EventEmitter {
 
   stop(): void {
     this.halted = true
+    this.capEvent('stop')
     this.socket.stop()
   }
 
@@ -169,6 +194,7 @@ export class ConnectionManager extends EventEmitter {
       refused: words,
       ...(this.plainHome ? { notEncrypted: true } : {}),
       ...(this.role ? { role: this.role } : {}),
+      ...(this.cap.value !== null ? { approvalCritical: this.cap.value } : {}),
       ...(this.identity ? { identity: this.identity } : {})
     }
     this.emit('status', this.status)
@@ -223,6 +249,36 @@ export class ConnectionManager extends EventEmitter {
     const { identity: _old, ...rest } = this.status
     this.status = { ...rest, ...(next ? { identity: next } : {}) }
     this.emit('status', this.status)
+  }
+
+  /** What this Prometheus advertises about critical approval requests: the rule is `capStep`
+   *  (@shared/approval-critical), which says why each case is as it is. This only feeds it what
+   *  happens to the connection and keeps its one timer. */
+  private cap: CapState = CAP_INITIAL
+  private capTimer: NodeJS.Timeout | null = null
+  /** What each pending request said about being critical (frame and poll), for resolveApproval. */
+  private readonly criticalBook = new Map<string, boolean | undefined>()
+  /** Requests whose arguments the daemon said it cut: answered on their card (resolveApproval). */
+  private readonly cutBook = new Set<string>()
+  private capEvent(e: CapEvent): void {
+    const was = this.cap.value
+    const next = capStep(this.cap, e)
+    this.cap = next
+    if (next.waiting && !this.capTimer) {
+      this.capTimer = setTimeout(() => {
+        this.capTimer = null
+        this.capEvent('expired')
+      }, APPROVAL_CRITICAL_WAIT_MS)
+    }
+    if (!next.waiting && this.capTimer) {
+      clearTimeout(this.capTimer)
+      this.capTimer = null
+    }
+    if (next.value !== was) {
+      const { approvalCritical: _old, ...rest } = this.status
+      this.status = { ...rest, ...(next.value !== null ? { approvalCritical: next.value } : {}) }
+      this.emit('status', this.status)
+    }
   }
 
   private setWsAuth(next: 'ok' | 'unauthorized'): void {
@@ -339,8 +395,47 @@ export class ConnectionManager extends EventEmitter {
     // NOT tracked for the tool-server routes, for the reason the desktop door gives above: their
     // 401 means "this needs the main key", a per-route answer about what a device key may do. Fed
     // to setRestAuth it would show "token rejected" across Beacon because one write was refused.
+    // Answering an approval request is resolveApproval's, which refuses a critical approve that is
+    // not from its card. This general call is not a second way to send the same request.
+    if (isApprovalAnswerPath(path)) return Promise.reject(new Error('Approval requests are answered on their cards in Beacon, not through this call. Nothing was sent.'))
     if (path.startsWith(MCP_SERVERS_PATH)) return this.rest.writeDaemon(path, body, method)
     return this.trackAuth(this.rest.writeDaemon(path, body, method))
+  }
+
+  /** One chat-projects call, as the status and body it got (the reader says what it means). Only a refused key is noticed here, as every
+   *  other REST call does; any other status is an answer. */
+  async projectsCall(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+    try {
+      return await this.trackAuth(
+        this.rest.projectsCall(method, path, body).then((r) => {
+          if (r.status === 401) throw Object.assign(new Error(`HTTP 401: ${method} ${path}`), { answer: r })
+          // No answer at all says nothing about the key: it must not clear a refusal the key earned (every other REST call throws here).
+          if (r.status === 0) throw Object.assign(new Error(`no answer: ${method} ${path}`), { answer: r })
+          return r
+        })
+      )
+    } catch (e) {
+      const answer = (e as { answer?: { status: number; body: unknown } }).answer
+      if (answer) return answer
+      throw e
+    }
+  }
+
+  /** A reference file's bytes up or down (see RestClient.projectsBytes), with the same notice of a refused key as `projectsCall`. */
+  async projectsBytes(method: string, path: string, opts: { replace?: boolean; body?: Buffer; maxBytes: number }): Promise<{ status: number; body: unknown; bytes: Buffer | null; contentType: string | null }> {
+    try {
+      return await this.trackAuth(
+        this.rest.projectsBytes(method, path, opts).then((r) => {
+          if (r.status === 401) throw Object.assign(new Error(`HTTP 401: ${method} ${path}`), { answer: r })
+          if (r.status === 0) throw Object.assign(new Error(`no answer: ${method} ${path}`), { answer: r })
+          return r
+        })
+      )
+    } catch (e) {
+      const answer = (e as { answer?: { status: number; body: unknown; bytes: Buffer | null; contentType: string | null } }).answer
+      if (answer) return answer
+      throw e
+    }
   }
 
   listSessions(): Promise<SessionSummary[]> {
@@ -354,11 +449,25 @@ export class ConnectionManager extends EventEmitter {
 
   /** The daemon's GLOBAL pending-approval queue (REST poll; approvals carry no session id). */
   listApprovals(): Promise<ApprovalRequest[]> {
-    return this.trackAuth(this.rest.listApprovals())
+    return this.trackAuth(this.rest.listApprovals()).then((list) => {
+      for (const a of list) {
+        noteCritical(this.criticalBook, a.requestId, a.critical)
+        noteArgumentsCut(this.cutBook, a.requestId, argumentsIncomplete(a.arguments, a.argumentsCut))
+      }
+      return list
+    })
   }
 
   /** Approve/deny one pending action (binary). */
-  resolveApproval(requestId: string, decision: ApprovalDecision): Promise<void> {
+  /**
+   * Answer a request. `from` is where the answer was given. An approve of a request that is
+   * critical (by what it said and what this Prometheus advertises) is refused here unless it came
+   * from the full card's own button: the window offers nothing else, and this holds even if some
+   * surface forgets (@shared/approval-critical `approveRefusal`). Nothing is sent when refused.
+   */
+  resolveApproval(requestId: string, decision: ApprovalDecision, from?: ApprovalSurface): Promise<void> {
+    const refusal = approveRefusal(decision, from, this.criticalBook.get(requestId), this.cap.value ?? undefined, this.cutBook.has(requestId))
+    if (refusal) return Promise.reject(new Error(refusal))
     return this.trackAuth(this.rest.resolveApproval(requestId, decision))
   }
 
@@ -374,6 +483,7 @@ export class ConnectionManager extends EventEmitter {
     if (state === 'connected' && this.wsAuth === 'unauthorized') this.wsAuth = 'ok'
     if (state === 'connected') this.wrongKey = null
     if (state === 'connected') this.askRole()
+    this.capEvent(state === 'connected' ? 'connected' : 'left')
     this.status = {
       state,
       gateway: this.status.gateway,
@@ -384,6 +494,7 @@ export class ConnectionManager extends EventEmitter {
       ...(this.wrongKey ? { wrongKey: this.wrongKey } : {}),
       ...(this.plainHome ? { notEncrypted: true } : {}),
       ...(this.role ? { role: this.role } : {}),
+      ...(this.cap.value !== null ? { approvalCritical: this.cap.value } : {}),
       ...(this.refused ? { refused: this.refused } : {}),
       ...(this.identity ? { identity: this.identity } : {})
     }

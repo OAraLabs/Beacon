@@ -1,7 +1,9 @@
-import { Fragment, useEffect, type CSSProperties } from 'react'
+import type { ApprovalSurface } from '@shared/approval-critical'
+import { Fragment, useEffect, type CSSProperties, useState, useRef } from 'react'
 import type { ApprovalRequest, ApprovalDecision } from '@shared/ipc'
 import { disclosureLabel } from '@shared/approval-disclosure'
 import { approvalKey, isTypingTarget } from '@shared/approval-keys'
+import { INCOMPLETE_NOTICE, INVISIBLES_NOTICE, describeArguments, type ArgumentLine } from '@shared/approval-arguments'
 import { approvalScopes, workerApprovalView } from '@shared/workers'
 import { Icon } from './Icon'
 import { trace } from '../ui-trace-client'
@@ -103,6 +105,20 @@ const argsInset: CSSProperties = {
   maxHeight: 132,
   overflowY: 'auto'
 }
+/** What the card says above the arguments when the person is not seeing all of them: the error tint, as a refusal's line has. */
+const argsWarning: CSSProperties = {
+  padding: '7px 10px',
+  borderRadius: 6,
+  border: '1px solid var(--sang)',
+  color: 'var(--c-err-text)',
+  fontSize: 12,
+  lineHeight: 1.5
+}
+/** The word a line carries when it is cut, masked, left out or has characters that do not draw: text, so it is read as well as seen. */
+const argTag: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, color: 'var(--c-err-text)', whiteSpace: 'nowrap' }
+function argTags(line: ArgumentLine): string[] {
+  return [line.cut ? 'CUT' : '', line.masked ? 'PART HIDDEN' : '', line.leftOut ? 'LEFT OUT' : '', line.invisibles ? 'ODD CHARACTERS' : ''].filter(Boolean)
+}
 /** The daemon's own word for this block in its Telegram prompt — one vocabulary, two surfaces. */
 const argsLabel: CSSProperties = {
   fontFamily: 'var(--font-mono)',
@@ -112,7 +128,10 @@ const argsLabel: CSSProperties = {
 }
 const argsGrid: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'auto minmax(0, 1fr)',
+  // A name can be as long as the agent likes (the daemon cuts values and says so, but never names), so the name column is capped
+  // and its text wraps: otherwise a long name takes the whole row and the value is pushed out of sight, to the right of a box that
+  // scrolls sideways.
+  gridTemplateColumns: 'fit-content(40%) minmax(0, 1fr)',
   columnGap: 10,
   rowGap: 3,
   margin: 0
@@ -123,7 +142,11 @@ const argKey: CSSProperties = {
   fontSize: 11.5,
   lineHeight: 1.5,
   color: 'var(--ink3)',
-  whiteSpace: 'nowrap'
+  // Wraps, at any character: a name that cannot wrap is the one that takes the row (see argsGrid).
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
+  // Right-to-left letters in one cell must not reorder what is around them in the next.
+  unicodeBidi: 'isolate'
 }
 const argVal: CSSProperties = {
   margin: 0,
@@ -134,7 +157,8 @@ const argVal: CSSProperties = {
   // The value is the decision. It wraps rather than being clipped or ellipsised — an argument
   // the card hides is an argument the operator approved without reading.
   whiteSpace: 'pre-wrap',
-  overflowWrap: 'anywhere'
+  overflowWrap: 'anywhere',
+  unicodeBidi: 'isolate'
 }
 /**
  * The `{}` slot. Occupies the place the disclosure would have taken, so the absence of a
@@ -149,7 +173,11 @@ const noGrantNote: CSSProperties = {
 // The key glyph, quieter than the label by FACE and SIZE — not by opacity. The match spec draws
 // it at 70%; --on-sang over --sang at 70% composites to ~3.5:1, under the ink floor, and an
 // opacity-dimmed glyph is invisible to lint:contrast. Same call as the Send button's ⏎.
-const actionKey: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 10 }
+/** The line under the request that says what the keys do. One line, fixed height, whatever it says. */
+const keysHint: CSSProperties = { fontSize: 11.5, lineHeight: '16px', height: 16, color: 'var(--c-text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
+/** Said on a critical request's card; held (unseen) on every other card so the card never changes size when that flips. */
+const CRITICAL_NOTE = 'This request can be approved only here, with the button.'
+const criticalNote: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: 'var(--c-text-dim)' }
 // The remembered-grant option's styling moved to .approval-scope-btn in
 // styles.css: inline styles cannot express :hover / :focus-visible / :active,
 // and those states ARE the affordance that was missing.
@@ -185,7 +213,7 @@ export function ExecApprovalCard({
   cannotApprove = null,
   disclosureOpen = false,
   onToggleDisclosure,
-  first,
+  critical = false,
   activeSessionId,
   onResolve
 }: {
@@ -204,11 +232,12 @@ export function ExecApprovalCard({
    */
   disclosureOpen?: boolean
   onToggleDisclosure?: () => void
-  /** This is the FIRST pending card, so `A`/`D` have an unambiguous referent. See approval-keys. */
-  first?: boolean
+  /** Prometheus marked this request critical (`isCardOnly`): it is approved with this card's button and nothing else, so `A` does not act. */
+  critical?: boolean
   /** The conversation on screen, so a worker's request can say whether it is this one. */
   activeSessionId?: string | null
-  onResolve: (d: ApprovalDecision) => void
+  /** `from`: 'card' for this card's own buttons, 'key' for `A`/`D`. Main refuses an approve of a critical request that is not from 'card'. */
+  onResolve: (d: ApprovalDecision, from: ApprovalSurface) => void
 }) {
   // Payload order — the daemon emits these from approve_verbs(), so preserving insertion order
   // preserves ITS ordering decision instead of imposing one here. None at all for a worker's or
@@ -217,9 +246,18 @@ export function ExecApprovalCard({
   // A worker's request (Prometheus 720) names the worker and its conversation in the header.
   const worker = workerApprovalView(approval, activeSessionId)
   // Wire order, untouched — the daemon sorted these, and re-ordering to put the "important" one
-  // first would be Beacon deciding which argument matters. See @shared/approval-arguments.
-  const args = Object.entries(approval.arguments ?? {})
+  // first would be Beacon deciding which argument matters. See @shared/approval-arguments, which also
+  // says what the card must tell the person when the daemon cut, masked or left something out.
+  const argsView = describeArguments(approval.arguments, approval.argumentsCut)
   const countdown = expiresIn(approval.expiresAt)
+  // Focus is on this card, so `A`/`D` answer it; the key hints are shown only then.
+  const [keysLive, setKeysLive] = useState(false)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  // No blur is fired when the focused element is REMOVED (a button that goes away after a refusal):
+  // focus drops to the page and the hints would go on saying the keys work. Checked after each render.
+  useEffect(() => {
+    if (keysLive && !cardRef.current?.contains(document.activeElement)) setKeysLive(false)
+  })
 
   // `A` approves once, `D` denies — under the narrow conditions in @shared/approval-keys. The
   // listener is on the window because the card has no focus of its own: the user is reading it,
@@ -230,22 +268,42 @@ export function ExecApprovalCard({
         key: e.key,
         modified: e.metaKey || e.ctrlKey || e.altKey,
         typing: isTypingTarget(e.target as HTMLElement | null),
-        first: first !== false
+        // Asked of the document at the keystroke, not remembered: where focus IS decides, and it
+        // must be on THIS card.
+        onThisCard: (document.activeElement?.closest?.('[data-approval-id]') as HTMLElement | null)?.dataset.approvalId === approval.requestId,
+        repeat: e.repeat,
+        critical
       })
       if (!action) return
       if (action === 'approve' && cannotApprove) return // nothing to approve with here; `A` falls through to the page
       e.preventDefault()
       if (action === 'approve') {
         trace({ point: 'card:click', requestId: approval.requestId, scope: 'once' })
-        onResolve({ kind: 'approve', scope: 'once' })
-      } else onResolve({ kind: 'deny' })
+        onResolve({ kind: 'approve', scope: 'once' }, 'key')
+      } else onResolve({ kind: 'deny' }, 'key')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [approval.requestId, first, onResolve, cannotApprove])
+  }, [approval.requestId, onResolve, cannotApprove, critical])
 
   return (
-    <div style={card}>
+    <div
+      style={card}
+      ref={cardRef}
+      className="approval-card"
+      role="group"
+      aria-label={`Approval request: ${approval.toolName}`}
+      aria-describedby={`approval-keys-${approval.requestId}`}
+      data-approval-id={approval.requestId}
+      data-critical={critical ? 'yes' : 'no'}
+      data-keys-live={keysLive ? 'yes' : 'no'}
+      // Focusable by a click or from code, not a Tab stop of its own: its buttons are.
+      tabIndex={-1}
+      onFocus={() => setKeysLive(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setKeysLive(false)
+      }}
+    >
       <div style={header}>
         {/* A warning triangle in lapis, drawn rather than an emoji: the emoji renders full-colour
             and ignores the card's own palette, which is the whole point of the lapis decision. */}
@@ -273,14 +331,34 @@ export function ExecApprovalCard({
 
         {/* ABOVE the buttons, deliberately — see the header note. A definition list rather than
             styled divs: these ARE name/value pairs, and a screen reader should say so. */}
-        {args.length > 0 ? (
+        {/* BEFORE the arguments and outside the part that scrolls: when anything was cut, masked or left out the person is
+            told first, in the error tint, that they are not seeing the whole call. It does not say anything was kept safe. */}
+        {argsView?.incomplete ? (
+          <div style={argsWarning} role="note" data-testid="approval-args-incomplete">
+            {INCOMPLETE_NOTICE}
+          </div>
+        ) : null}
+        {argsView?.hasInvisibles ? (
+          <div style={argsWarning} role="note" data-testid="approval-args-invisibles">
+            {INVISIBLES_NOTICE}
+          </div>
+        ) : null}
+        {argsView && argsView.lines.length > 0 ? (
           <div style={argsInset}>
             <div style={argsLabel}>With</div>
             <dl style={argsGrid}>
-              {args.map(([key, value]) => (
-                <Fragment key={key}>
-                  <dt style={argKey}>{key}</dt>
-                  <dd style={argVal}>{value}</dd>
+              {argsView.lines.map((line, i) => (
+                <Fragment key={i}>
+                  <dt style={argKey}>{line.key}</dt>
+                  <dd style={argVal}>
+                    {line.value}
+                    {argTags(line).map((tag) => (
+                      <span key={tag} style={argTag}>
+                        {' '}
+                        [{tag}]
+                      </span>
+                    ))}
+                  </dd>
                 </Fragment>
               ))}
             </dl>
@@ -310,23 +388,49 @@ export function ExecApprovalCard({
           </div>
         ) : null}
 
+        {/* ALWAYS here, always one line: only its words change with focus. A line that came and went
+            moved the buttons under the pointer between mouse-down (which focuses the card) and
+            mouse-up, and the click on Approve missed. Nothing in this card may change size on focus. */}
+        <div style={keysHint} id={`approval-keys-${approval.requestId}`} data-testid="approval-keys-hint">
+          {keysLive
+            ? critical || cannotApprove
+              ? 'D denies.'
+              : 'A approves once, D denies.'
+            : critical || cannotApprove
+              ? 'Click this card, or Tab to it, to deny with D.'
+              : 'Click this card, or Tab to it, to answer with A or D.'}
+        </div>
+        {/* ALWAYS here, with the same words, so the card is the same size whether or not the request is critical. What Prometheus
+            advertises can change under a mouse that is already down (a reconnect that answers differently), and a note that appeared
+            or went moved the Approve button between press and release. When the request is not critical the words are still laid
+            out, invisible and hidden from a screen reader, so the space is held at any width. */}
+        {critical ? (
+          <div style={criticalNote} data-testid="approval-critical-note">
+            {CRITICAL_NOTE}
+          </div>
+        ) : (
+          <div style={{ ...criticalNote, visibility: 'hidden' }} aria-hidden="true" data-testid="approval-critical-reserved">
+            {CRITICAL_NOTE}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8 }}>
           {cannotApprove ? null : (
             <button
               className="approval-btn approval-btn-approve"
               onClick={() => {
                 trace({ point: 'card:click', requestId: approval.requestId, scope: 'once' })
-                onResolve({ kind: 'approve', scope: 'once' })
+                onResolve({ kind: 'approve', scope: 'once' }, 'card')
               }}
             >
               {/* "once" stays in the LABEL. This button creates no remembered grant, and calling it
                   plain "Approve" beside a disclosure that does would blur exactly the line the
                   disclosure exists to draw. */}
-              Approve once <span style={actionKey}>A</span>
+              Approve once
             </button>
           )}
-          <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' })}>
-            Deny <span style={actionKey}>D</span>
+          <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' }, 'card')}>
+            Deny
           </button>
         </div>
 
@@ -372,7 +476,7 @@ export function ExecApprovalCard({
                       // scope survives intact, so the path is faithful; the failures
                       // were clicks that never landed on a control.
                       trace({ point: 'card:click', requestId: approval.requestId, scope: verb })
-                      onResolve({ kind: 'approve', scope: verb })
+                      onResolve({ kind: 'approve', scope: verb }, 'card')
                     }}
                   >
                     <span style={verbChip}>{verb}</span>

@@ -109,6 +109,8 @@ const answerBtn = (tone: 'ok' | 'err'): CSSProperties => ({
 })
 const approveBtn = answerBtn('ok')
 const denyBtn = answerBtn('err')
+/** Not an answer: it leads to the card where the answer is given. */
+const showBtn: CSSProperties = { ...answerBtn('ok'), border: '1px solid var(--c-line)', color: 'var(--c-text)', textDecoration: 'underline' }
 /** A step's thumbnail: capped so a big window never pushes the log around, aspect kept when the
  *  daemon sent dimensions (an unknown aspect just shrinks to fit the cap). */
 const thumbImg = (width: number | null, height: number | null): CSSProperties => ({
@@ -230,7 +232,12 @@ export function usePlan(storyId: string | null): {
   return { state, err, dirMissing, listCapped, listErr, toggle }
 }
 
-export function ProgressPane({ sessionId, view, pendingApprovalIds, onResolveApproval }: {
+export function ProgressPane({ sessionId, view, pendingApprovalIds, onResolveApproval, approvalCardOnly, onShowApproval }: {
+  /** Whether a request may be approved only from its full card (Prometheus marked it critical). */
+  approvalCardOnly?: (requestId: string) => boolean
+  /** Put focus on the approval cards, with this request's in view. */
+  onShowApproval?: (requestId: string) => void
+
   sessionId: string | null
   view: string
   /** The approval ids still in the daemon's queue, and how to answer one — see SidePanelProps.
@@ -338,7 +345,7 @@ export function ProgressPane({ sessionId, view, pendingApprovalIds, onResolveApp
 
       {/* ── 3. COMPUTER USE — the daemon's desktop action log for this conversation ─────── */}
       <Section title="computer use" icon={<Icon name="terminal" size={11} />}>
-        <ComputerUse sessionId={sessionId} pendingApprovalIds={pendingApprovalIds} onResolveApproval={onResolveApproval} />
+        <ComputerUse sessionId={sessionId} pendingApprovalIds={pendingApprovalIds} onResolveApproval={onResolveApproval} approvalCardOnly={approvalCardOnly} onShowApproval={onShowApproval} />
       </Section>
     </div>
   )
@@ -365,7 +372,12 @@ const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}
  * live computer_* frames, with this session's log backfilled on open and after a reconnect). The
  * full step-by-step log is a later pane; this is the "what is it doing, and can I stop it" line.
  */
-function ComputerUse({ sessionId, pendingApprovalIds, onResolveApproval }: {
+function ComputerUse({ sessionId, pendingApprovalIds, onResolveApproval, approvalCardOnly, onShowApproval }: {
+  /** Whether a request may be approved only from its full card (Prometheus marked it critical). */
+  approvalCardOnly?: (requestId: string) => boolean
+  /** Put focus on the approval cards, with this request's in view. */
+  onShowApproval?: (requestId: string) => void
+
   sessionId: string
   pendingApprovalIds?: ReadonlySet<string>
   onResolveApproval?: (requestId: string, decision: ApprovalDecision) => void
@@ -498,7 +510,12 @@ function ComputerUse({ sessionId, pendingApprovalIds, onResolveApproval }: {
                 ) : null}
                 {r.pendingApprovalId && onResolveApproval ? (
                   <span style={logApproval}>
-                    <button style={approveBtn} onClick={() => onResolveApproval(r.pendingApprovalId as string, { kind: 'approve', scope: 'once' })}>Approve</button>
+                    {/* A desktop prompt Prometheus marked critical is approved on its full card: this line links there. */}
+                    {(approvalCardOnly?.(r.pendingApprovalId) ?? true) ? (
+                      <button style={showBtn} data-testid="approval-row-show" onClick={() => onShowApproval?.(r.pendingApprovalId as string)}>Answer on the card</button>
+                    ) : (
+                      <button style={approveBtn} data-testid="approval-row-approve" onClick={() => onResolveApproval(r.pendingApprovalId as string, { kind: 'approve', scope: 'once' })}>Approve</button>
+                    )}
                     <button style={denyBtn} onClick={() => onResolveApproval(r.pendingApprovalId as string, { kind: 'deny' })}>Deny</button>
                   </span>
                 ) : null}

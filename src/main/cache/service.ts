@@ -32,10 +32,13 @@ export class CacheService {
   constructor(
     private readonly repo: CacheRepo,
     private readonly connection: ConnectionManager,
-    opts: { held?: boolean } = {}
+    opts: { held?: boolean; onListed?: (rows: SessionSummary[]) => void } = {}
   ) {
     this.held = opts.held === true
+    this.onListed = opts.onListed
   }
+  /** Told the daemon's own session list each time it is read (which conversation is filed in which project). */
+  private readonly onListed: ((rows: SessionSummary[]) => void) | undefined
 
   /** The folder is confirmed as this Prometheus's: catch up as a reconnect would (drain the outbox, reconcile). */
   release(): void {
@@ -138,7 +141,8 @@ export class CacheService {
   async listSessions(): Promise<SessionSummary[]> {
     try {
       this.refuseWhileHeld()
-      for (const s of await this.connection.listSessions()) {
+      const listed = await this.connection.listSessions()
+      for (const s of listed) {
         this.repo.upsertSessionMeta(
           s.id,
           s.gateway ?? gatewayOf(s.id), // authoritative daemon gateway (sessions-meta); prefix only as fallback
@@ -152,6 +156,7 @@ export class CacheService {
           s.pinned === true // daemon-owned pin (Prometheus#351)
         )
       }
+      this.onListed?.(listed)
     } catch {
       // daemon list unavailable — fall back to the durable cache.
     }

@@ -1,3 +1,4 @@
+import type { ApprovalSurface } from '@shared/approval-critical'
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { DiscoveryUpdate } from '@shared/discovery'
@@ -119,8 +120,8 @@ const api: BeaconBridge = {
   reloadWindow: () => ipcRenderer.send(IPC.WINDOW_RELOAD),
   approvals: {
     list: () => ipcRenderer.invoke(IPC.APPROVALS_LIST),
-    resolve: (requestId: string, decision: ApprovalDecision) =>
-      ipcRenderer.invoke(IPC.APPROVAL_RESOLVE, { requestId, decision }),
+    resolve: (requestId: string, decision: ApprovalDecision, from?: ApprovalSurface) =>
+      ipcRenderer.invoke(IPC.APPROVAL_RESOLVE, { requestId, decision, from }),
     notifyCount: (n: number) => ipcRenderer.send(IPC.APPROVALS_COUNT, n),
     notifyNew: (requests: ApprovalRequest[]) => ipcRenderer.send(IPC.APPROVALS_NEW, requests)
   },
@@ -222,6 +223,16 @@ const api: BeaconBridge = {
       ipcRenderer.on(IPC.PAIRING_REQUESTS, handler)
       return () => ipcRenderer.removeListener(IPC.PAIRING_REQUESTS, handler)
     }
+  },
+  chatProjects: {
+    state: () => ipcRenderer.invoke(IPC.CHAT_PROJECTS_STATE),
+    onState: (cb) => {
+      const handler = (_e: unknown, s: Parameters<typeof cb>[0]): void => cb(s)
+      ipcRenderer.on(IPC.CHAT_PROJECTS_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.CHAT_PROJECTS_CHANGED, handler)
+    },
+    run: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_DO, op),
+    content: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_CONTENT, op)
   },
   join: {
     begin: (req) => ipcRenderer.invoke(IPC.JOIN_BEGIN, req),

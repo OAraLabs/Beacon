@@ -4544,6 +4544,13 @@ body.is-resizing-panel {
 .approval-btn-approve:hover {
   background: var(--sang-deep);
 }
+/* The card focus is on is the one A and D answer: say which, for a keyboard and for a click alike. */
+.approval-card:focus,
+.approval-card:focus-within {
+  outline: 2px solid var(--c-arc);
+  outline-offset: 2px;
+}
+
 .approval-btn-deny {
   background: var(--line3);
   border-color: var(--line2);
@@ -5562,6 +5569,35 @@ body.is-resizing-panel {
   font-family: var(--font-mono);
   font-size: 9.5px;
   color: var(--ink4);
+}
+/* One line about what just happened to a project or a filing (it keeps its place, so nothing under it moves). */
+.project-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line3);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.project-note > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-note-x {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink3);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0 2px;
 }
 .ctx-menu-foot {
   margin-top: 4px;

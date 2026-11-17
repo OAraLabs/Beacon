@@ -34,6 +34,11 @@ import {
   applyApprovalFrame,
   BODY_BUDGET,
   decisionGradeBody,
+  advertisesApprovalCritical,
+  answeredInApp,
+  isCardOnly,
+  isRowCardOnly,
+  APPROVAL_CRITICAL_CAPABILITY,
   notificationPlan,
   rawToApproval,
   type RawApprovalPush
@@ -52,7 +57,7 @@ import type { ApprovalRequest } from '@shared/ipc'
  * So the count is pinned as well as the failures. Raise it when you add assertions; a DROP means
  * assertions stopped running and is exactly the event this guard exists to make loud.
  */
-const MIN_CHECKS = 53
+const MIN_CHECKS = 53 + 39 + 19 + 5
 
 let failures = 0
 let checks = 0
@@ -236,6 +241,12 @@ const plainPlan = notificationPlan('bash', 'git push origin main')
 check(plainPlan.offersActions === true, 'a request with NO arguments still offers its buttons — the fallback is targeted, not blanket')
 check(plainPlan.body === 'bash: git push origin main', 'and its body is unchanged, verbatim')
 check(notificationPlan('bash', 'git push', {}).offersActions === true, 'an empty argument map is the nothing-to-show case, not a payload')
+// A daemon that says it cut the arguments (`arguments_cut`): the notification cannot show the whole call, even with none to count.
+const cutPlan = notificationPlan('bash', 'git push origin main', undefined, false, true)
+check(cutPlan.offersActions === false && cutPlan.body.includes('part of this was cut; approve in Beacon') && cutPlan.body.startsWith('bash'), 'a request the daemon says it cut offers no buttons, and says why, even with no arguments listed')
+check(notificationPlan('bash', 'git push', { command: 'ls' }, false, true).offersActions === false, 'and arguments plus a daemon that says it cut them are no more answerable from a notification')
+check(notificationPlan('bash', 'git push', undefined, false, false).offersActions === true && notificationPlan('bash', 'git push', undefined, false, undefined as unknown as boolean).offersActions === true, 'with nothing cut and no arguments, a notification still offers its buttons (unchanged)')
+check(notificationPlan('bash', 'rm -rf build', undefined, true, true).offersActions === false && notificationPlan('bash', 'rm -rf build', undefined, true, true).body.includes('answer it in Beacon'), 'a critical request still says it is answered in Beacon, whatever else is true of it')
 
 console.log('\n=== 5. main actually WIRES it — the pure plan is worthless unwired ===')
 // Everything above proves notificationPlan decides correctly. None of it proves main ASKS.
@@ -270,6 +281,108 @@ check(
   callSites.length > 0 && callSites.every((c) => c.includes('.arguments')),
   `every call site passes the arguments (${callSites.filter((c) => !c.includes('.arguments')).length} do not)`
 )
+
+console.log('\n=== 6. critical — the daemon says a request is answered in the app ===')
+{
+  const base: RawApprovalPush = { request_id: 'r1', tool_name: 'bash', description: 'git push origin main' }
+  // What the daemon said, and nothing else.
+  check(rawToApproval({ ...base, critical: true })?.critical === true, 'critical: true is carried')
+  check(rawToApproval({ ...base, critical: false })?.critical === false, 'critical: false is carried (it is an answer, not an absence)')
+  check(rawToApproval(base)?.critical === undefined, 'a request that does not say carries nothing: an older daemon')
+  for (const odd of ['true', 1, 0, null, 'false', {}, [], 'yes']) {
+    check(rawToApproval({ ...base, critical: odd })?.critical === undefined, `critical: ${JSON.stringify(odd)} is neither answer`)
+  }
+  // The capability, off the subscribed reply.
+  check(APPROVAL_CRITICAL_CAPABILITY === 'approval_critical', 'the capability is the name the daemon lists')
+  check(advertisesApprovalCritical({ sessions: [], capabilities: [], server_capabilities: ['voice_input', 'approval_critical'], channels: [] }), 'a subscribed reply that lists it advertises it')
+  check(!advertisesApprovalCritical({ server_capabilities: ['voice_input'] }) && !advertisesApprovalCritical({ server_capabilities: [] }) && !advertisesApprovalCritical({}), 'one that does not list it (an older daemon) does not')
+  check(!advertisesApprovalCritical({ capabilities: ['approval_critical'] }), "listed among the CLIENT's capabilities, which the daemon echoes back, it is not the daemon's")
+  for (const odd of [null, undefined, 'approval_critical', ['approval_critical'], { server_capabilities: 'approval_critical' }, { server_capabilities: { approval_critical: true } }, { server_capabilities: ['APPROVAL_CRITICAL'] }, { server_capabilities: ['approval_critical_v2'] }]) {
+    check(!advertisesApprovalCritical(odd), `a malformed reply is "no": ${JSON.stringify(odd) ?? 'undefined'}`)
+  }
+  // Who is answered in the app.
+  check(answeredInApp(true, true) && answeredInApp(true, false), 'critical: true is answered in the app, advertised or not (only a daemon that knows the flag sends it)')
+  check(!answeredInApp(false, true) && !answeredInApp(false, false), 'critical: false is not')
+  check(answeredInApp(undefined, true), 'a request that does not say, from a daemon that promised every request would, is: doubt is critical')
+  check(!answeredInApp(undefined, false), 'a request that does not say, from a daemon that advertises nothing, is ordinary: an older Prometheus behaves as it always did')
+  check(answeredInApp(undefined, undefined) && answeredInApp(true, undefined) && !answeredInApp(false, undefined), 'before a Prometheus has said what it does, a request that does not say is treated as critical; one that says is taken at its word')
+  // What the notification then offers.
+  const plain = notificationPlan('bash', 'git push origin main')
+  const crit = notificationPlan('bash', 'git push origin main', undefined, true)
+  check(plain.offersActions === true && plain.body === decisionGradeBody('bash', 'git push origin main') && !/Beacon/.test(plain.body), 'an ordinary request is planned as before: buttons, and the body with nothing added')
+  check(crit.offersActions === false, 'a critical request offers no buttons: no Approve to tap')
+  check(/answer it in Beacon$/.test(crit.body) && crit.body.includes('git push origin main'), `and its body says where to answer it (${JSON.stringify(crit.body)})`)
+  const long = notificationPlan('bash', 'x'.repeat(5000), undefined, true)
+  check(long.body.length <= BODY_BUDGET && /answer it in Beacon$/.test(long.body), 'the sentence is kept within the budget however long the description is')
+  const withArgs = notificationPlan('write_file', 'write', { path: '/tmp/a' }, true)
+  check(withArgs.offersActions === false && /answer it in Beacon$/.test(withArgs.body), 'with arguments too: critical is decided first, and nothing after it hands the buttons back')
+  check(notificationPlan('write_file', 'write', { path: '/tmp/a' }, false).body === notificationPlan('write_file', 'write', { path: '/tmp/a' }).body, 'and a request with arguments that is not critical reads as it did')
+
+  // main wires it: per connection, from the subscribed reply, on both paths.
+  check(callSites.length === 2 && callSites.some((c) => /, a\.arguments, a\.critical, a\.argumentsCut\)$/.test(c)) && callSites.some((c) => /, a\.critical === true \? true : a\.critical === false \? false : undefined, a\.argumentsCut === true\)$/.test(c)), 'both notifyApproval call sites pass what the daemon said about critical and about cutting the arguments: the frame path as mapped, the poll path re-checked where it crosses from the page')
+  check(/const plan = notificationPlan\(toolName, description, args, answeredInApp\(critical, raisedBy\?\.getStatus\(\)\.approvalCritical\), argumentsCut === true\)/.test(mainSrc) && (mainSrc.match(/= notificationPlan\(/g) ?? []).length === 1, 'the one plan main makes is made with answeredInApp, judged against the Prometheus that asked')
+  // What a Prometheus advertises, and how the connection keeps it, is approval-critical-smoke's (the rule is run through its sequences there).
+  check(/handleApprovalFrame\(conn, ev as/.test(mainSrc), 'and the frames reach it with the connection they came over')
+  check(/&& plan\.offersActions\s*\? \(\[[\s\S]{0,160}\] as Electron\.NotificationAction\[\]\)\s*: \[\]/.test(mainSrc) && (mainSrc.match(/text: 'Approve'/g) ?? []).length === 1, 'the Approve button exists in one place, behind the plan: a plan with no actions makes a notification with none')
+}
+
+console.log('\n=== 7. a critical request is approved from its full card and nowhere else ===')
+{
+  const req = (id: string, critical?: boolean): ApprovalRequest => ({ requestId: id, toolName: 'bash', description: '', createdAt: 0, extents: {}, critical })
+  const list = [req('t', true), req('f', false), req('u')]
+  check(isCardOnly('t', list, true) && isCardOnly('t', list, false), 'critical: true is card-only, advertised or not')
+  check(!isCardOnly('f', list, true) && !isCardOnly('f', list, false), 'critical: false is not')
+  check(isCardOnly('u', list, true) && !isCardOnly('u', list, false), 'a request that does not say is card-only exactly when its Prometheus advertises the flag')
+  check(isCardOnly('gone', list, true) && !isCardOnly('gone', list, false) && !isCardOnly('gone', [], false), 'an id that is not in the list is judged the same way: an older Prometheus keeps its short answers')
+  check(isCardOnly('u', list, undefined) && isCardOnly('gone', list, undefined) && !isCardOnly('f', list, undefined), 'and before the Prometheus has said what it does, only a request that says it is not critical keeps them')
+  const comp = (name: string): string => readFileSync(new URL(`../../src/renderer/src/components/${name}.tsx`, import.meta.url), 'utf8')
+  // Each short surface: ONE approve, and it is the branch taken only when the request is not card-only.
+  for (const [name, idExpr] of [['MissionControl', 'a.requestId'], ['TodayHome', 'item.approval.requestId'], ['ProgressPane', 'r.pendingApprovalId']] as const) {
+    const src = comp(name)
+    const approves = [...src.matchAll(/kind: 'approve'/g)]
+    const gate = src.indexOf(`(approvalCardOnly?.(${idExpr}) ?? true) ? (`)
+    const show = src.indexOf('data-testid="approval-row-show"', gate)
+    const approve = src.indexOf('data-testid="approval-row-approve"', gate)
+    check(approves.length === 1 && gate > 0 && show > gate && approve > show && (approves[0].index ?? 0) > approve && (approves[0].index ?? 0) - approve < 400, `${name}: its one Approve is offered only when the request is not card-only (a surface that was never told the rule offers none); otherwise the row leads to the card`)
+    check(/onShowApproval\?\.\(/.test(src.slice(show, approve)) && !/onResolveApproval/.test(src.slice(show, approve)), `${name}: "Answer on the card" answers nothing`)
+  }
+  const view = comp('MainView')
+  check(/const approvalCardOnly = useCallback\(\(id: string\) => isCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && /const approvalRowCardOnly = useCallback\(\(id: string\) => isRowCardOnly\(id, approvals, criticalAdvertised\), \[approvals, criticalAdvertised\]\)/.test(view) && (view.match(/approvalCardOnly=\{approvalRowCardOnly\}/g) ?? []).length === 3 && !/approvalCardOnly=\{approvalCardOnly\}/.test(view) && /critical=\{approvalCardOnly\(a\.requestId\)\}/.test(view), 'one rule for the card (critical), and the same plus "the daemon cut the arguments" for all three short surfaces: made once in the main view, never the card told it is critical for a cut')
+  {
+    const cut = (id: string, extra: Partial<ApprovalRequest>): ApprovalRequest => ({ requestId: id, toolName: 'bash', description: '', createdAt: 0, extents: {}, ...extra })
+    const rows = [cut('c', { critical: false, argumentsCut: true }), cut('n', { critical: false }), cut('x', { critical: false, argumentsCut: false }), cut('k', { critical: true, argumentsCut: true })]
+    check(isRowCardOnly('c', rows, false) && isRowCardOnly('c', rows, true) && isRowCardOnly('c', rows, undefined), 'a request whose arguments the daemon cut leads to the card from every short row, whatever the Prometheus advertises')
+    check(!isRowCardOnly('n', rows, false) && !isRowCardOnly('x', rows, false) && isRowCardOnly('k', rows, false), 'one that says nothing about being cut, or says it was not, keeps its row; a critical one still goes to the card')
+    check(!isCardOnly('c', rows, false) && !isCardOnly('c', rows, true), 'and the card is not told it is critical for a cut: it shows its own notice')
+    // What today's daemon actually sends: its own markers inside the arguments, with no `arguments_cut` flag.
+    const marked = [
+      cut('m1', { critical: false, arguments: { command: 'cat /etc/hosts (+1200 more chars)' } }),
+      cut('m2', { critical: false, arguments: { api_key: 'sk-***', path: '/tmp/x' } }),
+      cut('m3', { critical: false, arguments: { command: 'ls', '…': '(4 more argument(s) not shown)' } }),
+      cut('m4', { critical: false, arguments: { command: 'ls -la', path: '/tmp' } })
+    ]
+    check(isRowCardOnly('m1', marked, false) && isRowCardOnly('m2', marked, false) && isRowCardOnly('m3', marked, false) && !isRowCardOnly('m4', marked, false), 'the daemon\'s own markers (a value cut at its end, part of one masked, "more arguments not shown") send the row to the card, flag or no flag; plain arguments keep the row')
+    check(isRowCardOnly('gone', rows, true) === isCardOnly('gone', rows, true) && isRowCardOnly('gone', rows, false) === isCardOnly('gone', rows, false), 'an id that is not in the list is judged as before')
+  }
+  {
+    const c = comp('ExecApprovalCard')
+    // Nothing in a card may change size when it takes focus: a line that came and went moved the
+    // buttons between mouse-down and mouse-up, and a click on Approve missed.
+    check(!/\{keysLive \? null :/.test(c) && !/keysLive &&[^\n]*<span/.test(c) && !/\{keysLive \?\s*</.test(c) && !/keysLive &&/.test(c.replace(/if \(keysLive && !cardRef/, '')) && /<div style=\{keysHint\} id=\{`approval-keys-\$\{approval\.requestId\}`\} data-testid="approval-keys-hint">/.test(c) && /aria-describedby=\{`approval-keys-\$\{approval\.requestId\}`\}/.test(c) && /const keysHint: CSSProperties = \{[^}]*height: 16,[^}]*whiteSpace: 'nowrap'/.test(c), 'focus changes only the WORDS of the key line (always there, one fixed-height line): no element appears, disappears or resizes with it')
+  }
+  const store = readFileSync(new URL('../../src/renderer/src/approval-critical-store.ts', import.meta.url), 'utf8')
+  check(/typeof s\?\.approvalCritical === 'boolean' \? s\.approvalCritical : undefined/.test(store) && /b\.connection\.status\(\)\.then\(\(s\) => \(told \? undefined : set\(s\)\)\)/.test(store) && /told = true\s*set\(s\)/.test(store), 'and the page learns what its Prometheus advertises from the connection status, when it opens and on every change')
+  const card = comp('ExecApprovalCard')
+  check(/critical \|\| cannotApprove\s*\? 'D denies\.'\s*: 'A approves once, D denies\.'/.test(card) && /data-testid="approval-critical-note"/.test(card), 'the card of a critical request never says A approves, and says it is approved only there')
+  // What Prometheus advertises can flip under a mouse that is already down, so the note's room is held on every card: the same words,
+  // laid out and invisible (and hidden from a screen reader) when the request is not critical, the one place the words are written.
+  check(
+    /\{critical \? \(\s*<div style=\{criticalNote\} data-testid="approval-critical-note">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\) : \(\s*<div style=\{\{ \.\.\.criticalNote, visibility: 'hidden' \}\} aria-hidden="true" data-testid="approval-critical-reserved">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\)\}/.test(card) &&
+      (card.match(/This request can be approved only here/g) ?? []).length === 1 &&
+      !/\{critical \? \([^)]*\) : null\}/.test(card),
+    "the critical note's room is held on every card, so the card is the same size whether or not the request is critical"
+  )
+}
 
 // The verdict runs on process EXIT for the same reason approval-smoke's does: a run that leaves
 // early must not be able to leave quietly. See the note there — a mutation proved a mid-file bail

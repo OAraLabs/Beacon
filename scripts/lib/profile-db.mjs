@@ -36,7 +36,13 @@ export function copyProfileDbs(src, dest) {
   if (files.length === 0) throw new Error(`no Beacon database in ${src}`)
   for (const f of files) {
     mkdirSync(dirname(join(dest, f)), { recursive: true })
-    execFileSync('sqlite3', ['-readonly', join(src, f), `.backup '${join(dest, f)}'`])
+    try {
+      execFileSync('sqlite3', ['-readonly', join(src, f), `.backup '${join(dest, f)}'`], { stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch {
+      // A database no running Beacon holds open (a Prometheus Beacon isn't on) has no -wal or -shm beside it, and a read-only open of a
+      // WAL file cannot make them. Nothing is writing it, so it is read as it stands: never done to the one that is live.
+      execFileSync('sqlite3', [`file:${join(src, f)}?immutable=1`, `.backup '${join(dest, f)}'`])
+    }
   }
 }
 
