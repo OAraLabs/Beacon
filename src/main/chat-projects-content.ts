@@ -50,6 +50,9 @@ export class ChatProjectContent {
       available: () => boolean
       /** This is still the connection Beacon is on: a connection that was replaced writes nothing and shows nothing. */
       isCurrent: () => boolean
+      /** Marks a saved file as having come from another computer (src/main/quarantine.ts). Called on the file before it takes its place,
+       *  so it is never there unmarked; whether it could be marked does not change whether the file was saved. */
+      markDownloaded?: (path: string) => Promise<boolean>
     }
   ) {}
 
@@ -151,6 +154,10 @@ export class ChatProjectContent {
     const part = `${target}.beacon-part`
     try {
       await writeFile(part, answer.bytes)
+      // A marker that throws, or rejects, never fails the save.
+      await Promise.resolve()
+        .then(() => this.deps.markDownloaded?.(part))
+        .catch(() => false)
       await rename(part, target)
     } catch {
       await rm(part, { force: true }).catch(() => undefined)

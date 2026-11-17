@@ -86,6 +86,7 @@ import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY, parseMigrated } f
 import { SESSION_PROJECTS_SETTING_KEY } from '@shared/session-projects'
 import { registerChatProjectsHandlers } from './chat-projects-ipc'
 import { ChatProjectContent } from './chat-projects-content'
+import { markDownloaded } from './quarantine'
 import { PairPin } from './pair-pin'
 import { registerPairPinHandlers } from './pair-pin-ipc'
 import { pairTlsPorts } from '@shared/devices'
@@ -673,7 +674,8 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
     request: (method, path, body) => conn.projectsCall(method, path, body),
     bytes: (method, path, opts) => conn.projectsBytes(method, path, opts),
     available: () => projects.state().available,
-    isCurrent: () => chatProjects === projects
+    isCurrent: () => chatProjects === projects,
+    markDownloaded
   })
   broadcast(IPC.CHAT_PROJECTS_CHANGED, projects.state())
   connection.on('status', onStatus)
