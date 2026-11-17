@@ -18,7 +18,7 @@
  */
 
 import type { ApprovalRequest } from './ipc'
-import { coerceArguments, type ApprovalArguments } from './approval-arguments'
+import { argumentsIncomplete, coerceArguments, type ApprovalArguments } from './approval-arguments'
 
 /**
  * The daemon's snake_case pending shape — the SAME dict `serialize_pending()` serves over BOTH
@@ -162,6 +162,17 @@ export function answeredInApp(critical: boolean | undefined, advertised: boolean
 export function isCardOnly(requestId: string, approvals: readonly ApprovalRequest[], advertised: boolean | undefined): boolean {
   const a = approvals.find((x) => x.requestId === requestId)
   return answeredInApp(a?.critical, advertised)
+}
+
+/**
+ * Whether a SHORT row (Mission, Today, the desktop-prompt pane) must lead to the full card instead of approving: the request is card-only
+ * (above), or the person would not be seeing the whole call (the daemon said it cut the arguments, or its own markers say a value was cut,
+ * masked or left out). The card says plainly what; a row shows a tool name. The card itself is not
+ * told it is critical for this: it shows its own notice.
+ */
+export function isRowCardOnly(requestId: string, approvals: readonly ApprovalRequest[], advertised: boolean | undefined): boolean {
+  const a = approvals.find((x) => x.requestId === requestId)
+  return answeredInApp(a?.critical, advertised) || (a !== undefined && argumentsIncomplete(a.arguments, a.argumentsCut))
 }
 
 /** The resolved frame's payload: request_id + resolution (approved|denied|expired). */

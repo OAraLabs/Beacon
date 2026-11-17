@@ -28,7 +28,7 @@ import {
   type DictationOutcome
 } from '@shared/dictation'
 import type { GatewayEvent } from '@shared/gateway-events'
-import { applyApprovalFrame, isCardOnly } from '@shared/approval-push'
+import { applyApprovalFrame, isCardOnly, isRowCardOnly } from '@shared/approval-push'
 import { useApprovalCriticalAdvertised } from '../approval-critical-store'
 import { BEACON_GATEWAY } from '@shared/session-sources'
 import { SearchOverlay } from './SearchOverlay'
@@ -228,6 +228,8 @@ export function MainView() {
   // Which requests may be approved only from their full card (Prometheus marked them critical).
   const criticalAdvertised = useApprovalCriticalAdvertised()
   const approvalCardOnly = useCallback((id: string) => isCardOnly(id, approvals, criticalAdvertised), [approvals, criticalAdvertised])
+  // The short surfaces also lead to the card when the daemon said it cut the arguments; the card itself is not told it is critical for that.
+  const approvalRowCardOnly = useCallback((id: string) => isRowCardOnly(id, approvals, criticalAdvertised), [approvals, criticalAdvertised])
   // The approvals area (the stack of cards). `A`/`D` answer only the card focus is on.
   const approvalsArea = useRef<HTMLDivElement | null>(null)
   /** From a row that cannot answer a request itself: put focus on THAT request's card, in view. */
@@ -1897,7 +1899,7 @@ export function MainView() {
           ) : view === 'mission' && uiMode === 'everyday' ? (
             <TodayHome
               approvals={approvals}
-              approvalCardOnly={approvalCardOnly}
+              approvalCardOnly={approvalRowCardOnly}
               onShowApproval={showApproval}
               onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
               onNewChat={goHome}
@@ -1911,7 +1913,7 @@ export function MainView() {
           ) : view === 'mission' ? (
             <MissionHome
               approvals={approvals}
-              approvalCardOnly={approvalCardOnly}
+              approvalCardOnly={approvalRowCardOnly}
               onShowApproval={showApproval}
               onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
               onNewChat={goHome}
@@ -1973,7 +1975,7 @@ export function MainView() {
                   sessionId={null}
                   view={view}
                   pendingApprovalIds={pendingApprovalIds}
-                  approvalCardOnly={approvalCardOnly}
+                  approvalCardOnly={approvalRowCardOnly}
                   onShowApproval={showApproval}
                   onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
                 />
