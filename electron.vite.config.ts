@@ -110,6 +110,7 @@ export default defineConfig({
           'approval-smoke': resolve('src/main/approval-smoke.ts'),
           'home-approval-smoke': resolve('src/main/home-approval-smoke.ts'),
           'home-touch-smoke': resolve('src/main/home-touch-smoke.ts'),
+          'home-activity-smoke': resolve('src/main/home-activity-smoke.ts'),
           'main-model-smoke': resolve('src/main/main-model-smoke.ts'),
           'approval-refusal-smoke': resolve('src/main/approval-refusal-smoke.ts'),
           'owner-promotion-smoke': resolve('src/main/owner-promotion-smoke.ts'),
