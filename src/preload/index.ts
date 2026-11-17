@@ -224,6 +224,16 @@ const api: BeaconBridge = {
       return () => ipcRenderer.removeListener(IPC.PAIRING_REQUESTS, handler)
     }
   },
+  chatProjects: {
+    state: () => ipcRenderer.invoke(IPC.CHAT_PROJECTS_STATE),
+    onState: (cb) => {
+      const handler = (_e: unknown, s: Parameters<typeof cb>[0]): void => cb(s)
+      ipcRenderer.on(IPC.CHAT_PROJECTS_CHANGED, handler)
+      return () => ipcRenderer.removeListener(IPC.CHAT_PROJECTS_CHANGED, handler)
+    },
+    run: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_DO, op),
+    content: (op) => ipcRenderer.invoke(IPC.CHAT_PROJECTS_CONTENT, op)
+  },
   join: {
     begin: (req) => ipcRenderer.invoke(IPC.JOIN_BEGIN, req),
     poll: () => ipcRenderer.invoke(IPC.JOIN_POLL),
