@@ -60,7 +60,8 @@ export function resumeAtTrade(i: { credential: string | null; setupMode: boolean
 export interface ModelSetupView {
   phase: 'idle' | 'running' | 'done' | 'failed'
   step: 'check' | 'save' | 'start' | 'owner'
-  failure?: { kind: 'no_credit' | 'bad_key' | 'unreachable' | 'not-started' | 'trade'; details: string }
+  /** local-gone: a local choice was no longer usable when configure re-probed it (docs/ONBOARDING-LOCAL-FIRST.md §2.5). */
+  failure?: { kind: 'no_credit' | 'bad_key' | 'unreachable' | 'not-started' | 'trade' | 'local-gone'; details: string }
 }
 
 /** What a step that takes a key (the OpenRouter sign-in, a pasted key) tells the page: on, or which card, with Copy details. */

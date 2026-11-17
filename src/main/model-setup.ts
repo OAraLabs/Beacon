@@ -5,6 +5,7 @@ import { pairThisMac, type ExecFn, type SavedLocal } from './prometheus-install'
 import type { RequestFn } from './pairing/http'
 import { CHECK_KEY_ROUTE, COMPLETE_ROUTE, CONFIGURE_ROUTE, configureBody, readKeyCheck, type CloudChoice, type KeyCheck, type ModelSetupView } from '@shared/model-setup'
 import { daemonStateFrom } from '@shared/prometheus-app'
+import type { LocalRow } from '@shared/local-ai'
 
 export type { ModelSetupView }
 
@@ -61,6 +62,13 @@ export class ModelSetup {
   finish(choice: CloudChoice, key: string): Promise<ModelSetupView> {
     this.running ??= this.run(choice, key).finally(() => (this.running = null))
     return this.running
+  }
+
+  /** A local choice (docs/ONBOARDING-LOCAL-FIRST.md §5.2): configure with no key (Prometheus re-probes it), complete, and the same
+   *  owner trade. A configure refusal for a reason the probe gives is `local-gone`, before anything is written.
+   *  RED: a stub. */
+  finishLocal(_row: Pick<LocalRow, 'provider' | 'baseUrl' | 'model'>): Promise<ModelSetupView> {
+    return Promise.resolve(this.fail('save', 'not-started', 'not built'))
   }
 
   /** A relaunch part-way through (@shared/model-setup resumeAtTrade): no key in hand, so only the trade, and only with a daemon that
