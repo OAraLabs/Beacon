@@ -143,6 +143,8 @@ const ETAG = /^(?:W\/)?"[\x21\x23-\x7e]{0,200}"$/
 export class StatusServiceTransport implements GymTransport {
   /** The last document's ETag, with the URL and token it was given for: a change of either starts again. */
   private last: { etag: string; for: string } | null = null
+  /** Counts settings changes, so a request that began before one leaves nothing behind after it. */
+  private epoch = 0
 
   /** The token, in memory. `undefined`: not read yet. It is read from the keychain-sealed file once, the first time it is
    *  needed, and after that only this copy is used: a refresh every 30 s, the page asking whether one is kept, and a save
@@ -167,10 +169,17 @@ export class StatusServiceTransport implements GymTransport {
     if (typeof raw !== 'string' || raw.length > 300) return { ok: false, reason: GYM_ADDRESS_COPY.notUrl }
     // Nothing kept is dropped until an address is really saved: a refused one changes nothing.
     const changed = (): void => {
+      this.epoch++
       this.last = null
       this.flying = null // a request already on its way is the old settings': the next read starts its own
     }
     if (raw.trim() === '') {
+      // Forgetting where the gym is forgets its token too. Otherwise "clear the address, then save another" would carry the
+      // token to the other computer without the check below ever seeing two addresses to compare.
+      if (this.token() !== null) {
+        if (!this.deps.saveToken('')) return { ok: false, reason: GYM_ADDRESS_COPY.noKeychain }
+        this.kept = null
+      }
       changed()
       this.deps.saveAddress('')
       return { ok: true, url: '', host: '' }
@@ -182,8 +191,11 @@ export class StatusServiceTransport implements GymTransport {
     // THE TOKEN BELONGS TO THE COMPUTER IT WAS MADE FOR. A new address that is another computer or another port forgets the
     // token before it is saved, so a token is never sent anywhere but where the person gave it for: pointing Beacon at a
     // different Tailscale address (a shared node, a mistyped name) must not hand that address the gym's token.
+    // A token with no readable address beside it (none saved, or one that no longer parses) has nothing to vouch for where it
+    // belongs, and is forgotten the same way.
     const before = this.deps.address()
-    if (before && originOf(before) !== originOf(parsed.url) && this.token() !== null) {
+    const sameOrigin = !!before && originOf(before) !== '' && originOf(before) === originOf(parsed.url)
+    if (!sameOrigin && this.token() !== null) {
       if (!this.deps.saveToken('')) return { ok: false, reason: GYM_ADDRESS_COPY.noKeychain }
       this.kept = null
     }
@@ -199,6 +211,7 @@ export class StatusServiceTransport implements GymTransport {
     if (!forget && token === null) return { ok: false, reason: GYM_ADDRESS_COPY.badToken }
     if (!this.deps.saveToken(token ?? '')) return { ok: false, reason: GYM_ADDRESS_COPY.noKeychain }
     this.kept = token // what was just sealed is what is used: it is not read back
+    this.epoch++
     this.last = null
     this.flying = null
     return { ok: true }
@@ -239,6 +252,7 @@ export class StatusServiceTransport implements GymTransport {
     if (token === null) return { kind: 'no-token' } // nothing is sent without one: the service would only say no
     const where = await this.where(parsed.host)
     if (!where.ok) return { kind: 'refused', reason: where.reason }
+    const began = this.epoch
     const tag = `${parsed.url}\n${token}`
     const headers: Record<string, string> = { authorization: `Bearer ${token}` }
     if (this.last && this.last.for === tag) headers['if-none-match'] = this.last.etag
@@ -256,7 +270,7 @@ export class StatusServiceTransport implements GymTransport {
     } catch {
       return { kind: 'unreadable' }
     }
-    this.last = reply.etag && ETAG.test(reply.etag) ? { etag: reply.etag, for: tag } : null
+    if (began === this.epoch) this.last = reply.etag && ETAG.test(reply.etag) ? { etag: reply.etag, for: tag } : null // not if the settings changed meanwhile
     return { kind: 'document', json }
   }
 }

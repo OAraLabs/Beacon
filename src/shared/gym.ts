@@ -1047,8 +1047,10 @@ export function fmtGib(gib: number): string {
 }
 /** Points, to one decimal; `signed` writes a change (+7.6, −11.7, with a real minus sign). */
 export function fmtPts(n: number, signed = true): string {
+  // The sign is the sign of what is WRITTEN: a change that rounds to 0.0 is written "0.0", not "−0.0" or "+0.0".
   const v = Math.abs(n).toFixed(1)
-  return `${signed ? (n > 0 ? '+' : n < 0 ? '−' : '') : n < 0 ? '−' : ''}${v} pts`
+  const zero = Number(v) === 0
+  return `${zero ? '' : signed ? (n > 0 ? '+' : '−') : n < 0 ? '−' : ''}${v} pts`
 }
 export function fmtShare(x: number): string {
   return `${(x * 100).toFixed(x * 100 >= 10 || x === 0 ? 0 : 1)}%`

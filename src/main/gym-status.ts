@@ -46,7 +46,17 @@ export class GymStatusReader {
     const asked = this.generation
     const got = await this.deps.transport.fetch()
     if (asked !== this.generation) return this.read() // the settings changed while it was in flight: that answer is the old gym's
-    if (got.kind === 'same') return this.kept ? { kind: 'shown', status: this.kept, readAt: now, sample: false } : unreadable
+    if (got.kind === 'same') {
+      if (this.kept) return { kind: 'shown', status: this.kept, readAt: now, sample: false }
+      // "Unchanged", but nothing is kept to show (the settings were saved again while a request was in flight, say). The
+      // transport forgets that ETag and the document is asked for in full, once.
+      this.deps.transport.discardLast?.()
+      const again = await this.deps.transport.fetch()
+      const status = again.kind === 'document' && asked === this.generation ? parseGymStatus(again.json) : null
+      if (!status) return unreadable
+      this.kept = status
+      return { kind: 'shown', status, readAt: now, sample: false }
+    }
     if (got.kind === 'unreadable') return unreadable
     if (got.kind !== 'document') return got
     const status = parseGymStatus(got.json)

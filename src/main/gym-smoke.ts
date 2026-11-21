@@ -66,7 +66,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 73
+const EXPECTED = 75
 process.on('exit', () => {
   if (checks !== EXPECTED) {
     console.error(`[gym-smoke] FAIL — ran ${checks} checks, expected exactly ${EXPECTED}`)
@@ -218,6 +218,22 @@ async function main(): Promise<void> {
     tok = TOKEN
     const t2 = new StatusServiceTransport({ address: () => 'http://gym-box:18097/v2/status', saveAddress: (u) => (addr = u || null), readToken: () => tok, saveToken: (x) => ((tok = x || null), true), resolve: async () => [TS4] })
     await t2.setAddress('http://gym-box:9000')
+    // Clearing the address forgets the token, so "clear, then save another" cannot carry it elsewhere.
+    let addr3: string | null = 'http://gym-box:18097/v2/status'
+    let tok3: string | null = TOKEN
+    const sent3: string[] = []
+    const t3 = new StatusServiceTransport({ address: () => addr3, saveAddress: (u) => (addr3 = u || null), readToken: () => tok3, saveToken: (x) => ((tok3 = x || null), true), resolve: async () => [TS4], get: async (url) => (sent3.push(url), { status: 200, text: body, etag: null }) })
+    await t3.setAddress('')
+    const afterClear = tok3
+    await t3.setAddress('http://other-box:18097')
+    const carried = [(await t3.fetch()).kind, sent3.length].join()
+    let tok4: string | null = TOKEN
+    const t4 = new StatusServiceTransport({ address: () => 'not an address any more', saveAddress: () => undefined, readToken: () => tok4, saveToken: (x) => ((tok4 = x || null), true), resolve: async () => [TS4] })
+    await t4.setAddress('http://other-box:18097')
+    const tok5: string | null = TOKEN
+    const t5 = new StatusServiceTransport({ address: () => 'http://gym-box:18097/v2/status', saveAddress: () => undefined, readToken: () => tok5, saveToken: () => false, resolve: async () => [TS4] })
+    const stuck = await t5.setAddress('')
+    assert(afterClear === null && carried === 'no-token,0' && tok4 === null && !stuck.ok, 'token: clearing the address forgets the token, so it cannot be carried to the next address saved; a token beside an address that no longer reads is forgotten too; if it cannot be forgotten the change is refused', `${afterClear} ${carried} ${tok4} ${stuck.ok}`)
     assert(samePlace === TOKEN && moved.join() === ',no-token,0' && tok === null, 'token: it belongs to the computer and port it was given for; a new path there keeps it, another computer or port forgets it before anything is sent', `${samePlace === TOKEN} ${moved.join()} ${tok}`)
   }
   // One request at a time, an ETag only for a status, and an answer from before a settings change is not shown after it
@@ -289,6 +305,12 @@ async function main(): Promise<void> {
   const seen = [await viaOther.read(), await viaOther.read(), await viaOther.read(), await viaOther.read()].map((r) => r.kind)
   assert(seen.join(',') === 'shown,shown,denied,unreachable', 'transport: the reader works the same over any transport that hands it the document (the gateway, later)', seen.join(','))
   assert((await new GymStatusReader({ transport: { fetch: async () => ({ kind: 'same' }) } }).read()).kind === 'unreadable', 'transport: "the same as last time" with nothing kept is not shown as a status')
+  {
+    const again: GymFetch[] = [{ kind: 'same' }, { kind: 'document', json: sample }]
+    let dropped = 0
+    const r = await new GymStatusReader({ transport: { fetch: async () => again.shift() as GymFetch, discardLast: () => void dropped++ } }).read()
+    assert(r.kind === 'shown' && dropped === 1, 'transport: "unchanged" with nothing kept asks for the document in full, once, and the ETag is forgotten')
+  }
 
   const fixture = new URL('../../src/main/fixtures/gym_status.json', `file://${process.cwd()}/out/main/`).pathname
   const sampled = await new GymStatusReader({ transport: { fetch: async () => ({ kind: 'unreachable' }) }, sampleFile: fixture }).read()
@@ -406,7 +428,7 @@ async function main(): Promise<void> {
   assert(slug('r5') === 'r5' && slug('train-box') === 'train-box' && slug('Fix the bug') === null && slug('UPPER') === null && slug('a/b') === null && slug('teacher_gen:tw-written') === 'teacher_gen:tw-written' && slug('a b') === null && slug('a'.repeat(41)) === null && slug(5) === null && codeWords('disk_low') === 'Disk space low' && codeWords('some_new_kind') === 'some_new_kind' && codeWords('constructor') === 'constructor' && codeWords('toString') === 'toString' && mountWords('constructor') === 'constructor' && nightWords('constructor').text === nightWords('unknown').text && typeof parseGymStatus({ ...sample, data: { ...sample.data, pool: { ...sample.data.pool, rows_by_source: { constructor: 5, tostring: 2 } } } })?.data?.pool?.bySource.map((x) => codeWords(x.id)).join() === 'string', 'no text: an identifier is lower-case and has no spaces; one Beacon knows gets Beacon\'s words, another is shown exactly as it is (never respaced into words, never an inherited property)')
 
   // ── 8. numbers ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-  assert(fmtDuration(45) === '45 s' && fmtDuration(12_300) === '3 h 25 min' && fmtDuration(7200) === '2 h' && fmtGib(24) === '24 GiB' && fmtGib(3900) === '3.8 TiB' && fmtGib(1.5) === '1.5 GiB' && fmtBig(343158304) === '343.2M' && fmtBig(39966) === '39,966' && fmtPts(7.6) === '+7.6 pts' && fmtPts(-11.67) === '−11.7 pts' && fmtPts(3, false) === '3.0 pts' && share(5, 0) === 0 && share(3, 2) === 100, 'numbers: durations, sizes, big counts, points and shares read plainly and stay in range')
+  assert(fmtDuration(45) === '45 s' && fmtDuration(12_300) === '3 h 25 min' && fmtDuration(7200) === '2 h' && fmtGib(24) === '24 GiB' && fmtGib(3900) === '3.8 TiB' && fmtGib(1.5) === '1.5 GiB' && fmtBig(343158304) === '343.2M' && fmtBig(39966) === '39,966' && fmtPts(7.6) === '+7.6 pts' && fmtPts(-11.67) === '−11.7 pts' && fmtPts(3, false) === '3.0 pts' && fmtPts(-0.04) === '0.0 pts' && fmtPts(0.04) === '0.0 pts' && fmtPts(-0.06) === '−0.1 pts' && share(5, 0) === 0 && share(3, 2) === 100, 'numbers: durations, sizes, big counts, points and shares read plainly and stay in range')
   assert(fmtAgo(0, 30_000) === 'just now' && fmtAgo(0, 240_000) === '4 min ago' && fmtAgo(0, 3 * 3600_000) === '3 h ago' && fmtAgo(0, 86_400_000) === '1 day ago' && !isStale(s, s.generatedAt + 60_000) && isStale(s, s.generatedAt + 3600_000), 'numbers: how long ago, and a status over ten minutes old is said to be old')
   assert([...gapStarts([[0, 1], [5, 1], [10, 1], [15, 1], [300, 1], [305, 1]])].join() === '4' && gapStarts([[0, 1], [5, 1], [10, 1]]).size === 0 && gapStarts([[0, 1], [9, 1]]).size === 0 && mountWords('data') === 'data' && codeWords('data') === 'Gathering data' && mountWords('wd_archive') === 'archive', 'numbers: a line lifts its pen over a stretch with no readings; a disk called data is not given the round phase\'s words')
   const lp = linePoints([[0, 10], [5, 20], [10, 0]], 100, 50, 0)
