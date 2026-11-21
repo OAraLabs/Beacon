@@ -45,6 +45,7 @@ import { StubPanel } from './StubPanel'
 import { ToolCallFeed } from './ToolCallFeed'
 import { ActivityFeed } from './ActivityFeed'
 import { StatusPanel } from './StatusPanel'
+import { GymPanel } from './GymPanel'
 import { SessionsPanel } from './SessionsPanel'
 import { ConfigPanel } from './ConfigPanel'
 import { FilesPanel } from './FilesPanel'
@@ -1925,6 +1926,8 @@ export function MainView() {
             <ActivityFeed />
           ) : view === 'status' ? (
             <StatusPanel sessionId={active ?? ''} />
+          ) : view === 'gym' ? (
+            <GymPanel />
           ) : view === 'sessions' ? (
             <SessionsPanel
               sessions={sessions}

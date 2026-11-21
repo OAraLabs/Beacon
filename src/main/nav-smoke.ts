@@ -110,7 +110,7 @@ function main(): void {
   // ── D. registry order/count contract (mirrors panels-smoke so a divergence fails in both) ── [5 fixed]
   assert(NAV_VIEWS[0].id === 'chat' && DEFAULT_VIEW === 'mission', `chat is first in the registry; Mission is the default landing`)
   assert(NAV_VIEWS[1].id === 'mission', `mission slots second (registry order contract intact)`)
-  assert(NAV_VIEWS.length === 17, `seventeen views registered (Terminal is a dock pane; Devices is a Config tab — neither is a rail destination)`)
+  assert(NAV_VIEWS.length === 18, `eighteen views registered (Terminal is a dock pane; Devices is a Config tab — neither is a rail destination)`)
   assert(resolveView('terminal') === DEFAULT_VIEW, `Terminal is NOT a rail destination (it is a side-panel pane; a stale persisted id falls back)`)
   assert(groupForView('checkpoints')?.id === 'grp:workspace', `Checkpoints lives under Workspace, beside Files`)
   assert(!NAV_VIEWS.some((v) => (v.id as string) === 'devices') && resolveView('devices') === DEFAULT_VIEW, `Devices is NOT a rail destination (it is a Config tab; a stale persisted id falls back)`)
@@ -159,7 +159,7 @@ function main(): void {
   assert(subNavForView('coding')?.children.join(',') === 'coding,loop-manager', `…and it is still the SAME second level — a column is presentation, not a different model`)
   assert(
     subNavForView('files')?.children.join(',') === 'files,artifacts,board,documents,wiki,checkpoints,skills,integrations' &&
-      subNavForView('toolfeed')?.children.join(',') === 'activity,toolfeed,status' &&
+      subNavForView('toolfeed')?.children.join(',') === 'activity,toolfeed,status,gym' &&
       subNavForView('loop-manager')?.children.join(',') === 'coding,loop-manager' &&
       subNavForView('sessions')?.children.join(',') === 'chat,sessions',
     `Workspace / Activity / Coding / Chats pill rows carry exactly the sub-views the old rail tree held`
