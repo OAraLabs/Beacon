@@ -252,6 +252,9 @@ const api: BeaconBridge = {
     },
     openLoginItems: () => ipcRenderer.invoke(IPC.PATHA_OPEN_LOGIN_ITEMS)
   },
+  git: {
+    read: (sessionId: string) => ipcRenderer.invoke(IPC.GIT_READ, sessionId)
+  },
   workFolder: {
     where: () => ipcRenderer.invoke(IPC.WORK_FOLDER_WHERE),
     pick: () => ipcRenderer.invoke(IPC.WORK_FOLDER_PICK)
