@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   GYM_POLL_MS,
   GYM_READ_COPY,
+  GYM_REFERENCE,
   along,
   barAt,
   barWords,
@@ -22,10 +23,10 @@ import {
   isStale,
   linePoints,
   mountWords,
-  NIGHT_WORDS,
   nightHeadline,
+  nightWords,
   serviceLine,
-  servicesSummary,
+  servicesHeadline,
   share,
   type GymCount,
   type GymCriterion,
@@ -128,7 +129,10 @@ function LineChart({ series, label, fmtX, fmtY, short }: { series: readonly (rea
     )
   if (!geo) return <Empty>No readings yet.</Empty>
   const gaps = gapStarts(series) // no line across a stretch with no readings
-  const path = geo.points.map((p, i) => `${i === 0 || gaps.has(i) ? 'M' : 'L'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')
+  // A reading with a gap on both sides (or the newest one, after a gap) is a stretch of one: it is drawn as a dot (a line
+  // to itself, which the round cap paints), or it would not be drawn at all.
+  const alone = (i: number): boolean => (i === 0 || gaps.has(i)) && (i === geo.points.length - 1 || gaps.has(i + 1))
+  const path = geo.points.map((p, i) => `${i === 0 || gaps.has(i) ? 'M' : 'L'}${p[0].toFixed(1)} ${p[1].toFixed(1)}${alone(i) ? ` L${p[0].toFixed(1)} ${p[1].toFixed(1)}` : ''}`).join(' ')
   const onMove = (clientX: number): void => {
     const r = box.current?.getBoundingClientRect()
     if (!r || r.width === 0) return
@@ -167,14 +171,16 @@ function LineChart({ series, label, fmtX, fmtY, short }: { series: readonly (rea
   )
 }
 
+/** `rows` are named by the gym's own identifiers (a source, an area, a round): they are drawn as they are, never through
+ *  Beacon's word table, where an area called `data` would come out as a round's phase. */
 function Ranked({ rows, fmt = fmtCount }: { rows: GymCount[]; fmt?: (n: number) => string }) {
   const top = Math.max(...rows.map((r) => r.n), 1)
   const total = rows.reduce((n, r) => n + r.n, 0)
   return (
     <div className="gym-ranked">
       {rows.map((r) => (
-        <div className="gym-ranked-row" key={r.id} title={`${codeWords(r.id)}: ${fmt(r.n)} (${Math.round(share(r.n, total))}%)`}>
-          <span className="gym-ranked-name">{codeWords(r.id)}</span>
+        <div className="gym-ranked-row" key={r.id} title={`${r.id}: ${fmt(r.n)} (${Math.round(share(r.n, total))}%)`}>
+          <span className="gym-ranked-name">{r.id}</span>
           <div className="gym-ranked-track">
             <div className="gym-ranked-fill" style={{ width: `${share(r.n, top)}%` }} />
           </div>
@@ -191,7 +197,7 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
   const t = s.training
   const p = s.postTrain
   const ln = s.lastNight
-  const sv = servicesSummary(s.hosts)
+  const sv = servicesHeadline(s.hosts)
   const upcoming = s.schedule.filter((w) => w.at >= now)
   const failed = s.sources.filter((x) => !x.ok)
   const pct = t && t.step !== null && t.total ? share(t.step, t.total) : null
@@ -212,17 +218,9 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
             {r.stopAfter ? <KV label="If it fails">Last round on this base</KV> : null}
           </>
         ) : null}
-        {sv.total > 0 ? (
+        {sv ? (
           <KV label="Services">
-            {sv.unexpected > 0 ? (
-              <State tone="err">
-                {sv.unexpected} down unexpectedly{sv.planned > 0 ? `, ${sv.planned} down as planned` : ''}
-              </State>
-            ) : sv.planned > 0 ? (
-              <State tone="idle">{sv.planned} down as planned, nothing unexpected</State>
-            ) : (
-              <State tone="ok">All {sv.total} up</State>
-            )}
+            <State tone={sv.tone}>{sv.text}</State>
           </KV>
         ) : null}
       </Card>
@@ -233,6 +231,7 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
             <div className="gym-hero">
               <State tone={head.tone}>{head.text}</State>
             </div>
+            {ln.date ? <KV label="The night ending">{new Date(`${ln.date}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</KV> : null}
             {ln.windows.map((w, i) => (
               <KV key={i} label={w.host ? `${codeWords(w.host)}’s window` : 'Window'}>
                 {w.openedAt !== null ? clock(w.openedAt) : '?'} to {w.closedAt !== null ? clock(w.closedAt) : 'still open'}
@@ -251,13 +250,13 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
               </KV>
             ) : null}
             {ln.nightWatchHosts.map((w) => {
-              const said = NIGHT_WORDS[w.result] ?? NIGHT_WORDS.unknown
+              const said = nightWords(w.result)
               return (
                 <KV key={w.host} label={`Night watch, ${codeWords(w.host).toLowerCase()}`}>
                   <State tone={said.tone}>
                     {w.result === 'ok' ? 'Passed' : w.result === 'fail' ? 'Failed' : w.result === 'not_armed' ? 'Not armed' : 'Didn’t report'}
                     {w.problems !== null && w.problems > 0 ? `, ${w.problems} problem${w.problems === 1 ? '' : 's'}` : ''}
-                    {w.steps !== null ? `, ${fmtCount(w.steps)} training steps` : ''}
+                    {w.steps !== null ? `, ${fmtCount(w.steps)} step${w.steps === 1 ? '' : 's'}` : ''}
                     {w.checkedAt !== null ? `, checked ${clock(w.checkedAt)}` : ''}
                   </State>
                 </KV>
@@ -433,7 +432,7 @@ function GateCell({ c, domain }: { c: GymCriterion; domain: { min: number; max: 
   )
 }
 
-const colKey = (c: GymScorecard): string => [c.round, c.candidate, c.quant, c.vs].join('/')
+const colKey = (c: GymScorecard): string => [c.round, c.run, c.candidate, c.quant, c.vs].join('/')
 const quantWords = (q: string): string => q.toUpperCase().replace(/_/g, ' ')
 
 function FilterRow({ label, value, options, onPick }: { label: string; value: string; options: { id: string; label: string }[]; onPick: (id: string) => void }) {
@@ -501,7 +500,7 @@ function RoundsSection({ s }: { s: GymStatus }) {
                 </th>
                 {groups.map((g) => (
                   <th scope="colgroup" colSpan={g.cards.length} key={g.round} className="gym-round-head">
-                    <span className="gym-round-id">{g.round}</span>
+                    <span className="gym-round-id">{g.round === GYM_REFERENCE ? codeWords(GYM_REFERENCE) : g.round}</span>
                     {g.noneKept ? <span className="gym-round-state">no candidate was kept: showing all</span> : null}
                   </th>
                 ))}
@@ -753,7 +752,7 @@ function DataSection({ s }: { s: GymStatus }) {
           {tp.concurrency ? (
             <KV label="At once">
               up to {n0(tp.concurrency.limit)}
-              {tp.concurrency.max !== null ? `, most seen ${tp.concurrency.max}` : ''}
+              {tp.concurrency.max !== null ? ` (maximum ${tp.concurrency.max})` : ''}
             </KV>
           ) : null}
         </Card>
@@ -834,8 +833,10 @@ function HostCard({ h, now }: { h: GymHost; now: number }) {
             <KV label="Watchdog">
               {h.watchdog.lastOk === false ? (
                 <State tone="err">{`Failing${h.watchdog.consecutiveFails ? ` (${h.watchdog.consecutiveFails} in a row)` : ''}`}</State>
+              ) : h.watchdog.lastOk === true ? (
+                `OK${h.watchdog.lastCheck !== null ? `, checked ${fmtAgo(h.watchdog.lastCheck, now)}` : ''}`
               ) : h.watchdog.lastCheck !== null ? (
-                `OK, checked ${fmtAgo(h.watchdog.lastCheck, now)}`
+                `No result, checked ${fmtAgo(h.watchdog.lastCheck, now)}`
               ) : (
                 NOT
               )}
@@ -957,6 +958,9 @@ export function GymPanel() {
   const [editing, setEditing] = useState(false)
   const [tick, setTick] = useState(0)
   const [now, setNow] = useState(() => Date.now())
+  // The last status that was read. A poll that fails for a passing reason (the gym not answering, asked too often) keeps it on
+  // screen under the reason, marked as old by its own age, instead of blanking a dashboard that was right a moment ago.
+  const [lastShown, setLastShown] = useState<GymStatus | null>(null)
 
   useEffect(() => {
     const b = window.beacon
@@ -967,6 +971,7 @@ export function GymPanel() {
         (r) => {
           if (!alive) return
           setRead(r)
+          if (r.kind === 'shown') setLastShown(r.status)
           setNow(Date.now())
         },
         () => {
@@ -986,9 +991,10 @@ export function GymPanel() {
     }
   }, [tick])
 
-  const status = read?.kind === 'shown' ? read.status : null
+  const passing = read !== null && (read.kind === 'unreachable' || (read.kind === 'denied' && read.why === 'rate'))
+  const status = read?.kind === 'shown' ? read.status : passing ? lastShown : null
   const problem = read ? problemOf(read) : null
-  const showForm = editing || (read !== null && read.kind !== 'shown' && !(read.kind === 'denied' && read.why === 'rate'))
+  const showForm = editing || (read !== null && read.kind !== 'shown' && !(passing && lastShown !== null) && !(read.kind === 'denied' && read.why === 'rate'))
 
   return (
     <div className="gym" data-testid="gym-panel">
@@ -1001,11 +1007,11 @@ export function GymPanel() {
           ))}
         </nav>
         <div className="gym-fresh" data-testid="gym-fresh">
-          {read?.kind === 'shown' && status ? (
+          {status && read && (read.kind === 'shown' || passing) ? (
             <>
-              {read.sample ? <State tone="warn">{GYM_READ_COPY.sample}</State> : null}
+              {read.kind === 'shown' && read.sample ? <State tone="warn">{GYM_READ_COPY.sample}</State> : null}
               {isStale(status, now) ? <State tone="warn">Old: reported {fmtAgo(status.generatedAt, now)}</State> : <span>Reported {fmtAgo(status.generatedAt, now)}</span>}
-              {!read.sample ? (
+              {!(read.kind === 'shown' && read.sample) ? (
                 <button className="gym-link" onClick={() => setEditing((v) => !v)}>
                   {editing ? 'Done' : 'Connection…'}
                 </button>
@@ -1025,6 +1031,7 @@ export function GymPanel() {
             settings={settings}
             onSaved={() => {
               setEditing(false)
+              setLastShown(null)
               setRead(null)
               setTick((n) => n + 1)
             }}

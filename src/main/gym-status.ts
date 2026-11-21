@@ -23,9 +23,13 @@ export class GymStatusReader {
 
   constructor(private readonly deps: GymReaderDeps) {}
 
+  /** Counts settings changes, so an answer that was asked for before one is not shown after it. */
+  private generation = 0
+
   /** Forget the kept status (the settings changed: what was kept may be another gym's). */
   forget(): void {
     this.kept = null
+    this.generation++
   }
 
   async read(): Promise<GymRead> {
@@ -39,12 +43,19 @@ export class GymStatusReader {
         return unreadable
       }
     }
+    const asked = this.generation
     const got = await this.deps.transport.fetch()
+    if (asked !== this.generation) return this.read() // the settings changed while it was in flight: that answer is the old gym's
     if (got.kind === 'same') return this.kept ? { kind: 'shown', status: this.kept, readAt: now, sample: false } : unreadable
     if (got.kind === 'unreadable') return unreadable
     if (got.kind !== 'document') return got
     const status = parseGymStatus(got.json)
-    if (!status) return unreadable
+    if (!status) {
+      // Not a status: nothing older is passed off as current, and the transport must not call this document "unchanged".
+      this.kept = null
+      this.deps.transport.discardLast?.()
+      return unreadable
+    }
     this.kept = status
     return { kind: 'shown', status, readAt: now, sample: false }
   }

@@ -367,14 +367,14 @@ function oneOf<T extends string>(v: unknown, all: readonly T[], otherwise: T): T
   return all.includes(v as T) ? (v as T) : otherwise
 }
 /** A map of identifier to number, as rows, largest first. A key that is not an identifier is dropped with its number. */
-function counts(v: unknown, max = 60): GymCount[] {
+function counts(v: unknown, max = 200): GymCount[] {
   const out: GymCount[] = []
-  for (const [k, n] of Object.entries(obj(v) ?? {}).slice(0, max)) {
+  for (const [k, n] of Object.entries(obj(v) ?? {}).slice(0, 5000)) {
     const id = slug(k)
     const x = num(n)
     if (id !== null && x !== null) out.push({ id, n: x })
   }
-  return out.sort((a, b) => b.n - a.n)
+  return out.sort((a, b) => b.n - a.n).slice(0, max) // sorted first, so a cap keeps the largest
 }
 /** `[{<x>, <y>}]` as [x, y] rows in x order; a row missing either is dropped. */
 function series(v: unknown, x: string, y: string, xIsTime: boolean, max: number): GymSeries {
@@ -428,7 +428,7 @@ function parsePostTrain(v: unknown): GymPostTrain | null {
     if (s && id !== null) steps.push({ id, status: slug(s.status) ?? 'unknown' })
   }
   const candidates: GymPostTrain['candidates'] = []
-  for (const raw of list(p.candidates, 8)) {
+  for (const raw of list(p.candidates, 32)) {
     const c = obj(raw)
     const id = slug(c?.id)
     if (c && id !== null) candidates.push({ id, step: num(c.step), valLoss: num(c.val_loss), probeLoss: num(c.probe_loss) })
@@ -438,7 +438,8 @@ function parsePostTrain(v: unknown): GymPostTrain | null {
 
 function parseScorecards(v: unknown): GymScorecard[] {
   const out: GymScorecard[] = []
-  for (const raw of list(v, 80)) {
+  // No cap the schema does not set would be safe here: the newest rounds come last. 2000 is far past any real gym.
+  for (const raw of list(v, 2000)) {
     const c = obj(raw)
     const round = slug(c?.round)
     const candidate = slug(c?.candidate)
@@ -491,7 +492,7 @@ function parseData(v: unknown): GymData | null {
   const pool = obj(d.pool)
   const ds = obj(d.dataset)
   const tasksets: GymTaskset[] = []
-  for (const raw of list(d.tasksets, 40)) {
+  for (const raw of list(d.tasksets, 500)) {
     const t = obj(raw)
     const name = slug(t?.name)
     if (!t || name === null) continue
@@ -508,13 +509,13 @@ function parseData(v: unknown): GymData | null {
     })
   }
   const parts: { name: string; trainRows: number | null }[] = []
-  for (const raw of list(ds?.parts, 20)) {
+  for (const raw of list(ds?.parts, 200)) {
     const p = obj(raw)
     const name = slug(p?.name)
     if (p && name !== null) parts.push({ name, trainRows: num(p.train_rows) })
   }
   const history: GymData['history'] = []
-  for (const raw of list(d.history, 40)) {
+  for (const raw of list(d.history, 500)) {
     const h = obj(raw)
     const round = slug(h?.round)
     if (h && round !== null) history.push({ round, trainRows: num(h.train_rows), valRows: num(h.val_rows), toolCallShare: num(h.tool_call_share) })
@@ -598,7 +599,7 @@ function parseServices(v: unknown): GymService[] {
     const state = oneOf<GymServiceState>(sv.state, ['up', 'degraded', 'down', 'unknown'], 'unknown')
     // Planned only when the gym says exactly `true` of something that is not up: a missing flag, a string, or a service that
     // is up is never planned, so a real outage is never drawn as an expected one.
-    const planned = state !== 'up' && sv.planned === true
+    const planned = (state === 'down' || state === 'degraded') && sv.planned === true
     out.push({ id, state, planned, reason: state === 'up' ? null : slug(sv.reason), until: planned ? time(sv.until) : null })
   }
   return out
@@ -858,14 +859,20 @@ const WORDS: Record<string, string> = {
   schema: 'not in the expected shape',
   refused: 'refused'
 }
+/** A table's own entry, or undefined: never something inherited (`constructor`, `toString`), which an identifier can spell. */
+function own<T>(table: Record<string, T>, k: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(table, k) ? table[k] : undefined
+}
+/** Beacon's words for an identifier it knows; any other is shown exactly as it is, underscores and all, so it reads as the
+ *  identifier it is and never as words somebody chose. */
 export function codeWords(code: string): string {
-  return WORDS[code] ?? code.replace(/_+/g, ' ')
+  return own(WORDS, code) ?? code
 }
 
 /** A disk, by where it is mounted. Its own table: `data` is also a round's phase, and the two must not share words. */
 const MOUNT_WORDS: Record<string, string> = { home: 'home', data: 'data', wd_archive: 'archive' }
 export function mountWords(mount: string): string {
-  return MOUNT_WORDS[mount] ?? mount.replace(/_+/g, ' ')
+  return own(MOUNT_WORDS, mount) ?? mount
 }
 
 export const NIGHT_WORDS: Record<string, { tone: GymTone; text: string }> = {
@@ -874,10 +881,14 @@ export const NIGHT_WORDS: Record<string, { tone: GymTone; text: string }> = {
   not_armed: { tone: 'idle', text: 'Night watch wasn’t armed' },
   unknown: { tone: 'idle', text: 'Night watch didn’t report' }
 }
+/** The words for a night-watch result; one Beacon does not know reads as not reported. */
+export function nightWords(result: string): { tone: GymTone; text: string } {
+  return own(NIGHT_WORDS, result) ?? NIGHT_WORDS.unknown
+}
 /** Last night in one line: the night watch's own answer, unless a restore failed, which is worse than anything it says. */
 export function nightHeadline(n: GymLastNight): { tone: GymTone; text: string } {
   if (n.windows.some((w) => w.restoreOk === false)) return { tone: 'err', text: 'A restore failed last night' }
-  return NIGHT_WORDS[n.nightWatch] ?? NIGHT_WORDS.unknown
+  return nightWords(n.nightWatch)
 }
 
 /** Why a service is not up, in Beacon's words: the planned reasons (a window of the gym's) and the unplanned ones. */
@@ -900,20 +911,29 @@ export function serviceLine(s: GymService, clock: (at: number) => string): { ton
   if (s.state === 'up') return { tone: 'ok', text: 'Up' }
   if (s.state === 'unknown') return { tone: 'idle', text: 'Not reported' }
   const what = s.state === 'down' ? 'Down' : 'Partly working'
-  const why = s.reason ? (REASON_WORDS[s.reason] ?? codeWords(s.reason)) : null
+  const why = s.reason ? (own(REASON_WORDS, s.reason) ?? codeWords(s.reason)) : null
   if (!s.planned) return { tone: s.state === 'down' ? 'err' : 'warn', text: `${what} unexpectedly${why ? `: ${why}` : ''}` }
   return { tone: 'idle', text: `${what}, as planned${why ? `: ${why}` : ''}${s.until !== null ? ` until ${clock(s.until)}` : ''}` }
 }
-/** Every service on every host, counted by what matters first: is anything down that should not be. */
+/** Every service on every host, counted by what matters first: is anything not up that should be. `planned` and `unexpected`
+ *  count services that are down or only partly working; `unknown` counts the ones nobody could report on, which are never
+ *  counted as up. */
 export function servicesSummary(hosts: readonly GymHost[]): { total: number; up: number; planned: number; unexpected: number; unknown: number } {
   const all = hosts.flatMap((h) => h.services)
-  return {
-    total: all.length,
-    up: all.filter((s) => s.state === 'up').length,
-    planned: all.filter((s) => s.planned).length,
-    unexpected: all.filter((s) => (s.state === 'down' || s.state === 'degraded') && !s.planned).length,
-    unknown: all.filter((s) => s.state === 'unknown').length
-  }
+  const notUp = all.filter((s) => s.state === 'down' || s.state === 'degraded')
+  return { total: all.length, up: all.filter((s) => s.state === 'up').length, planned: notUp.filter((s) => s.planned).length, unexpected: notUp.filter((s) => !s.planned).length, unknown: all.filter((s) => s.state === 'unknown').length }
+}
+/** The services in one line, worst first. Green only when every one is up. */
+export function servicesHeadline(hosts: readonly GymHost[]): { tone: GymTone; text: string } | null {
+  const v = servicesSummary(hosts)
+  if (v.total === 0) return null
+  const parts: string[] = []
+  if (v.unexpected > 0) parts.push(`${v.unexpected} not up, unexpectedly`)
+  if (v.planned > 0) parts.push(`${v.planned} not up, as planned`)
+  if (v.unknown > 0) parts.push(`${v.unknown} not reported`)
+  if (parts.length === 0) return { tone: 'ok', text: `All ${v.total} up` }
+  if (v.unexpected === 0 && v.unknown === 0) parts.push('nothing unexpected')
+  return { tone: v.unexpected > 0 ? 'err' : v.unknown > 0 ? 'warn' : 'idle', text: parts.join('; ') }
 }
 
 // ── Rounds: which scorecards are on screen ──────────────────────────────────────────────────────────────────────────────────
@@ -934,8 +954,10 @@ export interface GymRoundGroup {
   /** True when `kept` was asked for and this round has no kept candidate, so all of its candidates are shown instead. */
   noneKept: boolean
 }
-/** A reference column: no criteria of its own, only replay counts to compare against. It is not a candidate. */
-export const isReferenceCard = (c: GymScorecard): boolean => c.criteria.length === 0
+/** The reference model's column: the schema's own candidate name for it. It has replay counts to read the others against
+ *  and is not a candidate. (A real candidate with no criteria read is still a candidate, and keeps its verdict.) */
+export const GYM_REFERENCE = 'reference_model'
+export const isReferenceCard = (c: GymScorecard): boolean => c.candidate === GYM_REFERENCE
 const distinct = (xs: (string | null)[]): string[] => [...new Set(xs.filter((x): x is string => x !== null))].sort()
 /** What each filter can be set to, from the scorecards served. */
 export function roundsOptions(cards: readonly GymScorecard[]): { quants: string[]; vs: string[]; candidates: string[] } {
@@ -952,20 +974,22 @@ function roundOrder(a: string, b: string): number {
   const n = (x: string): number => Number(/\d+/.exec(x)?.[0] ?? Number.NaN)
   return (Number.isNaN(n(a)) ? Infinity : n(a)) - (Number.isNaN(n(b)) ? Infinity : n(b)) || a.localeCompare(b)
 }
-/** The scorecards a filter leaves, grouped by round in round order. A reference column stays with its round whatever the
- *  candidate filter says (it is what the others are read against), and is narrowed only by quantisation. A round that the
- *  filter leaves with no candidate is not shown. */
+/** The scorecards a filter leaves, grouped by round in round order. A round that the filter leaves with no candidate is not
+ *  shown. The reference model's cards come last as a group of their own, whatever round the gym files them under and
+ *  whatever the candidate and comparison filters say (they are what the others are read against); only the quantisation
+ *  narrows them. */
 export function groupScorecards(cards: readonly GymScorecard[], f: GymRoundsFilter): GymRoundGroup[] {
   const out: GymRoundGroup[] = []
-  for (const round of [...new Set(cards.map((c) => c.round))].sort(roundOrder)) {
-    const inRound = cards.filter((c) => c.round === round)
-    const refs = inRound.filter((c) => isReferenceCard(c) && (f.quant === 'all' || c.quant === null || c.quant === f.quant))
-    const sliced = inRound.filter((c) => !isReferenceCard(c) && (f.quant === 'all' || c.quant === f.quant) && (f.vs === 'all' || c.vs === f.vs))
+  const candidates = cards.filter((c) => !isReferenceCard(c))
+  for (const round of [...new Set(candidates.map((c) => c.round))].sort(roundOrder)) {
+    const sliced = candidates.filter((c) => c.round === round && (f.quant === 'all' || c.quant === f.quant) && (f.vs === 'all' || c.vs === f.vs))
     const kept = sliced.filter((c) => c.selected === true || c.promoted === true)
     const noneKept = f.candidate === 'kept' && kept.length === 0 && sliced.length > 0
     const shown = f.candidate === 'all' ? sliced : f.candidate === 'kept' ? (kept.length > 0 ? kept : sliced) : sliced.filter((c) => c.candidate === f.candidate)
-    if (shown.length > 0) out.push({ round, cards: [...shown, ...refs], noneKept })
+    if (shown.length > 0) out.push({ round, cards: shown, noneKept })
   }
+  const refs = cards.filter((c) => isReferenceCard(c) && (f.quant === 'all' || c.quant === null || c.quant === f.quant))
+  if (out.length > 0 && refs.length > 0) out.push({ round: GYM_REFERENCE, cards: refs, noneKept: false })
   return out
 }
 

@@ -34,6 +34,8 @@ export type GymFetch =
 
 export interface GymTransport {
   fetch(): Promise<GymFetch>
+  /** Told when the last document it gave was not a status, so it does not answer `same` about it. Optional. */
+  discardLast?(): void
 }
 
 // ── today's transport: the gym's status service, over Tailscale, with a per-device token ────────────────────────────────────
@@ -68,14 +70,39 @@ export interface StatusServiceDeps {
 
 const resolveAll: GymResolve = async (host) => (isIP(host) ? [host] : (await lookup(host, { all: true, verbatim: true })).map((a) => a.address))
 
+/** The longest a whole request may take, however slowly the answer drips in (the 8 s below only ends a silence). */
+const DEADLINE_MS = 20_000
+
 const getPinned: GymGet = (url, address, headers) =>
   new Promise((done) => {
     const u = new URL(url)
     const family = isIP(address)
-    const req = (u.protocol === 'https:' ? https : http).request(
+    let req: http.ClientRequest
+    const deadline = setTimeout(() => {
+      req?.destroy()
+      done('unreachable')
+    }, DEADLINE_MS)
+    const finish = (r: Awaited<ReturnType<GymGet>>): void => {
+      clearTimeout(deadline)
+      done(r)
+    }
+    try {
+      req = start()
+    } catch {
+      return finish('unreachable') // a header node refuses, say: an answer, never a throw
+    }
+    req.on('timeout', () => req.destroy())
+    req.on('error', () => finish('unreachable'))
+    req.end()
+
+    function start(): http.ClientRequest {
+      return (u.protocol === 'https:' ? https : http).request(
       u,
       {
         method: 'GET',
+        // A connection of its own, never one from the shared pool: the pool is keyed by name and port, not by the address
+        // that was checked, so a socket somebody else opened to the same name could be reused. No pool, no proxy agent.
+        agent: false,
         headers: { accept: 'application/json', ...headers },
         timeout: 8_000,
         // The checked address, whoever asks and however: nothing else is ever connected to.
@@ -91,18 +118,27 @@ const getPinned: GymGet = (url, address, headers) =>
           size += c.length
           if (size > GYM_MAX_BYTES) {
             req.destroy()
-            done('too-big')
+            finish('too-big')
           } else chunks.push(c)
         })
         const etag = res.headers.etag
-        res.on('end', () => done({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8'), etag: typeof etag === 'string' ? etag : null }))
-        res.on('error', () => done('unreachable'))
+        res.on('end', () => finish({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8'), etag: typeof etag === 'string' ? etag : null }))
+        res.on('error', () => finish('unreachable'))
       }
-    )
-    req.on('timeout', () => req.destroy())
-    req.on('error', () => done('unreachable'))
-    req.end()
+      )
+    }
   })
+
+/** scheme://host:port of a URL, or '' when it is not one. */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return ''
+  }
+}
+/** An ETag that may be sent back in a header: a quoted run of visible ASCII, weak or strong, at most 200 long. */
+const ETAG = /^(?:W\/)?"[\x21\x23-\x7e]{0,200}"$/
 
 export class StatusServiceTransport implements GymTransport {
   /** The last document's ETag, with the URL and token it was given for: a change of either starts again. */
@@ -129,8 +165,13 @@ export class StatusServiceTransport implements GymTransport {
   /** Keep a new address ('' forgets it). It is checked the way a fetch checks it, so one Beacon would refuse is never saved. */
   async setAddress(raw: unknown): Promise<GymAddress | { ok: true; url: ''; host: '' }> {
     if (typeof raw !== 'string' || raw.length > 300) return { ok: false, reason: GYM_ADDRESS_COPY.notUrl }
-    this.last = null
+    // Nothing kept is dropped until an address is really saved: a refused one changes nothing.
+    const changed = (): void => {
+      this.last = null
+      this.flying = null // a request already on its way is the old settings': the next read starts its own
+    }
     if (raw.trim() === '') {
+      changed()
       this.deps.saveAddress('')
       return { ok: true, url: '', host: '' }
     }
@@ -138,18 +179,28 @@ export class StatusServiceTransport implements GymTransport {
     if (!parsed.ok) return parsed
     const where = await this.where(parsed.host)
     if (!where.ok) return where
+    // THE TOKEN BELONGS TO THE COMPUTER IT WAS MADE FOR. A new address that is another computer or another port forgets the
+    // token before it is saved, so a token is never sent anywhere but where the person gave it for: pointing Beacon at a
+    // different Tailscale address (a shared node, a mistyped name) must not hand that address the gym's token.
+    const before = this.deps.address()
+    if (before && originOf(before) !== originOf(parsed.url) && this.token() !== null) {
+      if (!this.deps.saveToken('')) return { ok: false, reason: GYM_ADDRESS_COPY.noKeychain }
+      this.kept = null
+    }
+    changed()
     this.deps.saveAddress(parsed.url)
     return parsed
   }
 
   /** Keep a new token ('' forgets it). Answers only whether it was kept. */
   setToken(raw: unknown): { ok: true } | { ok: false; reason: string } {
-    this.last = null
     const forget = typeof raw === 'string' && raw.trim() === ''
     const token = forget ? null : gymToken(raw)
     if (!forget && token === null) return { ok: false, reason: GYM_ADDRESS_COPY.badToken }
     if (!this.deps.saveToken(token ?? '')) return { ok: false, reason: GYM_ADDRESS_COPY.noKeychain }
     this.kept = token // what was just sealed is what is used: it is not read back
+    this.last = null
+    this.flying = null
     return { ok: true }
   }
 
@@ -163,7 +214,23 @@ export class StatusServiceTransport implements GymTransport {
     return tailscaleOnly(addresses)
   }
 
-  async fetch(): Promise<GymFetch> {
+  /** One request at a time: a poll that arrives while one is in flight is given that one's answer. */
+  private flying: Promise<GymFetch> | null = null
+  fetch(): Promise<GymFetch> {
+    if (this.flying) return this.flying
+    const p: Promise<GymFetch> = this.fetchOnce().finally(() => {
+      if (this.flying === p) this.flying = null
+    })
+    this.flying = p
+    return p
+  }
+
+  /** The document just handed out was not a status after all: forget its ETag, so "unchanged" is never said of it. */
+  discardLast(): void {
+    this.last = null
+  }
+
+  private async fetchOnce(): Promise<GymFetch> {
     const saved = this.deps.address()
     if (!saved) return { kind: 'unset' }
     const parsed = gymAddress(saved)
@@ -189,7 +256,7 @@ export class StatusServiceTransport implements GymTransport {
     } catch {
       return { kind: 'unreadable' }
     }
-    this.last = reply.etag ? { etag: reply.etag, for: tag } : null
+    this.last = reply.etag && ETAG.test(reply.etag) ? { etag: reply.etag, for: tag } : null
     return { kind: 'document', json }
   }
 }

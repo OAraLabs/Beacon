@@ -41,11 +41,13 @@ import {
   isStale,
   linePoints,
   mountWords,
+  nightWords,
   nightHeadline,
   parseGymStatus,
   roundsOptions,
   type GymScorecard,
   serviceLine,
+  servicesHeadline,
   servicesSummary,
   share,
   slug,
@@ -64,7 +66,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 65
+const EXPECTED = 73
 process.on('exit', () => {
   if (checks !== EXPECTED) {
     console.error(`[gym-smoke] FAIL — ran ${checks} checks, expected exactly ${EXPECTED}`)
@@ -202,6 +204,69 @@ async function main(): Promise<void> {
   const lastAsk = asked[asked.length - 1]
   assert(lastAsk.headers.authorization === `Bearer ${TOKEN_2}` && !('if-none-match' in lastAsk.headers), 'token: a new token replaces the old one, and the ETag kept for the old one is not reused')
   assert(service.setToken('').ok && token === null && (await reader.read()).kind === 'no-token', 'token: an empty one forgets it')
+  // The token belongs to the computer it was made for
+  {
+    let addr: string | null = 'http://gym-box:18097/v2/status'
+    let tok: string | null = TOKEN
+    const sent: string[] = []
+    const t = new StatusServiceTransport({ address: () => addr, saveAddress: (u) => (addr = u || null), readToken: () => tok, saveToken: (x) => ((tok = x || null), true), resolve: async () => [TS4], get: async (url, _a, h) => (sent.push(`${url} ${h.authorization ? 'with' : 'without'}`), { status: 200, text: body, etag: null }) })
+    await t.setAddress('http://gym-box:18097/v2/status?'.slice(0, -1))
+    await t.setAddress('gym-box:18097/v2/health')
+    const samePlace = tok
+    await t.setAddress('http://other-box:18097')
+    const moved = [tok, (await t.fetch()).kind, sent.length]
+    tok = TOKEN
+    const t2 = new StatusServiceTransport({ address: () => 'http://gym-box:18097/v2/status', saveAddress: (u) => (addr = u || null), readToken: () => tok, saveToken: (x) => ((tok = x || null), true), resolve: async () => [TS4] })
+    await t2.setAddress('http://gym-box:9000')
+    assert(samePlace === TOKEN && moved.join() === ',no-token,0' && tok === null, 'token: it belongs to the computer and port it was given for; a new path there keeps it, another computer or port forgets it before anything is sent', `${samePlace === TOKEN} ${moved.join()} ${tok}`)
+  }
+  // One request at a time, an ETag only for a status, and an answer from before a settings change is not shown after it
+  {
+    let release: (r: Awaited<ReturnType<GymGet>>) => void = () => undefined
+    let calls = 0
+    let addr = 'http://gym-box:18097/v2/status'
+    const seenTags: (string | undefined)[] = []
+    const t = new StatusServiceTransport({ address: () => addr, saveAddress: (u) => (addr = u), readToken: () => TOKEN, saveToken: () => true, resolve: async () => [TS4], get: (_u, _a, h) => (calls++, seenTags.push(h['if-none-match']), new Promise((r) => (release = r))) })
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
+    const a = t.fetch()
+    const b = t.fetch()
+    await tick()
+    release({ status: 200, text: body, etag: '"ok-1"' })
+    assert(calls === 1 && (await a) === (await b), 'service: a poll that arrives while one is in flight shares it; there are never two requests at once')
+
+    const r = new GymStatusReader({ transport: t })
+    const good = r.read()
+    await tick()
+    release({ status: 200, text: body, etag: '"ok-2"' })
+    await good
+    const bad = r.read()
+    await tick()
+    release({ status: 200, text: '{"schema":"something-else/1"}', etag: '"bad-3"' })
+    const afterBad = (await bad).kind
+    const next = r.read()
+    await tick()
+    release({ status: 304, text: '', etag: '"bad-3"' })
+    assert(afterBad === 'unreadable' && (await next).kind === 'unreadable' && seenTags[seenTags.length - 1] === undefined, 'service: a document that is not a status leaves no ETag behind and nothing older on screen: the next "unchanged" is not shown as a status', `${afterBad} ${seenTags.join('|')}`)
+
+    const evil = r.read()
+    await tick()
+    release({ status: 200, text: body, etag: '"line\r\nx-evil: 1"' })
+    await evil
+    const after = r.read()
+    await tick()
+    release({ status: 200, text: body, etag: null })
+    await after
+    assert(seenTags[seenTags.length - 1] === undefined, 'service: an ETag that is not one (a line break, a second header) is never sent back')
+
+    const stale = r.read()
+    await tick()
+    r.forget()
+    await t.setAddress('http://gym-box:18097/v2/health')
+    release({ status: 200, text: body, etag: null })
+    await tick()
+    release({ status: 404, text: '', etag: null })
+    assert((await stale).kind === 'unreadable', 'reader: an answer asked for before the settings changed is not shown after: the read is made again with the new ones')
+  }
   assert(tokenReads === 1, 'token: across every read, save, replace and forget above, the keychain was asked for it exactly once', `asked ${tokenReads} times`)
   {
     let reads = 0
@@ -273,8 +338,8 @@ async function main(): Promise<void> {
   // Rounds on screen: one slice, grouped by round
   const shape = (f: Parameters<typeof groupScorecards>[1], cs: readonly GymScorecard[] = s.scorecards): string => groupScorecards(cs, f).map((g) => `${g.round}[${g.cards.map((c) => c.candidate).join(',')}]${g.noneKept ? '!' : ''}`).join(' ')
   const def = defaultRoundsFilter(s.scorecards)
-  assert(JSON.stringify(def) === JSON.stringify({ quant: 'q4_k_m', vs: 'same_recipe_base', candidate: 'kept' }) && JSON.stringify(roundsOptions(s.scorecards)) === JSON.stringify({ quants: ['q4_k_m'], vs: ['same_recipe_base'], candidates: ['epoch1', 'final'] }) && shape(def) === 'r3[final] r4[final,reference]', 'Rounds: it opens on the gate\'s quantisation, against the base on the same recipe, each round\'s kept candidate, grouped by round; the reference column stays with its round', shape(def))
-  assert(shape({ ...def, candidate: 'all' }) === 'r3[final] r4[final,epoch1,reference]' && shape({ ...def, candidate: 'epoch1' }) === 'r4[epoch1,reference]' && shape({ ...def, quant: 'bf16' }) === '' && shape({ ...def, vs: 'pinned_majority' }) === '', 'Rounds: the candidate filter widens or narrows a round; a round the filters leave empty is not shown')
+  assert(JSON.stringify(def) === JSON.stringify({ quant: 'q4_k_m', vs: 'same_recipe_base', candidate: 'kept' }) && JSON.stringify(roundsOptions(s.scorecards)) === JSON.stringify({ quants: ['q4_k_m'], vs: ['same_recipe_base'], candidates: ['epoch1', 'final'] }) && shape(def) === 'r3[final] r4[final] reference_model[reference_model]', 'Rounds: it opens on the gate\'s quantisation, against the base on the same recipe, each round\'s kept candidate, grouped by round; the reference model has a group of its own, last, wherever the gym files it', shape(def))
+  assert(shape({ ...def, candidate: 'all' }) === 'r3[final] r4[final,epoch1] reference_model[reference_model]' && shape({ ...def, candidate: 'epoch1' }) === 'r4[epoch1] reference_model[reference_model]' && shape({ ...def, quant: 'bf16' }) === '' && shape({ ...def, vs: 'pinned_majority' }) === '', 'Rounds: the candidate filter widens or narrows a round; a round the filters leave empty is not shown')
   const mk = (round: string, candidate: string, quant: string, vs: string, selected: boolean): GymScorecard => ({ ...s.scorecards[0], round, candidate, quant, vs, selected, promoted: false })
   const many = [mk('r10', 'final', 'q4_k_m', 'same_recipe_base', true), mk('r2', 'final', 'q4_k_m', 'same_recipe_base', false), mk('r2', 'epoch1', 'q4_k_m', 'same_recipe_base', false), mk('r2', 'final', 'q5_k_m', 'same_recipe_base', true), mk('r2', 'final', 'q4_k_m', 'base9b_pinned', true), mk('r9', 'final', 'q5_k_m', 'base9b_pinned', true)]
   assert(
@@ -306,7 +371,22 @@ async function main(): Promise<void> {
   const strict = parseGymStatus({ ...sample, hosts: { ...sample.hosts, 'some-other-box': sample.hosts.train_host, reference: { healthy: false } }, scorecards: [{ ...sample.scorecards[1], reference_replay: null, other_replay: { replay_236: { fa_pass: 1, fa_n: 2 } } }], last_night: { ...sample.last_night, gpu_train_host: null, gpu_other: { max_temp_c: 99 } } })
   assert(strict?.hosts.map((h) => h.id).join() === 'train_host,serve_host' && strict.hosts.every((h) => h.services.every((x) => x.id !== 'reference')) && strict.scorecards[0].replay.length === 0 && strict.lastNight?.gpu === null, 'strict: only the keys the schema names are read; a host, a replay or a GPU under any other key is not')
   const sum = servicesSummary(s.hosts)
-  assert(sum.total === 5 && sum.up === 3 && sum.planned === 1 && sum.unexpected === 1, 'Now: services are counted as up, down as planned, and down unexpectedly', JSON.stringify(sum))
+  assert(sum.total === 5 && sum.up === 3 && sum.planned === 1 && sum.unexpected === 1 && servicesHeadline(s.hosts)?.text === '1 not up, unexpectedly; 1 not up, as planned', 'Now: services are counted as up, not up as planned, and not up unexpectedly', JSON.stringify(sum))
+  const hostsWith = (train: unknown[], serve: unknown[]) => parseGymStatus({ ...sample, hosts: { train_host: { services: train }, serve_host: { services: serve } } })?.hosts ?? []
+  const up = (id: string) => ({ id, state: 'up', planned: false })
+  const cut = servicesHeadline(hostsWith([{ id: 'business_model', state: 'unknown' }, { id: 'tunnel', state: 'surprise' }], [up('reference_model'), up('daemon'), up('voice')]))
+  const calm = servicesHeadline(hostsWith([{ id: 'business_model', state: 'degraded', planned: true }, { id: 'tunnel', state: 'unknown', planned: true }], [up('voice')]))
+  assert(
+    cut?.text === '2 not reported' && cut.tone === 'warn' && calm?.text === '1 not up, as planned; 1 not reported' && servicesHeadline(hostsWith([up('tunnel')], [up('voice')]))?.text === 'All 2 up' && servicesHeadline(hostsWith([{ id: 'tunnel', state: 'down', planned: true }], [up('voice')]))?.text === '1 not up, as planned; nothing unexpected' && servicesHeadline([]) === null,
+    'Now: services nobody could report on are never counted as up (an unreachable computer is not "all up"); a service that is not reported is never counted as planned',
+    `${cut?.text} | ${calm?.text}`
+  )
+  const odd = parseGymStatus({ ...sample, scorecards: [{ ...sample.scorecards[1], criteria: [{ id: 'Some New Criterion' }] }, { ...sample.scorecards[3], round: 'r4' }] })?.scorecards ?? []
+  assert(odd.length === 2 && odd[0].criteria.length === 0 && odd[0].verdict === 'fail' && shape({ quant: 'all', vs: 'all', candidate: 'all' }, odd) === 'r4[final] reference_model[reference_model]', 'Rounds: a candidate whose criteria could not be read is still a candidate, with its verdict; only the reference model is the reference')
+  const bigMap: Record<string, number> = {}
+  for (let i = 0; i < 300; i++) bigMap[`s${i}`] = i
+  const big = parseGymStatus({ ...sample, scorecards: Array.from({ length: 500 }, (_, i) => ({ ...sample.scorecards[0], round: `r${i}` })), data: { ...sample.data, pool: { ...sample.data.pool, rows_by_source: bigMap } } })
+  assert(big?.scorecards.length === 500 && big.scorecards[499].round === 'r499' && big.data?.pool?.bySource.length === 200 && big.data.pool.bySource[0].id === 's299', 'status: nothing real is cut: every scorecard is kept (the newest rounds come last), and a long list of sources keeps the largest')
 
   // ── 7. no text from the gym ─────────────────────────────────────────────────────────────────────────────────────────────
   const SECRET = 'Summarise the client contract and email it'
@@ -323,7 +403,7 @@ async function main(): Promise<void> {
   const text = JSON.stringify(planted)
   assert(planted !== null && !text.includes('Summarise') && !text.includes('client') && !/"[^"]* [^"]*"/.test(text), 'no text: sentences planted in every string, as map keys, and in prompt, trace, task_text and message fields are all dropped; nothing kept has a space in it')
   assert(planted?.round === null && planted.scorecards.length === 0 && planted.alerts.length === 0 && planted.training?.step === 1610 && planted.hosts.length === 2 && planted.hosts[0].services.length === 0, 'no text: a row that needed a dropped identifier goes with it, a dropped enum reads as unknown, and the numbers stay')
-  assert(slug('r5') === 'r5' && slug('train-box') === 'train-box' && slug('Fix the bug') === null && slug('UPPER') === null && slug('a/b') === null && slug('teacher_gen:tw-written') === 'teacher_gen:tw-written' && slug('a b') === null && slug('a'.repeat(41)) === null && slug(5) === null && codeWords('disk_low') === 'Disk space low' && codeWords('some_new_kind') === 'some new kind', 'no text: an identifier is lower-case and has no spaces; one Beacon knows gets Beacon\'s words, another is shown as itself')
+  assert(slug('r5') === 'r5' && slug('train-box') === 'train-box' && slug('Fix the bug') === null && slug('UPPER') === null && slug('a/b') === null && slug('teacher_gen:tw-written') === 'teacher_gen:tw-written' && slug('a b') === null && slug('a'.repeat(41)) === null && slug(5) === null && codeWords('disk_low') === 'Disk space low' && codeWords('some_new_kind') === 'some_new_kind' && codeWords('constructor') === 'constructor' && codeWords('toString') === 'toString' && mountWords('constructor') === 'constructor' && nightWords('constructor').text === nightWords('unknown').text && typeof parseGymStatus({ ...sample, data: { ...sample.data, pool: { ...sample.data.pool, rows_by_source: { constructor: 5, tostring: 2 } } } })?.data?.pool?.bySource.map((x) => codeWords(x.id)).join() === 'string', 'no text: an identifier is lower-case and has no spaces; one Beacon knows gets Beacon\'s words, another is shown exactly as it is (never respaced into words, never an inherited property)')
 
   // ── 8. numbers ──────────────────────────────────────────────────────────────────────────────────────────────────────────
   assert(fmtDuration(45) === '45 s' && fmtDuration(12_300) === '3 h 25 min' && fmtDuration(7200) === '2 h' && fmtGib(24) === '24 GiB' && fmtGib(3900) === '3.8 TiB' && fmtGib(1.5) === '1.5 GiB' && fmtBig(343158304) === '343.2M' && fmtBig(39966) === '39,966' && fmtPts(7.6) === '+7.6 pts' && fmtPts(-11.67) === '−11.7 pts' && fmtPts(3, false) === '3.0 pts' && share(5, 0) === 0 && share(3, 2) === 100, 'numbers: durations, sizes, big counts, points and shares read plainly and stay in range')
