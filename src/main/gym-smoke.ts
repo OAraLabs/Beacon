@@ -64,7 +64,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 64
+const EXPECTED = 65
 process.on('exit', () => {
   if (checks !== EXPECTED) {
     console.error(`[gym-smoke] FAIL — ran ${checks} checks, expected exactly ${EXPECTED}`)
@@ -255,6 +255,7 @@ async function main(): Promise<void> {
   assert(bare1 !== null && bare1.round === null && bare1.training === null && bare1.hosts.length === 0 && bare1.scorecards.length === 0 && bare1.lastNight === null, 'status: a section the gym could not build (null, or missing) is empty, not an error')
   assert(s.round?.phase === 'training' && s.round.decision === 'pending' && s.round.stopAfter === true && s.training?.step === 1610 && s.training.total === 2346 && s.training.valLoss.length === 24 && s.training.trainLoss.length === 162 && s.training.eta === Date.parse('2026-11-22T13:10:00-05:00') && s.postTrain?.stepsTotal === 24, 'Now: the round, training progress with its three loss curves, and the after-training checks')
   assert(s.schedule.length === 5 && s.schedule[0].kind === 'train_eta' && s.lastNight?.nightWatch === 'ok' && s.lastNight.training?.stepTo === 1560 && s.lastNight.gpu?.maxTempC === 80 && nightHeadline(s.lastNight).text === 'Night watch passed' && nightHeadline({ ...s.lastNight, windows: [{ host: null, openedAt: null, closedAt: null, restoreOk: false }] }).tone === 'err', 'Now: the schedule soonest first; last night; a failed restore outranks the night watch')
+  assert(s.training?.probeLoss.length === 1 && s.lastNight?.nightWatchHosts.map((w) => `${w.host}:${w.result}:${w.steps}:${w.problems}`).join() === 'serve_host:ok:null:0,train_host:ok:580:0' && parseGymStatus({ ...sample, last_night: { ...sample.last_night, night_watch_hosts: undefined } })?.lastNight?.nightWatchHosts.length === 0, 'Now: a loss curve with one reading is kept (it is drawn as a dot); night watch per computer, where the gym gives it')
   assert(s.alerts.map((a) => `${a.severity}:${a.kind}:${a.service}`).join() === 'warn:service_down:voice,warn:disk_low:null,info:source_stale:null' && s.timeline[0].kind === 'night_watch_ok' && s.timeline.length === 6 && s.sources.filter((x) => !x.ok).map((x) => `${x.id}:${x.error}`).join() === 'spend_ledger:missing', 'Now: alerts worst first, the timeline newest first, and the sources the gym could not read')
 
   const r4 = s.scorecards.find((c) => c.round === 'r4' && c.candidate === 'final')

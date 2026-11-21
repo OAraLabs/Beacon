@@ -6615,6 +6615,10 @@ div.ctx-footer {
   box-shadow: 0 0 0 2px var(--c-base);
   pointer-events: none;
 }
+.gym-dot.is-only {
+  left: 50%;
+  top: 50%;
+}
 .gym-tip {
   position: absolute;
   top: 4px;

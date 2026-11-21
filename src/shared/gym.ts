@@ -274,6 +274,8 @@ export interface GymLastNight {
   training: { stepFrom: number | null; stepTo: number | null } | null
   gpu: { maxTempC: number | null; maxPowerW: number | null } | null
   nightWatch: string
+  /** Each computer's own night-watch check, where the gym gives them. */
+  nightWatchHosts: { host: string; result: string; steps: number | null; problems: number | null; checkedAt: number | null }[]
   alerts: number | null
 }
 export interface GymAlert {
@@ -651,6 +653,12 @@ function parseLastNight(v: unknown): GymLastNight | null {
   const t = obj(l.teacher)
   const tr = obj(l.training)
   const g = obj(l.gpu_train_host)
+  const nightWatchHosts: GymLastNight['nightWatchHosts'] = []
+  for (const raw of list(l.night_watch_hosts, 4)) {
+    const n = obj(raw)
+    const host = slug(n?.host)
+    if (n && host !== null) nightWatchHosts.push({ host, result: slug(n.result) ?? 'unknown', steps: num(n.steps), problems: num(n.problems), checkedAt: time(n.checked_at) })
+  }
   return {
     date: typeof l.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(l.date) ? l.date : null,
     windows,
@@ -658,6 +666,7 @@ function parseLastNight(v: unknown): GymLastNight | null {
     training: tr ? { stepFrom: num(tr.step_from), stepTo: num(tr.step_to) } : null,
     gpu: g ? { maxTempC: num(g.max_temp_c), maxPowerW: num(g.max_power_w) } : null,
     nightWatch: slug(l.night_watch) ?? 'unknown',
+    nightWatchHosts,
     alerts: num(l.alerts)
   }
 }

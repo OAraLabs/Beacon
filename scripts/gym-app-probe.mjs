@@ -55,6 +55,7 @@ try {
   const text = () => ev(`document.querySelector('[data-testid="gym-panel"]').innerText`)
   const now = String(await text())
   check(/r5/.test(now) && /Training/.test(now) && /step 1,610 of 2,346/.test(now) && /Night watch passed/.test(now) && /Disk space low · Training computer/.test(now) && /A service is down unexpectedly: voice · Serving computer/.test(now) && /1 down unexpectedly, 1 down as planned/.test(now), 'Now: the round, the phase, training progress, last night, alerts, services', now.slice(0, 600))
+  check((await ev(`document.querySelectorAll('[data-testid="gym-one-reading"] .gym-dot').length`)) === 1 && /one reading so far/.test(now) && /Night watch, training computer\s*✓\s*Passed, 580 training steps/.test(now), 'Now: a loss with one reading draws as a dot with its value; night watch is said per computer', now.slice(0, 900))
   await shot('gym-now.png')
   for (const [tab, want] of [
     ['rounds', /Quantisation[\s\S]*Compared[\s\S]*Candidate[\s\S]*Kept[\s\S]*r3[\s\S]*r4[\s\S]*Reference only[\s\S]*Tool-call task success[\s\S]*must gain at least 10\.0 pts[\s\S]*\+4\.2 pts[\s\S]*\+7\.6 pts[\s\S]*Fail[\s\S]*Replay: replay 236[\s\S]*171 of 208/i],

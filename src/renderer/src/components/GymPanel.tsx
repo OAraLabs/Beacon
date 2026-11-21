@@ -22,6 +22,7 @@ import {
   isStale,
   linePoints,
   mountWords,
+  NIGHT_WORDS,
   nightHeadline,
   serviceLine,
   servicesSummary,
@@ -108,7 +109,24 @@ function LineChart({ series, label, fmtX, fmtY, short }: { series: readonly (rea
   const geo = useMemo(() => linePoints(series, W, H, 4), [series])
   const [hover, setHover] = useState<number | null>(null)
   const box = useRef<HTMLDivElement>(null)
-  if (!geo) return <Empty>Not enough readings to draw yet.</Empty>
+  // One reading is a dot with its value beside it, not an empty chart: a new training run has exactly one for its first
+  // stretch (it is evaluated at the start, then only every so often), and "nothing yet" would be wrong.
+  if (series.length === 1)
+    return (
+      <div className={`gym-chart${short ? ' is-short' : ''}`} data-testid="gym-one-reading">
+        <div className="gym-chart-y">
+          <span>{fmtY(series[0][1])}</span>
+        </div>
+        <div className="gym-chart-plot" role="img" aria-label={`${label}: one reading so far, ${fmtY(series[0][1])} at ${fmtX(series[0][0])}`}>
+          <div className="gym-dot is-only" />
+        </div>
+        <div className="gym-chart-x">
+          <span>{fmtX(series[0][0])}</span>
+          <span>one reading so far</span>
+        </div>
+      </div>
+    )
+  if (!geo) return <Empty>No readings yet.</Empty>
   const gaps = gapStarts(series) // no line across a stretch with no readings
   const path = geo.points.map((p, i) => `${i === 0 || gaps.has(i) ? 'M' : 'L'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')
   const onMove = (clientX: number): void => {
@@ -232,6 +250,19 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
                 {n0(ln.gpu.maxTempC, (x) => `${x.toFixed(0)} °C`)}, {n0(ln.gpu.maxPowerW, (x) => `${x.toFixed(0)} W`)}
               </KV>
             ) : null}
+            {ln.nightWatchHosts.map((w) => {
+              const said = NIGHT_WORDS[w.result] ?? NIGHT_WORDS.unknown
+              return (
+                <KV key={w.host} label={`Night watch, ${codeWords(w.host).toLowerCase()}`}>
+                  <State tone={said.tone}>
+                    {w.result === 'ok' ? 'Passed' : w.result === 'fail' ? 'Failed' : w.result === 'not_armed' ? 'Not armed' : 'Didn’t report'}
+                    {w.problems !== null && w.problems > 0 ? `, ${w.problems} problem${w.problems === 1 ? '' : 's'}` : ''}
+                    {w.steps !== null ? `, ${fmtCount(w.steps)} training steps` : ''}
+                    {w.checkedAt !== null ? `, checked ${clock(w.checkedAt)}` : ''}
+                  </State>
+                </KV>
+              )
+            })}
             <KV label="Alerts overnight">{n0(ln.alerts)}</KV>
           </>
         ) : (
