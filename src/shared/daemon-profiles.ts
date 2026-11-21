@@ -6,6 +6,7 @@
 
 import { SAVED_PROMPTS_KEY } from './saved-prompts'
 import { UI_MODE_KEY } from './ui-mode'
+import { GYM_ADDRESS_KEY } from './gym'
 import { TODAY_SEEN_KEY } from './today'
 import { CREDENTIAL_KIND_KEY } from './model-setup'
 import { DRAFT_PREFIX } from './drafts'
@@ -73,6 +74,7 @@ export const BEACON_SETTING_KEYS: readonly string[] = [
   ONBOARDING_LAN_ASKED_KEY,
   SAVED_PROMPTS_KEY, // saved prompts are the person's, whichever Prometheus they are talking to
   UI_MODE_KEY, // everyday or full: how this person likes Beacon
+  GYM_ADDRESS_KEY, // where the gym's status is: one gym, whichever Prometheus is open
   'daemons:layout', // src/main/cache/daemon-folders.ts LAYOUT_KEY: app.db's own marker that the folders are in place
   'daemons:active' // src/main/cache/daemon-folders.ts ACTIVE_KEY: which Prometheus Beacon connects to at launch
 ]

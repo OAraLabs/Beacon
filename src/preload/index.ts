@@ -372,6 +372,12 @@ const api: BeaconBridge = {
     get: () => ipcRenderer.invoke(IPC.LOGIN_ITEM_GET),
     set: (openAtLogin: boolean) => ipcRenderer.invoke(IPC.LOGIN_ITEM_SET, openAtLogin)
   },
+  gym: {
+    read: () => ipcRenderer.invoke(IPC.GYM_READ),
+    settings: () => ipcRenderer.invoke(IPC.GYM_SETTINGS_GET),
+    setAddress: (raw: string) => ipcRenderer.invoke(IPC.GYM_ADDRESS_SET, raw),
+    setToken: (raw: string) => ipcRenderer.invoke(IPC.GYM_TOKEN_SET, raw)
+  },
   network: {
     get: () => ipcRenderer.invoke(IPC.NETWORK_GET),
     set: (on: boolean) => ipcRenderer.invoke(IPC.NETWORK_SET, on),

@@ -189,6 +189,11 @@ export const IPC = {
   LOGIN_ITEM_SET: 'login-item:set', // renderer -> main: register/unregister, return the OS readback
   // Settings → Other computers (@shared/network-setting): the connected Prometheus's home-network switch (its GET/PUT
   // /api/network) and its restart. Main holds the credential and the address; the page only says on, off, or restart.
+  // Activity › Gym (@shared/gym): a read-only view of a fine-tuning gym's status. Main makes the request (Tailscale only) and parses it.
+  GYM_READ: 'gym:read', // renderer -> main: the gym's status, or why there is none
+  GYM_SETTINGS_GET: 'gym:settings:get', // renderer -> main: the saved address, and whether a token is kept (never the token)
+  GYM_ADDRESS_SET: 'gym:address:set', // renderer -> main: keep an address ('' forgets it); answers what was kept, or the refusal
+  GYM_TOKEN_SET: 'gym:token:set', // renderer -> main: keep this computer's token for the gym ('' forgets it); answers only whether it was kept
   NETWORK_GET: 'network:get', // renderer -> main: the setting as Prometheus reports it, or why there is no section
   NETWORK_SET: 'network:set', // renderer -> main: save on/off, return the setting read back (or the refusal)
   NETWORK_RESTART: 'network:restart', // renderer -> main: restart Prometheus and wait for it to come back as the same computer
@@ -1218,6 +1223,14 @@ export interface BeaconBridge {
   /** Launch at login (@shared/login-item). GET reads live from the OS; SET returns the OS readback.
    *  `supported:false` (Linux, or an unpackaged build) means the switch cannot be honoured and
    *  `reason` says why — the UI renders it disabled rather than as a control that silently no-ops. */
+  /** Activity › Gym (@shared/gym). Read-only: nothing here changes anything on the gym. */
+  gym: {
+    read(): Promise<import('./gym').GymRead>
+    settings(): Promise<import('./gym').GymSettings>
+    setAddress(raw: string): Promise<{ ok: true; url: string; host: string } | { ok: false; reason: string }>
+    /** One way: the token can be given, never read back. */
+    setToken(raw: string): Promise<{ ok: true } | { ok: false; reason: string }>
+  }
   loginItem: {
     get(): Promise<import('./login-item').LoginItemState>
     set(openAtLogin: boolean): Promise<import('./login-item').LoginItemState>

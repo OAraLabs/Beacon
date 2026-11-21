@@ -197,6 +197,7 @@ export default defineConfig({
           'plain-lan-smoke': resolve('src/main/plain-lan-smoke.ts'),
           'discovery-confirm-smoke': resolve('src/main/discovery-confirm-smoke.ts'),
           'network-setting-smoke': resolve('src/main/network-setting-smoke.ts'),
+          'gym-smoke': resolve('src/main/gym-smoke.ts'),
           'openrouter-signin-smoke': resolve('src/main/openrouter-signin-smoke.ts'),
           'model-setup-smoke': resolve('src/main/model-setup-smoke.ts'),
           'model-keys-smoke': resolve('src/main/model-keys-smoke.ts'),

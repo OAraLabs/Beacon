@@ -167,6 +167,10 @@ import { applyPins, askHelloOverTls, installPinning, isConnectionMismatch, onPin
 import { pinnedEdit } from '@shared/pinned-edit'
 import { notEncrypted, refusePlain, treatAsHomeNetwork, treatAsPublic } from '@shared/plain-lan'
 import { plainPublicRefusal } from './plain-public'
+import { GymStatusReader } from './gym-status'
+import { StatusServiceTransport } from './gym-transport'
+import { registerGymHandlers } from './gym-ipc'
+import { GYM_ADDRESS_KEY } from '@shared/gym'
 
 // ── a release build refuses remote debugging (src/shared/release-gate.ts) ────
 // First statement of the module body, before the single-instance lock: Chromium opens the
@@ -2230,6 +2234,25 @@ app.whenReady().then(() => {
   registerPathAHandlers(prometheusInstaller) // path A: can Prometheus be set up on this Mac, and (once the person confirms) setting it up
   registerModelSetupHandlers({ setup: modelSetup, newSignIn: newOpenRouterSignIn, tradeOwed: () => repo?.getSetting(CREDENTIAL_KIND_KEY) === 'master' }) // O9: the cloud AI's key, and the owner trade
   registerJoinHandlers(joinSession, pairingWatcher) // path B: ask to join, wait for approval, be connected; and the owner's side
+  // Activity › Gym: read-only. THE TRANSPORT IS CHOSEN HERE (src/main/gym-transport.ts): today the gym's own status service, over
+  // Tailscale with this computer's token; later the Prometheus gateway under a read-only gym scope, by building another
+  // GymTransport on this line. The token is a key file of its own, sealed by the OS keychain like every other key Beacon
+  // keeps: never a settings row. A non-release build can show a sample file instead.
+  const gymTokenStore = new CredentialStore(join(app.getPath('userData'), 'gym-status.key'), electronSafeStorageCipher())
+  const gymService = new StatusServiceTransport({
+    address: () => repo?.getSetting(GYM_ADDRESS_KEY) || null,
+    saveAddress: (url) => repo?.setSetting(GYM_ADDRESS_KEY, url),
+    readToken: () => gymTokenStore.getToken(),
+    saveToken: (token) => {
+      try {
+        gymTokenStore.setToken(token)
+        return true
+      } catch {
+        return false // no keychain to seal it with: it is not kept any other way
+      }
+    }
+  })
+  registerGymHandlers(new GymStatusReader({ transport: gymService, sampleFile: debuggingAllowedHere() ? process.env.BEACON_GYM_STATUS_FILE || null : null }), gymService)
   registerNetworkSettingHandlers(networkSetting) // Settings → Other computers: the home-network switch, and the restart
   // "Add a phone" (@shared/phone-join): a code with no secret, for any Prometheus Beacon keeps: its address made into a name a phone
   // can reach (this Mac's tailnet, read locally), the node key pinned for it, its name; and, for the one Beacon is on, its bind.

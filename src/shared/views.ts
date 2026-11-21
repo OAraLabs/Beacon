@@ -14,6 +14,7 @@ export type ViewId =
   | 'activity'
   | 'toolfeed'
   | 'status'
+  | 'gym'
   | 'sessions'
   | 'board'
   | 'files'
@@ -38,6 +39,7 @@ export const NAV_VIEWS: NavView[] = [
   { id: 'activity', label: 'Live' }, // IA: relabeled from "Activity" so the leaf ≠ its parent group "Activity"
   { id: 'toolfeed', label: 'Tool Feed' },
   { id: 'status', label: 'Status' },
+  { id: 'gym', label: 'Gym' }, // a fine-tuning gym's status, read-only (@shared/gym)
   { id: 'sessions', label: 'Sessions' },
   { id: 'board', label: 'Board' },
   { id: 'files', label: 'Files' },
@@ -130,8 +132,8 @@ export const NAV_TREE: NavEntry[] = [
   // what you have queued, and at the tail of a nine-pill row they were the two nobody found.
   // Devices left for Config (a setting, not a place); Integrations stayed, so this is 8 pills.
   { kind: 'group', group: { id: 'grp:workspace', label: 'Workspace', children: ['files', 'artifacts', 'board', 'documents', 'wiki', 'checkpoints', 'skills', 'integrations'] } },
-  // "What's happening": Live · Tool Feed · Status.
-  { kind: 'group', group: { id: 'grp:activity', label: 'Activity', children: ['activity', 'toolfeed', 'status'] } },
+  // "What's happening": Live · Tool Feed · Status · Gym.
+  { kind: 'group', group: { id: 'grp:activity', label: 'Activity', children: ['activity', 'toolfeed', 'status', 'gym'] } },
   // Config is a destination, not a group — it navigates directly.
   { kind: 'view', id: 'config' }
 ]

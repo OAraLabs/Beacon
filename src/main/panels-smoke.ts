@@ -206,7 +206,7 @@ async function main(): Promise<void> {
   // ── 6. nav-shell view registry + resolveView (switch logic) ─────────────────
   console.log('\n[smoke] === 6. nav views ===')
   assert(NAV_VIEWS[0].id === 'chat' && DEFAULT_VIEW === 'mission', 'chat is first in the registry; Mission is the default landing')
-  assert(NAV_VIEWS.length === 17, 'seventeen views registered (Terminal is a dock pane; Devices is a Config tab)')
+  assert(NAV_VIEWS.length === 18, 'eighteen views registered (Terminal is a dock pane; Devices is a Config tab)')
   assert(NAV_VIEWS[1].id === 'mission', 'mission control slots second (chat contract intact)')
   assert(NAV_VIEWS.some((v) => v.id === 'coding'), 'coding view registered (Phase C)')
   assert(NAV_VIEWS.some((v) => v.id === 'loop-manager') && resolveView('loop-manager') === 'loop-manager', 'loop-manager view registered + resolves')

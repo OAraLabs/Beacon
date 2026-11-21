@@ -126,12 +126,12 @@ console.log('2. the everyday rail')
 
 console.log('3. what each mode shows, and where a put-away view sends you')
 {
-  const hidden: ViewId[] = ['coding', 'loop-manager', 'board', 'checkpoints', 'skills', 'integrations', 'activity', 'toolfeed', 'status']
+  const hidden: ViewId[] = ['coding', 'loop-manager', 'board', 'checkpoints', 'skills', 'integrations', 'activity', 'toolfeed', 'status', 'gym']
   for (const v of hidden) {
     check(!viewVisible(v, 'everyday') && viewVisible(v, 'full'), `${v} is put away in everyday mode and there in full`)
     check(viewInMode(v, 'everyday') === 'mission' && viewInMode(v, 'full') === v, `asking for ${v} in everyday mode shows the home`)
   }
-  check(NAV_VIEWS.filter((v) => !viewVisible(v.id, 'everyday')).length === hidden.length, 'and those nine are all of them')
+  check(NAV_VIEWS.filter((v) => !viewVisible(v.id, 'everyday')).length === hidden.length, 'and those ten are all of them')
   for (const v of ['mission', 'chat', 'sessions', 'documents', 'config'] as ViewId[]) check(viewInMode(v, 'everyday') === v, `${v} is itself in everyday mode`)
   check(viewVisible('mission', 'everyday') && !isOwnerOnlyView('mission'), 'the everyday home is a view an approved device may open too')
   const kept = CONFIG_TABS.filter((t) => configTabVisible(t.id, 'everyday')).map((t) => t.id)
