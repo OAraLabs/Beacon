@@ -5,7 +5,9 @@ import {
   GYM_REFERENCE,
   along,
   barAt,
+  activePhase,
   barWords,
+  candidateWords,
   codeWords,
   defaultRoundsFilter,
   deltaDomain,
@@ -19,6 +21,7 @@ import {
   groupScorecards,
   isReferenceCard,
   roundsOptions,
+  runStatus,
   gapStarts,
   isStale,
   linePoints,
@@ -27,17 +30,20 @@ import {
   nightWords,
   serviceLine,
   servicesHeadline,
+  trainingSummary,
   share,
   type GymCount,
   type GymCriterion,
   type GymGenWindow,
   type GymHost,
+  type GymPostTrain,
   type GymRead,
   type GymRoundsFilter,
   type GymScorecard,
   type GymSettings,
   type GymStatus,
   type GymTone,
+  type GymTraining,
   type GymUsage
 } from '@shared/gym'
 
@@ -192,6 +198,107 @@ function Ranked({ rows, fmt = fmtCount }: { rows: GymCount[]; fmt?: (n: number) 
 }
 
 // ── Now ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/** Training. While it is the live phase: the whole card, with its run status said in words. Once it is finished (the round is past
+ *  training): one summary line that is a button, and the same detail under it when it is opened. */
+function TrainingCard({ t, p, now, live, pct }: { t: GymTraining | null; p: GymPostTrain | null; now: number; live: boolean; pct: number | null }) {
+  const [open, setOpen] = useState(false)
+  if (!t) return <Card title="Training" wide><Empty>The gym hasn’t reported on training.</Empty></Card>
+  const status = runStatus(t.status, null)
+  const detail = (
+    <>
+      <div className="gym-hero">
+        <span className="gym-hero-n">{pct !== null ? `${Math.round(pct)}%` : codeWords(t.status)}</span>
+        <span className="gym-hero-sub">
+          {t.step !== null && t.total !== null ? `step ${fmtCount(t.step)} of ${fmtCount(t.total)}` : ''}
+          {t.epoch !== null && t.epochs !== null ? ` · epoch ${t.epoch.toFixed(2)} of ${t.epochs}` : ''}
+        </span>
+      </div>
+      <RunState status={status} />
+      {pct !== null ? <Meter percent={pct} label={`Training ${Math.round(pct)}% done`} /> : null}
+      <div className="gym-facts">
+        {live ? <KV label="Expected to finish">{t.eta !== null ? `${dayClock(t.eta)}${t.eta > now ? ` (in ${fmtDuration((t.eta - now) / 1000)})` : ''}` : NOT}</KV> : null}
+        {live ? <KV label="Must stop by">{t.windowStopAt !== null ? dayClock(t.windowStopAt) : NOT}</KV> : null}
+        <KV label="Speed">{n0(t.tokensPerS, (x) => `${fmtCount(x)} tokens a second`)}</KV>
+        <KV label="Last heard from">{t.updatedAt !== null ? fmtAgo(t.updatedAt, now) : NOT}</KV>
+      </div>
+      <div className="gym-multiples">
+        {(
+          [
+            ['Validation loss', t.valLoss],
+            ['Probe loss', t.probeLoss],
+            ['Training loss', t.trainLoss]
+          ] as const
+        ).map(([name, series]) =>
+          series.length > 0 ? (
+            <div key={name}>
+              <h4 className="gym-sub">{name}, by step</h4>
+              <LineChart short series={series} label={name} fmtX={(x) => `step ${fmtCount(x)}`} fmtY={(y) => y.toFixed(3)} />
+            </div>
+          ) : null
+        )}
+      </div>
+    </>
+  )
+  if (live) {
+    return (
+      <Card title="Training" wide>
+        {detail}
+      </Card>
+    )
+  }
+  return (
+    <section className="gym-card is-wide gym-finished" data-testid="gym-training-finished">
+      <button type="button" className="gym-collapse" aria-expanded={open} aria-controls="gym-training-detail" onClick={() => setOpen((v) => !v)} data-testid="gym-training-toggle">
+        <span aria-hidden="true" className="gym-chev">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="gym-collapse-line">{trainingSummary(t, p)}</span>
+        <span className="gym-collapse-hint">{open ? 'Hide' : 'Show detail'}</span>
+      </button>
+      {open ? (
+        <div id="gym-training-detail" className="gym-collapse-body">
+          {detail}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/** A run state with its mark: "▸ Running", "■ Stopped", "✓ Done", "· Waiting". Words, so it never rests on colour. */
+function RunState({ status }: { status: { tone: GymTone; mark: string; text: string } }) {
+  return (
+    <div className="gym-runstate" data-testid="gym-run-status">
+      <span className={`gym-state is-${status.tone}`}>
+        <span aria-hidden="true" className="gym-state-mark">
+          {status.mark}
+        </span>
+        {status.text}
+      </span>
+    </div>
+  )
+}
+
+/** The after-training checks. Live (the round is past training): first on the page, with what it is doing now and when it was last
+ *  heard from. No "N of M" bar: the pipeline's total grows as it records steps. */
+function PostTrainCard({ p, now, live }: { p: GymPostTrain | null; now: number; live: boolean }) {
+  if (!p) return null
+  const status = runStatus(p.status, p.outcome)
+  return (
+    <Card title="After-training checks" wide={live}>
+      <RunState status={status} />
+      {p.currentStep ? <KV label="Now on">{p.currentStep}</KV> : null}
+      {p.currentStep || live ? <KV label="Working on">{candidateWords(p.currentCandidate)}</KV> : null}
+      {live || p.updatedAt !== null ? <KV label="Last heard from">{p.updatedAt !== null ? fmtAgo(p.updatedAt, now) : NOT}</KV> : null}
+      {p.outcome && p.status === 'done' ? <KV label="Outcome">{codeWords(p.outcome)}</KV> : null}
+      {p.candidates.map((c) => (
+        <KV key={c.id} label={`Candidate ${c.id}`}>
+          {c.valLoss !== null ? `validation loss ${c.valLoss.toFixed(3)}${c.step !== null ? ` at step ${fmtCount(c.step)}` : ''}` : NOT}
+        </KV>
+      ))}
+    </Card>
+  )
+}
+
 function NowSection({ s, now }: { s: GymStatus; now: number }) {
   const r = s.round
   const t = s.training
@@ -202,8 +309,11 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
   const failed = s.sources.filter((x) => !x.ok)
   const pct = t && t.step !== null && t.total ? share(t.step, t.total) : null
   const head = ln ? nightHeadline(ln) : null
+  // Past training the live card is the after-training checks; Training is then a finished card, collapsed to one line.
+  const postLive = activePhase(s) === 'post_train'
   return (
     <div className="gym-grid">
+      {postLive ? <PostTrainCard p={p} now={now} live /> : null}
       <Card title="Where it stands">
         <div className="gym-hero">
           <span className="gym-hero-n">{r?.id ?? 'No round'}</span>
@@ -269,66 +379,10 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
         )}
       </Card>
 
-      <Card title="Training" wide>
-        {t ? (
-          <>
-            <div className="gym-hero">
-              <span className="gym-hero-n">{pct !== null ? `${Math.round(pct)}%` : codeWords(t.status)}</span>
-              <span className="gym-hero-sub">
-                {pct !== null ? `${codeWords(t.status)} · ` : ''}
-                {t.step !== null && t.total !== null ? `step ${fmtCount(t.step)} of ${fmtCount(t.total)}` : ''}
-                {t.epoch !== null && t.epochs !== null ? ` · epoch ${t.epoch.toFixed(2)} of ${t.epochs}` : ''}
-              </span>
-            </div>
-            {pct !== null ? <Meter percent={pct} label={`Training ${Math.round(pct)}% done`} /> : null}
-            <div className="gym-facts">
-              <KV label="Expected to finish">{t.eta !== null ? `${dayClock(t.eta)}${t.eta > now ? ` (in ${fmtDuration((t.eta - now) / 1000)})` : ''}` : NOT}</KV>
-              <KV label="Must stop by">{t.windowStopAt !== null ? dayClock(t.windowStopAt) : NOT}</KV>
-              <KV label="Speed">{n0(t.tokensPerS, (x) => `${fmtCount(x)} tokens a second`)}</KV>
-              <KV label="Last heard from">{t.updatedAt !== null ? fmtAgo(t.updatedAt, now) : NOT}</KV>
-            </div>
-            <div className="gym-multiples">
-              {(
-                [
-                  ['Validation loss', t.valLoss],
-                  ['Probe loss', t.probeLoss],
-                  ['Training loss', t.trainLoss]
-                ] as const
-              ).map(([name, series]) =>
-                series.length > 0 ? (
-                  <div key={name}>
-                    <h4 className="gym-sub">{name}, by step</h4>
-                    <LineChart short series={series} label={name} fmtX={(x) => `step ${fmtCount(x)}`} fmtY={(y) => y.toFixed(3)} />
-                  </div>
-                ) : null
-              )}
-            </div>
-          </>
-        ) : (
-          <Empty>The gym hasn’t reported on training.</Empty>
-        )}
-      </Card>
+      {postLive ? <TrainingCard t={t} p={p} now={now} live={false} pct={pct} /> : null}
+      {postLive ? null : <TrainingCard t={t} p={p} now={now} live pct={pct} />}
 
-      {p ? (
-        <Card title="After-training checks">
-          <KV label="Status">{codeWords(p.status)}</KV>
-          {p.stepsDone !== null && p.stepsTotal ? (
-            <>
-              <KV label="Steps">
-                {p.stepsDone} of {p.stepsTotal}
-              </KV>
-              <Meter percent={share(p.stepsDone, p.stepsTotal)} label={`${p.stepsDone} of ${p.stepsTotal} steps done`} />
-            </>
-          ) : null}
-          {p.currentStep ? <KV label="Now on">{p.currentStep}</KV> : null}
-          {p.outcome ? <KV label="Outcome">{codeWords(p.outcome)}</KV> : null}
-          {p.candidates.map((c) => (
-            <KV key={c.id} label={`Candidate ${c.id}`}>
-              {c.valLoss !== null ? `validation loss ${c.valLoss.toFixed(3)}` : NOT}
-            </KV>
-          ))}
-        </Card>
-      ) : null}
+      {postLive ? null : <PostTrainCard p={p} now={now} live={false} />}
 
       <Card title="Coming up">
         {upcoming.length > 0 ? (

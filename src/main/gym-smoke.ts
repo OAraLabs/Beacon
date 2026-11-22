@@ -43,7 +43,11 @@ import {
   mountWords,
   nightWords,
   nightHeadline,
+  activePhase,
+  candidateWords,
   parseGymStatus,
+  runStatus,
+  trainingSummary,
   roundsOptions,
   type GymScorecard,
   serviceLine,
@@ -58,6 +62,7 @@ import { classifiedScope } from '@shared/daemon-profiles'
 import { GymStatusReader } from './gym-status'
 import { StatusServiceTransport, type GymFetch, type GymGet, type GymTransport } from './gym-transport'
 import sample from './fixtures/gym_status.json'
+import samplePost from './fixtures/gym_status_post_train.json'
 
 let failures = 0
 let checks = 0
@@ -66,7 +71,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 75
+const EXPECTED = 81
 process.on('exit', () => {
   if (checks !== EXPECTED) {
     console.error(`[gym-smoke] FAIL — ran ${checks} checks, expected exactly ${EXPECTED}`)
@@ -409,6 +414,39 @@ async function main(): Promise<void> {
   for (let i = 0; i < 300; i++) bigMap[`s${i}`] = i
   const big = parseGymStatus({ ...sample, scorecards: Array.from({ length: 500 }, (_, i) => ({ ...sample.scorecards[0], round: `r${i}` })), data: { ...sample.data, pool: { ...sample.data.pool, rows_by_source: bigMap } } })
   assert(big?.scorecards.length === 500 && big.scorecards[499].round === 'r499' && big.data?.pool?.bySource.length === 200 && big.data.pool.bySource[0].id === 's299', 'status: nothing real is cut: every scorecard is kept (the newest rounds come last), and a long list of sources keeps the largest')
+
+  // ── Now: which phase is live ─────────────────────────────────────────────────────────────────────────────────────────────
+  const post = parseGymStatus(samplePost) as GymStatus
+  const withPhase = (phase: string, postTrain: unknown = (samplePost as { post_train: unknown }).post_train): GymStatus | null => parseGymStatus({ ...samplePost, round: { ...samplePost.round, phase }, post_train: postTrain })
+  assert(
+    activePhase(s) === 'training' && activePhase(post) === 'post_train' && ['post_train', 'gating', 'decided', 'closed'].every((p) => activePhase(withPhase(p) as GymStatus) === 'post_train') && ['training', 'data', 'building', 'idle'].every((p) => activePhase(withPhase(p) as GymStatus) === 'training') && activePhase(withPhase('post_train', null) as GymStatus) === 'training',
+    'Now: while the round is training, Training is the live card; from after-training checks, gating, decided and closed the after-training checks are; with no after-training checks to show, Training stays'
+  )
+  const run: { tone: string; mark: string; text: string } = runStatus('running', null)
+  const stop: { tone: string; mark: string; text: string } = runStatus('stopped', 'stopped')
+  assert(
+    post.postTrain?.status === 'running' && post.postTrain.currentStep === 'score-d' && post.postTrain.currentCandidate === 'final' && post.postTrain.updatedAt === Date.parse('2026-11-22T08:03:00-05:00') && candidateWords('final') === 'the final candidate' && candidateWords('epoch1') === 'the epoch 1 candidate' && candidateWords(null) === 'a step shared by both, or the base model' && s.postTrain?.currentCandidate === null && withPhase('post_train', { ...(samplePost as { post_train: object }).post_train, current_candidate: 'epoch1' })?.postTrain?.currentCandidate === 'epoch1' && withPhase('post_train', { ...(samplePost as { post_train: object }).post_train, current_candidate: 'Summarise the client contract' })?.postTrain?.currentCandidate === null,
+    'Now: running on a candidate: the step, the candidate (final, epoch 1, or neither) and the last time it was heard from are read; a candidate that is not an identifier is dropped'
+  )
+  assert(
+    run.text === 'Running' && stop.text === 'Stopped' && run.mark !== stop.mark && runStatus('failed', null).text === 'Stopped · failed' && runStatus('stopped', 'failed').text === 'Stopped · failed' && runStatus('failed', 'failed').text === 'Stopped · failed' && runStatus('waiting', null).text === 'Waiting' && runStatus('done', 'completed').text === 'Done' && runStatus('paused', null).text === 'Paused between windows' && runStatus('not_armed', null).text === 'Not armed' && runStatus('running', null).tone === 'ok' && runStatus('stopped', null).tone === 'err' && runStatus('waiting', null).tone === 'idle',
+    'Now: Running, Stopped (failed and stopped both, with the pipeline\'s word for why when it adds one), Waiting and Done are told apart in words and in their mark, not by colour alone'
+  )
+  const summary = trainingSummary(post.training as NonNullable<GymStatus['training']>, post.postTrain)
+  assert(
+    summary === 'Training done · 2,333 steps · val 0.656 / ep1 0.650' && !/heard|ago/i.test(summary) && trainingSummary(post.training as NonNullable<GymStatus['training']>, null).startsWith('Training done · 2,333 steps · val ') && trainingSummary({ ...(post.training as NonNullable<GymStatus['training']>), status: 'failed' }, post.postTrain).startsWith('Training stopped · 2,333 steps') && trainingSummary({ ...(post.training as NonNullable<GymStatus['training']>), valLoss: [], step: null, total: null }, null) === 'Training done',
+    'Now: a finished Training card is one line (how it ended, the steps, validation loss for the final and the first-epoch candidate), with nothing about when it was last heard from'
+  )
+  {
+    const training = panel.slice(panel.indexOf('function TrainingCard'), panel.indexOf('function RunState'))
+    const postCard = panel.slice(panel.indexOf('function PostTrainCard'), panel.indexOf('function NowSection'))
+    const now = panel.slice(panel.indexOf('function NowSection'), panel.indexOf('// ── Rounds'))
+    assert(
+      /<button type="button" className="gym-collapse" aria-expanded=\{open\} aria-controls="gym-training-detail" onClick=/.test(training) && /useState\(false\)/.test(training) && /\{open \? \(\s*<div id="gym-training-detail"/.test(training) && /trainingSummary\(t, p\)/.test(training) && !/heard/i.test(training.slice(training.indexOf('<button'), training.indexOf('{open ? ('))) && now.indexOf('<PostTrainCard p={p} now={now} live />') < now.indexOf('<Card title="Where it stands">') && !/<Meter|stepsTotal/.test(postCard) && /<RunState status=\{status\} \/>/.test(training) && /<RunState status=\{status\} \/>/.test(postCard),
+      'Now: the finished Training line is a real button (aria-expanded, aria-controls, collapsed until opened) with no "last heard from" in it; the live after-training card is first on the page and draws no "N of M" bar; both cards say Running or Stopped in words'
+    )
+  }
+  assert(post.training?.status === 'done' && post.training.step === 2333 && post.training.total === 2333 && post.round?.phase === 'post_train' && post.postTrain?.candidates.map((c) => `${c.id}:${c.valLoss}:${c.step}`).join() === 'final:0.656:2333,epoch1:0.65:1167', 'Now: the post-train sample holds training done at 2,333 steps and after-training checks running, as the service reports them')
 
   // ── 7. no text from the gym ─────────────────────────────────────────────────────────────────────────────────────────────
   const SECRET = 'Summarise the client contract and email it'
