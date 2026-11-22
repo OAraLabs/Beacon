@@ -198,13 +198,44 @@ try {
   check(/\b4\b/.test(followed?.text ?? ''), 'a file added in the folder shows up in the chip within a few seconds', JSON.stringify(followed))
   const rowFollowed = await until(() => mark('beacon:git-changed'), (v) => v?.text === '4', 6000)
   check(rowFollowed?.text === '4', 'and on its row in the list: the two read the same answer')
+  // ── the Git panel: the changed files, a diff, Esc ──────────────────────────────────────────
+  await ev(`(() => { document.querySelector('[data-testid="git-chip"]').click(); return true })()`)
+  const panel = () => ev(`(() => { const p = document.querySelector('[data-testid="git-panel"]'); return p ? { text: p.innerText, files: [...p.querySelectorAll('[data-testid="git-file"]')].map((f) => f.dataset.path + '=' + f.querySelector('.git-file-what').textContent) } : null })()`)
+  const listed = await until(panel, (v) => (v?.files.length ?? 0) >= 4, 8000)
+  check(listed?.files.slice().sort().join('|') === 'a.txt=modified|fourth.txt=new file|more.txt=new file|new.txt=new file', 'clicking the chip lists the changed files, each with what happened to it', JSON.stringify(listed?.files))
+  check(/NOT STAGED\s*1/i.test(listed?.text ?? '') && /UNTRACKED\s*3/i.test(listed?.text ?? '') && /Git: feat\/header · 4 changed files/.test(listed?.text ?? ''), 'grouped, with the same words as the chip at the top', (listed?.text ?? '').replace(/\n/g, ' | ').slice(0, 200))
+  await ev(`(() => { [...document.querySelectorAll('[data-testid="git-file"]')].find((f) => f.dataset.path === 'a.txt').click(); return true })()`)
+  const diff = await until(() => ev(`document.querySelector('[data-testid="git-diff"]')?.innerText ?? null`), (v) => v !== null, 8000)
+  check(/^-one$/m.test(diff ?? '') && /^\+one, edited$/m.test(diff ?? ''), "clicking a file shows its diff: the line that went and the line that came", (diff ?? '').replace(/\n/g, ' | ').slice(0, 200))
+  check((await ev(`(() => { const a = document.querySelector('.git-diff-line.is-add'), d = document.querySelector('.git-diff-line.is-del'); return !!a && !!d && getComputedStyle(a).color !== getComputedStyle(d).color })()`)) === true, 'added and removed lines are told apart (and each starts with its own sign)')
+  // Wholly visible: inside the conversation's header side to side, and the element actually on top at its corners is the panel itself.
+  const vis = await ev(`(() => { const el = document.querySelector('[data-testid="git-panel"]'); const p = el.getBoundingClientRect(); const h = el.closest('.thread-head').getBoundingClientRect(); const at = (x, y) => { const t = document.elementFromPoint(x, y); return !!t && el.contains(t) }; return { inside: p.left >= h.left && p.right <= h.right && p.bottom <= window.innerHeight, corners: [at(p.left + 4, p.top + 4), at(p.right - 4, p.top + 4), at(p.left + 4, p.bottom - 4), at(p.right - 4, p.bottom - 4)], width: Math.round(p.width) } })()`)
+  check(vis.inside && vis.corners.every(Boolean), 'the panel is wholly visible: inside the conversation pane, with nothing over its corners', JSON.stringify(vis))
+  await shot('git-panel')
+  // The file changes again while its diff is open: the diff follows, without being clicked, and never goes blank.
+  writeFileSync(join(CHANGED, 'a.txt'), 'one, edited twice\n')
+  let blank = false
+  const followedDiff = await until(async () => {
+    const t = await ev(`document.querySelector('[data-testid="git-diff"]')?.innerText ?? null`)
+    if (t === null) blank = true
+    return t ?? ''
+  }, (v) => /\+one, edited twice/.test(v), 20000)
+  check(/^\+one, edited twice$/m.test(followedDiff) && !blank, 'an open diff follows the file as it changes, and is never blanked while it does', followedDiff.replace(/\n/g, ' | ').slice(-80))
+  // A new file: the whole file, added.
+  await ev(`(() => { [...document.querySelectorAll('[data-testid="git-file"]')].find((f) => f.dataset.path === 'new.txt').click(); return true })()`)
+  const diff2 = await until(() => ev(`document.querySelector('[data-testid="git-diff"]')?.innerText ?? ''`), (v) => /\+new/.test(v), 8000)
+  check(/^\+new$/m.test(diff2), "a new file's diff is its content, added")
+  await app.page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  check((await until(panel, (v) => v === null, 3000)) === null && (await ev(`document.activeElement?.dataset.testid`)) === 'git-chip', 'Esc closes the panel and gives the focus back to the chip')
+
   // A conversation with no repository has no chip.
   await ev(`(() => { const b = [...document.querySelectorAll('button.session-row')].find((x) => x.title.includes('beacon:git-none')); b?.click(); return !!b })()`)
   await sleep(2500)
   check((await chip()) === null, 'a conversation with no folder has no branch chip')
   // What it cost Prometheus: a handful of reads per conversation, not a stream.
   const most = Math.max(...Object.values(daemon.gets))
-  check(most <= 14, `no conversation's folder was asked for more than a dozen or so times in this run (most: ${most})`, JSON.stringify(daemon.gets))
+  check(most <= 26, `no conversation's folder was asked for more than a couple of dozen times in this run (most: ${most})`, JSON.stringify(daemon.gets))
 } finally {
   await app?.quit().catch(() => undefined)
   for (const s of [rest, wsHttp]) s.close()

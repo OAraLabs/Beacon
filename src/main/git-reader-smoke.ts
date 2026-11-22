@@ -13,7 +13,7 @@
  * Run: npm run build && npm run smoke:git-reader
  */
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -22,18 +22,35 @@ import {
   GIT_UNSAFE_HERE,
   GIT_WHERE_ARGS,
   GIT_PATH,
+  GIT_DIFF_SHOW_MAX,
+  GIT_ENTRIES_MAX,
+  GIT_LOG_ARGS,
   NO_FORK_SCRIPT,
+  GIT_BORROWED,
+  GIT_COMMON_ARGS,
+  GIT_DIFF_LINES_MAX,
+  clipDiff,
+  diffLineShown,
+  entryHasDiff,
+  storeIsOwn,
+  storeLinkArgs,
+  worktreeNamesBack,
+  gitDiffArgs,
   gitOperation,
+  gitPathOk,
+  parseGitEntries,
+  parseGitLog,
   gitReadEnv,
   gitText,
   parseGitStatus,
   parseGitWhere
 } from '@shared/git-state'
-import { GIT_OPEN_FRESH_MS, GIT_ROW_FRESH_MS, gitChip, gitMark, gitStale } from '@shared/git-view'
+import { GIT_OPEN_FRESH_MS, GIT_ROW_FRESH_MS, gitChip, gitEmptyWords, gitGroups, gitMark, gitMoreWords, gitStale } from '@shared/git-view'
 import type { GitRead, GitState } from '@shared/git-state'
-import { forgetGitReads, forkLimitEnforced, readGit } from './git-reader'
+import { forgetGitReads, forkLimitEnforced, readGit, readGitDetail, readGitDiff } from './git-reader'
+import { UNTRACKED_MAX_BYTES, readUntracked } from './git-untracked'
 
-const MIN_CHECKS = 120
+const MIN_CHECKS = 208
 let checks = 0
 let failures = 0
 let skipped = false
@@ -129,6 +146,63 @@ console.log('1b. how it is shown')
   check(GIT_OPEN_FRESH_MS < GIT_ROW_FRESH_MS && gitStale(GIT_OPEN_FRESH_MS, true) && !gitStale(GIT_OPEN_FRESH_MS - 1, true) && !gitStale(GIT_OPEN_FRESH_MS, false) && gitStale(GIT_ROW_FRESH_MS, false) && gitStale(NaN, false), 'the open conversation is read again sooner than a row; a time that makes no sense counts as stale')
 }
 
+console.log('1c. the panel: entries, the arguments of a diff, the log')
+{
+  const head = ['# branch.oid 0a0dc05b3846652a51c9c81c98470216165089cc', '# branch.head main']
+  const one = (xy: string, path: string): string => `1 ${xy} N... 100644 100644 100644 ${'a'.repeat(40)} ${'b'.repeat(40)} ${path}`
+  const listed = parseGitEntries(rec(...head, one('.M', 'src/a file.txt'), one('MM', 'both.txt'), one('A.', 'added.txt'), '? new.txt', '? dir/', `u UU N... 100644 100644 100644 100644 ${'a'.repeat(40)} ${'b'.repeat(40)} ${'c'.repeat(40)} clash.txt`, '! ignored.log'))
+  check(!!listed && listed.more === 0 && listed.entries.map((e) => `${e.kind}:${e.index}${e.tree}:${e.path}`).join('|') === 'changed:.M:src/a file.txt|changed:MM:both.txt|changed:A.:added.txt|untracked:.?:new.txt|untracked:.?:dir/|conflicted:UU:clash.txt', 'each entry: its path (spaces and all), its two states, its kind; ignored files are left out', JSON.stringify(listed))
+  check(parseGitEntries(rec(...head, '? a\nb.txt'))?.entries[0].path === 'a\nb.txt', 'a name with a line break is one path')
+  check(parseGitEntries('nope') === null && parseGitEntries(rec(...head, 'X y')) === null && parseGitEntries(rec(...head, '1 .M')) === null && parseGitEntries(rec(...head, '? ')) === null, 'what is not status output is not a list')
+  const many = parseGitEntries(rec(...head, ...Array.from({ length: GIT_ENTRIES_MAX + 7 }, (_, i) => `? f${i}`)))
+  check(many?.entries.length === GIT_ENTRIES_MAX && many.more === 7, 'past the most entries listed, the rest are counted')
+  const forgedList = parseGitEntries(rec(...head, '? x', '# branch.head evil'))
+  check(forgedList === null, 'a header-looking record after the first entry is not skipped as a header')
+  const E = listed?.entries ?? []
+  check(entryHasDiff(E[0], 'unstaged') && !entryHasDiff(E[0], 'staged') && entryHasDiff(E[1], 'staged') && entryHasDiff(E[1], 'unstaged') && entryHasDiff(E[2], 'staged') && !entryHasDiff(E[2], 'unstaged') && entryHasDiff(E[3], 'untracked') && !entryHasDiff(E[3], 'unstaged') && !entryHasDiff(E[4], 'untracked') && !entryHasDiff(E[0], 'untracked'), 'which diff an entry has: staged, not staged, or (for a new file, never a new folder) against nothing')
+  for (const bad of ['', '/etc/passwd', '../outside.txt', 'a/../../b', '-rf', '--output=/tmp/x', `a${Z}b`, 'x'.repeat(5000), 7, null, undefined]) {
+    check(!gitPathOk(bad) && gitDiffArgs('unstaged', bad as unknown as string) === null, `not a path a diff is run for: ${JSON.stringify(typeof bad === 'string' ? bad.slice(0, 24) : bad)}`)
+  }
+  check(gitPathOk('src/a file.txt') && gitPathOk(':(top)weird') && gitPathOk('*.txt') && gitPathOk('a..b/c'), 'an ordinary name, and one that only looks like a pattern, is a path (it is read as a name)')
+  const d = gitDiffArgs('unstaged', 'src/a file.txt') ?? []
+  const dc = gitDiffArgs('staged', 'x.txt') ?? []
+  for (const [name, a] of [['not staged', d], ['staged', dc]] as const) {
+    check(a.includes('--no-ext-diff') && a.includes('--no-textconv') && a.includes('--literal-pathspecs') && a.indexOf('--literal-pathspecs') < a.indexOf('diff') && a.includes('core.fsmonitor=false') && a.lastIndexOf('--') === a.length - 2, `the ${name} diff: no external tool, no textconv, the path read as a name, and last, after --`)
+  }
+  check(dc.includes('--cached') && !d.includes('--cached') && gitDiffArgs('untracked', 'new.txt') === null && !d.includes('--no-index') && !dc.includes('--no-index'), 'staged compares the index; a file git does not track is never handed to git to diff')
+  // Whose store it is.
+  const la = storeLinkArgs('/r/.git', '/r/.git')
+  check(GIT_COMMON_ARGS.includes('--git-common-dir') && GIT_COMMON_ARGS.includes('--path-format=absolute') && la.top.join(' ') === '-P /r/.git -maxdepth 1 -type l' && la.deep.join(' ') === '-P /r/.git/refs /r/.git/objects -type l' && storeLinkArgs('/r/.git/worktrees/w', '/r/.git').top.join(' ') === '-P /r/.git /r/.git/worktrees/w -maxdepth 1 -type l', 'the store is checked by asking git for its common folder, and by listing links at the top of each git folder and anywhere under refs and objects')
+  check(storeIsOwn('/r/.git', '/r/.git', ['packs', ''], [''], ['']) && storeIsOwn('/r/.git/worktrees/w', '/r/.git', [], [], []) && storeIsOwn('/r/.git', '/r/.git', [], ['/r/.git/hooks', '/r/.git/description'], []), 'an ordinary repository, a linked worktree, and one with a linked hooks folder own their store')
+  check(!storeIsOwn('/b/.git', '/victim/.git', [], [], []) && !storeIsOwn('/b/.git/worktrees/a/b', '/b/.git', [], [], []) && !storeIsOwn('/x/worktrees/w', '/b/.git', [], [], []), 'a common folder that is somewhere else (a commondir file) is not its own')
+  check(!storeIsOwn('/r/.git', '/r/.git', ['alternates'], [], []) && !storeIsOwn('/r/.git', '/r/.git', ['http-alternates'], [], []), 'nor is one with a list of other object stores')
+  for (const link of ['/r/.git/index', '/r/.git/HEAD', '/r/.git/objects', '/r/.git/refs', '/r/.git/packed-refs', '/r/.git/config']) {
+    check(!storeIsOwn('/r/.git', '/r/.git', [], [link], []), `nor one where ${link.replace('/r/.git/', '')} is a link`)
+  }
+  for (const link of ['/r/.git/refs/heads', '/r/.git/refs/heads/main', '/r/.git/objects/ab', '/r/.git/objects/ab/cdef0123', '/r/.git/objects/pack/pack-1.pack', '/r/.git/objects/info']) {
+    check(!storeIsOwn('/r/.git', '/r/.git', [], [], [link]), `nor one with a link under refs or objects (${link.replace('/r/.git/', '')}), at any depth`)
+  }
+  // A linked worktree's store must name the folder back.
+  check(worktreeNamesBack('/w/tree', '/main/.git/worktrees/tree', '/w/tree/.git\n') && worktreeNamesBack('/private/tmp/w', '/m/.git/worktrees/w', '/tmp/w/.git\n') && worktreeNamesBack('/tmp/w', '/m/.git/worktrees/w', '/private/tmp/w/.git') && worktreeNamesBack('/m/trees/w', '/m/.git/worktrees/w', '../../../trees/w/.git\n'), 'a real linked worktree: its store names the folder back (written in full, by the other spelling of a Mac temp folder, or relative)')
+  check(!worktreeNamesBack('/home/demo/mine', '/victim/.git/worktrees/theirs', '/victim-trees/theirs/.git\n') && !worktreeNamesBack('/a', '/m/.git/worktrees/w', '') && !worktreeNamesBack('/a', '/m/.git/worktrees/w', '/a\n') && !worktreeNamesBack('/a/b', '/m/.git/worktrees/w', '/a/.git\n'), "a folder whose .git file points at another repository's worktree store is not named back by it")
+  check(parseGitWhere('true\n/a/wt\n/a/main/.git/worktrees/wt\n')?.linked === true && parseGitWhere('true\n/a/b\n/a/b/.git\n')?.linked === false && parseGitWhere('true\n/a/main/sub\n/a/main/.git/modules/sub\n')?.linked === false, 'which repositories that check applies to')
+  check(parseGitWhere('true\n/home/demo/mine\n/victim/.git/modules/x\n') === null && parseGitWhere('true\n/a/main/deep/sub\n/a/main/.git/modules/deep/sub\n') !== null && parseGitWhere('true\n/a/mainly/sub\n/a/main/.git/modules/sub\n') === null, "a submodule's git folder must be inside the repository that holds it, a folder above the top")
+  const TAGGED = `+ok${String.fromCharCode(0x202e)}reversed${String.fromCharCode(0x2066)}x`
+  check(diffLineShown(TAGGED) === '+okreversedx' && diffLineShown('+plain text') === '+plain text', 'a diff line is drawn without the characters that reorder text on screen, and otherwise as it is')
+  const manyLines = clipDiff('+\n'.repeat(GIT_DIFF_LINES_MAX + 100))
+  check(manyLines.truncated && manyLines.text.split('\n').length === GIT_DIFF_LINES_MAX && !clipDiff('+\n'.repeat(GIT_DIFF_LINES_MAX)).truncated, 'a change of very many short lines is cut at the most lines drawn')
+  check(GIT_LOG_ARGS.includes('--no-show-signature') && GIT_LOG_ARGS.includes('log.showSignature=false') && GIT_LOG_ARGS[GIT_LOG_ARGS.length - 1] === '@{upstream}..HEAD' && GIT_LOG_ARGS.includes('--format=%h%x09%s'), 'the log: fixed format, no signature check (which would start a program), only what the upstream lacks')
+  const TAB = String.fromCharCode(9)
+  check(parseGitLog(`0a0dc05${TAB}first line${Z}\n1b2c3d4${TAB}second${TAB}with a tab${Z}`).map((c) => `${c.hash}=${c.subject}`).join('|') === `0a0dc05=first line|1b2c3d4=second${TAB}with a tab` && parseGitLog('').length === 0 && parseGitLog(`zzzz${TAB}x${Z}`).length === 0, 'each commit: a short hash and its subject; anything else is skipped')
+  const big = clipDiff(`${'+line\n'.repeat(GIT_DIFF_SHOW_MAX / 4)}`)
+  check(big.truncated && big.text.length <= GIT_DIFF_SHOW_MAX && big.text.endsWith('+line') && !clipDiff('small\n').truncated, 'a long diff is cut at the limit, on a line')
+  const groups = gitGroups(E)
+  check(groups.map((g) => `${g.title}:${g.rows.length}`).join() === 'In conflict:1,Staged:2,Not staged:2,Untracked:2', 'the panel groups them: in conflict, staged, not staged, untracked; a file changed in both places is in both', groups.map((g) => `${g.title}:${g.rows.length}`).join())
+  check(groups[1].rows.map((r) => `${r.shown}=${r.what}/${r.mode}`).join('|') === 'both.txt=modified/staged|added.txt=added/staged' && groups[3].rows.map((r) => `${r.what}/${r.mode}`).join() === 'new file/untracked,new folder/null', 'each row says what happened and which diff it opens; a new folder opens none')
+  check(gitGroups([]).length === 0 && gitMoreWords(0) === '' && gitMoreWords(1) === '1 more changed file is not listed.' && gitMoreWords(7) === '7 more changed files are not listed.', 'nothing changed is no groups; more than fit are counted in words')
+  check(gitEmptyWords({ kind: 'detail', entries: [], more: 0, commits: [] }) === 'Nothing is changed.' && gitEmptyWords({ kind: 'unreadable', why: 'Git did not answer in time.' }) === 'Git did not answer in time.' && gitEmptyWords({ kind: 'detail', entries: E, more: 0, commits: [] }) === '' && gitChip({ kind: 'unreadable', why: 'Git did not answer in time.' })?.head === 'git not read', 'an empty list, and a repository that could not be read, say so')
+}
+
 console.log('2. the commands and the environment')
 {
   const all = [...GIT_WHERE_ARGS, ...GIT_STATUS_ARGS]
@@ -137,7 +211,11 @@ console.log('2. the commands and the environment')
   }
   check(GIT_STATUS_ARGS.includes('--no-optional-locks') && GIT_STATUS_ARGS.includes('--ignore-submodules=all') && GIT_STATUS_ARGS.includes('-z') && GIT_STATUS_ARGS.includes('--porcelain=v2'), 'status takes no lock, enters no submodule, and answers in the machine format')
   const verbs = all.filter((a) => !a.startsWith('-') && !a.includes('='))
-  check(verbs.join() === 'rev-parse,status', 'the only git commands are rev-parse and status: nothing that writes, fetches or pushes', verbs.join())
+  check(verbs.join() === 'rev-parse,status', 'the two commands behind the marks are rev-parse and status', verbs.join())
+  {
+    const every = [...all, ...GIT_LOG_ARGS, ...GIT_COMMON_ARGS, ...(gitDiffArgs('staged', 'x') ?? []), ...(gitDiffArgs('unstaged', 'x') ?? [])].filter((a) => !a.startsWith('-') && !a.includes('=') && !a.includes('/') && a !== 'x' && !a.includes('{'))
+    check([...new Set(every)].sort().join() === '30,diff,log,rev-parse,status', 'with the panel: diff and log as well. Nothing that writes, fetches or pushes', [...new Set(every)].sort().join())
+  }
   check(/^ulimit -u 0 2>\/dev\/null \|\| ulimit -p 0 2>\/dev\/null \|\| exit 97; exec "\$@"$/.test(NO_FORK_SCRIPT), 'the script sets the process limit to zero, stops if it cannot, and then IS the command (its arguments are never part of the script)')
   const env = gitReadEnv({ PATH: '/usr/bin:/bin', HOME: '/home/demo', GIT_DIR: '/evil', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: '/evil', GIT_EXEC_PATH: '/evil', GIT_SSH: '/evil', LD_PRELOAD: '/evil.so', DYLD_INSERT_LIBRARIES: '/evil.dylib', EDITOR: 'vi' })
   check(Object.keys(env).sort().join() === 'GIT_CEILING_DIRECTORIES,GIT_OPTIONAL_LOCKS,GIT_PAGER,GIT_TERMINAL_PROMPT,HOME,LANG,LC_ALL,PATH' && env.PATH === GIT_PATH && env.HOME === '/home/demo' && env.GIT_CEILING_DIRECTORIES === '/home/demo', "git's environment is a short fixed list: no GIT_* setting, loader variable or editor from Beacon's own environment reaches it", Object.keys(env).join())
@@ -357,8 +435,190 @@ void (async () => {
       const open = await readGit(inner, ENV)
       forgetGitReads()
       const held = await readGit(inner, ENV, (top) => top === inner)
-      check(open.kind === 'state' && open.top === outer, '(control) with any top allowed, such a repository does read the folder above', JSON.stringify(open).slice(0, 160))
-      check(held.kind === 'none', "with the caller's rule for tops, a repository whose settings name a folder above the work folder is not read")
+      check(open.kind === 'none' && held.kind === 'none', "a submodule-shaped git folder whose settings name the folder above as its work tree is not read, with or without the caller's rule for tops: a submodule's store belongs to a folder above it, not to itself", JSON.stringify(open).slice(0, 160))
+    }
+    {
+      // The panel's reads, on a real repository, and on one whose settings name programs for diff and log.
+      const dir = make('panel')
+      writeFileSync(join(dir, 'a.txt'), 'one, edited\n')
+      writeFileSync(join(dir, 'staged.txt'), 'staged content\n')
+      g(dir, 'add', 'staged.txt')
+      writeFileSync(join(dir, 'new file.txt'), 'brand new\n')
+      mkdirSync(join(dir, 'newdir'))
+      writeFileSync(join(dir, 'newdir', 'x.txt'), 'x\n')
+      const mark = join(root, 'mark-diff')
+      const prog = join(root, 'prog-diff.sh')
+      writeFileSync(prog, `#!/bin/sh\necho ran >> ${JSON.stringify(mark)}\ncat "$2" 2>/dev/null\nexit 0\n`)
+      chmodSync(prog, 0o755)
+      g(dir, 'config', 'diff.external', prog)
+      writeFileSync(join(dir, '.gitattributes'), '*.txt diff=evil\n')
+      g(dir, 'config', 'diff.evil.textconv', prog)
+      g(dir, 'config', 'diff.evil.command', prog)
+      g(dir, 'config', 'log.showSignature', 'true')
+      g(dir, 'config', 'gpg.program', prog)
+      const detail = await readGitDetail(dir, ENV)
+      check(detail.kind === 'detail' && detail.entries.map((e) => e.path).sort().join('|') === '.gitattributes|a.txt|new file.txt|newdir/|staged.txt' && detail.commits.length === 0, 'the panel lists the changed files (no upstream, so no commits ahead)', JSON.stringify(detail).slice(0, 300))
+      const un = await readGitDiff(dir, 'a.txt', 'unstaged', ENV)
+      check(un.kind === 'diff' && /^-one$/m.test(un.text) && /^\+one, edited$/m.test(un.text) && !un.truncated, "a changed file's diff is the real one", JSON.stringify(un).slice(0, 200))
+      const st = await readGitDiff(dir, 'staged.txt', 'staged', ENV)
+      check(st.kind === 'diff' && /^\+staged content$/m.test(st.text), "a staged file's diff compares the index")
+      const nw = await readGitDiff(dir, 'new file.txt', 'untracked', ENV)
+      check(nw.kind === 'diff' && /^\+brand new$/m.test(nw.text), "a new file's diff is the whole file, added")
+      check(!existsSync(mark), "none of that ran the repository's diff tool or textconv filter")
+      try {
+        execFileSync('git', ['diff', '--', 'a.txt'], { cwd: dir, env: ENV, stdio: 'ignore', timeout: 20000 })
+      } catch {
+        /* its exit code does not matter */
+      }
+      check(existsSync(mark), '(control) plain git diff in that folder does run the program')
+      // The path is the page's word: it is used only if git lists it, that way.
+      for (const [p, mode] of [['b.txt', 'unstaged'], ['a.txt', 'staged'], ['a.txt', 'untracked'], ['newdir/', 'untracked'], ['newdir/x.txt', 'untracked'], ['staged.txt', 'untracked'], ['../clean/a.txt', 'unstaged'], ['/etc/hosts', 'untracked'], ['.git/config', 'untracked'], ['--output=x', 'unstaged'], ['a.txt', 'everything']] as const) {
+        const r = await readGitDiff(dir, p, mode, ENV)
+        check(r.kind === 'none', `no diff for ${JSON.stringify(p)} as ${mode}: git does not list it that way`, JSON.stringify(r).slice(0, 120))
+      }
+      check((await readGitDiff(dir, 'a.txt', 'unstaged', ENV, () => false)).kind === 'none' && (await readGitDetail(dir, ENV, () => false)).kind === 'none', "and the caller's rule for repository tops holds for the panel's reads too")
+      // Commits ahead, against a real upstream.
+      const localDetail = await readGitDetail(local, ENV)
+      check(localDetail.kind === 'detail' && localDetail.commits.map((c) => c.subject).join('|') === 'local two|local one' && localDetail.commits.every((c) => /^[0-9a-f]{7,}$/.test(c.hash)), 'the commits the upstream lacks are listed, newest first', JSON.stringify(localDetail).slice(0, 200))
+    }
+    {
+      // What a review found: three ways to make a diff or a log print ANOTHER repository's committed
+      // files, and two ways to make an untracked "file" be something outside the folder.
+      const victim = make('victim')
+      writeFileSync(join(victim, 'private.env'), 'TOP-SECRET-OF-ANOTHER-REPOSITORY\n')
+      g(victim, 'add', '-A')
+      g(victim, 'commit', '-q', '-m', 'the victim keeps a secret subject')
+      const leaks = (r: unknown): boolean => /TOP-SECRET|secret subject/.test(JSON.stringify(r))
+      // 1. a commondir file
+      const b1 = join(root, 'borrow-commondir')
+      mkdirSync(b1)
+      g(b1, 'init', '-q', '.')
+      writeFileSync(join(b1, '.git', 'commondir'), `${join(victim, '.git')}\n`)
+      const d1 = await readGitDetail(b1, ENV)
+      const r1 = await readGitDiff(b1, 'private.env', 'staged', ENV)
+      const plainStatus = execFileSync('git', ['status', '--porcelain=v2'], { cwd: b1, env: ENV, encoding: 'utf8', timeout: 20000 })
+      check(/private\.env/.test(plainStatus), "(control) a repository given a commondir file does list the other repository's file as its own")
+      check(!leaks(r1) && r1.kind === 'unreadable' && r1.why === GIT_BORROWED && d1.kind === 'unreadable' && d1.why === GIT_BORROWED && !/private\.env/.test(JSON.stringify(d1)), "its list and its diff are refused, with why: not even the other repository's file names are shown", JSON.stringify([d1, r1]).slice(0, 200))
+      let plainLeak = ''
+      try {
+        plainLeak = execFileSync('git', ['diff', '--cached', '--', 'private.env'], { cwd: b1, env: ENV, encoding: 'utf8', timeout: 20000 })
+      } catch {
+        /* its exit code does not matter */
+      }
+      check(/TOP-SECRET/.test(plainLeak), "(control) plain git diff there does print the other repository's file")
+      // 2. alternates, with a ref that is a link
+      const b2 = make('borrow-alternates')
+      mkdirSync(join(b2, '.git', 'objects', 'info'), { recursive: true })
+      writeFileSync(join(b2, '.git', 'objects', 'info', 'alternates'), `${join(victim, '.git', 'objects')}\n`)
+      rmSync(join(b2, '.git', 'refs', 'heads', 'main'), { force: true })
+      symlinkSync(join(victim, '.git', 'refs', 'heads', 'main'), join(b2, '.git', 'refs', 'heads', 'main'))
+      const d2 = await readGitDetail(b2, ENV)
+      const some2 = d2.kind === 'detail' ? d2.entries.find((e) => e.kind === 'changed') : undefined
+      const r2 = some2 ? await readGitDiff(b2, some2.path, some2.index !== '.' ? 'staged' : 'unstaged', ENV) : null
+      check(d2.kind === 'unreadable' && d2.why === GIT_BORROWED && !leaks(d2) && !leaks(r2), 'a repository with a list of other object stores shows no list, no diff and no commit subjects', JSON.stringify([d2.kind, r2]).slice(0, 200))
+      // 3. an index that is a link
+      const b3 = make('borrow-index')
+      rmSync(join(b3, '.git', 'index'))
+      symlinkSync(join(victim, '.git', 'index'), join(b3, '.git', 'index'))
+      const d3 = await readGitDetail(b3, ENV)
+      const any3 = d3.kind === 'detail' ? d3.entries.find((e) => e.kind === 'changed') : undefined
+      const r3 = any3 ? await readGitDiff(b3, any3.path, any3.index !== '.' ? 'staged' : 'unstaged', ENV) : null
+      check(d3.kind === 'unreadable' && d3.why === GIT_BORROWED && !leaks(r3), "nor does one whose index is a link to another repository's", JSON.stringify([d3.kind, r3]).slice(0, 160))
+      // 4. a .git file pointing at ANOTHER repository's existing worktree store (nothing of the victim is written)
+      const vTree = join(root, 'victim-tree')
+      g(victim, 'worktree', 'add', '-q', vTree, '-b', 'side')
+      const b4 = join(root, 'borrow-worktree')
+      mkdirSync(b4)
+      writeFileSync(join(b4, '.git'), `gitdir: ${join(victim, '.git', 'worktrees', 'victim-tree')}\n`)
+      const s4 = await read(b4)
+      const d4 = await readGitDetail(b4, ENV)
+      const r4 = await readGitDiff(b4, 'private.env', 'unstaged', ENV)
+      check(s4.kind === 'none' && d4.kind === 'none' && r4.kind === 'none' && !leaks([s4, d4, r4]), "a folder whose .git file points at another repository's worktree store is not read at all: that store does not name this folder back", JSON.stringify([s4.kind, d4.kind, r4.kind]))
+      let plain4 = ''
+      try {
+        plain4 = execFileSync('git', ['diff', 'HEAD', '--', 'private.env'], { cwd: b4, env: ENV, encoding: 'utf8', timeout: 20000 })
+      } catch {
+        /* its exit code does not matter */
+      }
+      check(/TOP-SECRET/.test(plain4), "(control) plain git diff there does print the other repository's file")
+      // And a real linked worktree of this repository still reads.
+      writeFileSync(join(vTree, 'a.txt'), 'changed in the worktree\n')
+      const realTree = await readGitDetail(vTree, ENV)
+      const realDiff = await readGitDiff(vTree, 'a.txt', 'unstaged', ENV)
+      check(realTree.kind === 'detail' && realTree.entries.some((e) => e.path === 'a.txt') && realDiff.kind === 'diff' && /^\+changed in the worktree$/m.test(realDiff.text), 'a real linked worktree is listed and its diffs are shown', JSON.stringify([realTree.kind, realDiff.kind]))
+      // Untracked "files" that are not files of this folder.
+      const outside = join(root, 'outside-folder')
+      mkdirSync(outside)
+      writeFileSync(join(outside, 'null'), 'OUTSIDE-NULL-CONTENT\n')
+      writeFileSync(join(outside, 'secret.txt'), 'OUTSIDE-SECRET-CONTENT\n')
+      const u = make('untracked-tricks')
+      symlinkSync(outside, join(u, 'x'))
+      symlinkSync(join(outside, 'secret.txt'), join(u, 'leaf.txt'))
+      const dirLink = await readGitDiff(u, 'x', 'untracked', ENV)
+      check(dirLink.kind === 'diff' && !/OUTSIDE/.test(dirLink.text) && /a link to /.test(dirLink.text), 'an untracked link to a folder is shown as a link (git, asked to diff it, printed a file from inside that folder)', JSON.stringify(dirLink).slice(0, 200))
+      const leafLink = await readGitDiff(u, 'leaf.txt', 'untracked', ENV)
+      check(leafLink.kind === 'diff' && !/OUTSIDE/.test(leafLink.text) && /a link to /.test(leafLink.text), 'an untracked link to a file is shown as a link, not followed')
+      // A folder on the way, swapped for a link to outside after git listed the file.
+      mkdirSync(join(u, 'sub'))
+      writeFileSync(join(u, 'sub', 'tracked.txt'), 't\n')
+      g(u, 'add', 'sub/tracked.txt')
+      g(u, 'commit', '-q', '-m', 'sub')
+      writeFileSync(join(u, 'sub', 'secret.txt'), 'inside, harmless\n')
+      const inside = await readGitDiff(u, 'sub/secret.txt', 'untracked', ENV)
+      check(inside.kind === 'diff' && /^\+inside, harmless$/m.test(inside.text), '(control) an ordinary untracked file in a subfolder is shown')
+      renameSync(join(u, 'sub'), join(u, 'sub-real'))
+      symlinkSync(outside, join(u, 'sub'))
+      const swapped = await readUntracked(u, 'sub/secret.txt')
+      check(!/OUTSIDE/.test(JSON.stringify(swapped)) && swapped.kind === 'unreadable' && /link to outside this folder/.test(swapped.why), "the same path, once a folder on the way has become a link to outside, is refused: its file is not this folder's", JSON.stringify(swapped).slice(0, 200))
+      rmSync(join(u, 'sub'))
+      renameSync(join(u, 'sub-real'), join(u, 'sub'))
+      // Other things an untracked path can be.
+      writeFileSync(join(u, 'big.bin'), Buffer.alloc(UNTRACKED_MAX_BYTES + 1, 65))
+      writeFileSync(join(u, 'image.dat'), Buffer.from([1, 2, 0, 3, 4]))
+      let fifo = true
+      try {
+        execFileSync('mkfifo', [join(u, 'pipe')])
+      } catch {
+        fifo = false
+      }
+      const tBig = await readUntracked(u, 'big.bin')
+      const tBin = await readUntracked(u, 'image.dat')
+      const t0 = Date.now()
+      const tPipe = fifo ? await readUntracked(u, 'pipe') : { kind: 'none' as const }
+      check(tBig.kind === 'unreadable' && /too large/.test(tBig.why) && tBin.kind === 'diff' && tBin.text === 'Binary file, 5 bytes.\n' && tPipe.kind === 'none' && Date.now() - t0 < 1500, 'a very large file is not read, a binary one is named as such, and a pipe is not opened (and not waited on)')
+      check((await readUntracked(u, '../victim/private.env')).kind === 'none' && (await readUntracked(u, '/etc/hosts')).kind === 'none' && (await readUntracked('relative', 'a.txt')).kind === 'none' && (await readUntracked(u, 'no-such-file.txt')).kind === 'unreadable', 'a path that climbs out, an absolute path, and a file that is not there are not read')
+    }
+    {
+      // From a subfolder of the repository, a conflicted file, and a signed commit in the log.
+      const sub = join(clean, 'sub')
+      forgetGitReads()
+      const fromSub = await readGitDetail(sub, ENV)
+      const subDiff = await readGitDiff(sub, 'a.txt', 'unstaged', ENV)
+      check(fromSub.kind === 'detail' && fromSub.entries.some((e) => e.path === 'a.txt') && subDiff.kind === 'diff' && /^\+one, changed$/m.test(subDiff.text), 'asked from a folder inside the repository, the files are listed from its top and a diff is of the right file')
+      const conflict = await readGitDetail(m, ENV)
+      const clash = conflict.kind === 'detail' ? conflict.entries.find((e) => e.kind === 'conflicted') : undefined
+      const clashDiff = clash ? await readGitDiff(m, clash.path, 'unstaged', ENV) : null
+      check(!!clash && entryHasDiff(clash, 'unstaged') && clashDiff?.kind === 'diff' && /^diff --cc /m.test(clashDiff.text) && /^\+\+<<<<<<< /m.test(clashDiff.text), "a conflicted file's diff is git's combined one, with both sides", JSON.stringify(clashDiff).slice(0, 200))
+      // A commit that claims a signature: showing it would start the signature checker.
+      const mark = join(root, 'mark-gpg')
+      const prog = join(root, 'prog-gpg.sh')
+      writeFileSync(prog, `#!/bin/sh\necho ran >> ${JSON.stringify(mark)}\nexit 1\n`)
+      chmodSync(prog, 0o755)
+      const raw = g(local, 'cat-file', '-p', 'HEAD')
+      const cut = raw.indexOf('\n\n')
+      const signed = `${raw.slice(0, cut)}\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n iQEzBAABCAAdFiEE\n -----END PGP SIGNATURE-----${raw.slice(cut)}`
+      const oid = execFileSync('git', ['hash-object', '-t', 'commit', '-w', '--stdin'], { cwd: local, env: ENV, input: signed, encoding: 'utf8' }).trim()
+      g(local, 'update-ref', 'HEAD', oid)
+      g(local, 'config', 'log.showSignature', 'true')
+      g(local, 'config', 'gpg.program', prog)
+      const signedDetail = await readGitDetail(local, ENV)
+      check(signedDetail.kind === 'detail' && signedDetail.commits.length === 2 && !existsSync(mark), 'the commits not yet upstream are listed without the signature checker being started, even when the repository asks for it', JSON.stringify(signedDetail).slice(0, 160))
+      try {
+        execFileSync('git', ['log', '-n', '1'], { cwd: local, env: ENV, stdio: 'ignore', timeout: 20000 })
+      } catch {
+        /* its exit code does not matter */
+      }
+      check(existsSync(mark), '(control) plain git log there does start it')
     }
     await hostile("settings smuggled in through Beacon's own environment", () => undefined, { expectPlainRuns: false, baseEnv: { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: join(root, `prog-${n + 1}.sh`) } })
     {
@@ -414,14 +674,20 @@ void (async () => {
     const read = (p: string): string => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8')
     const main = read('src/main/index.ts')
     const reader = read('src/main/git-reader.ts')
-    const handler = main.slice(main.indexOf('handleFromShell(IPC.GIT_READ'), main.indexOf('handleFromShell(IPC.WORK_FOLDER_WHERE'))
-    check(handler.length > 0 && /if \(\(await proveHere\(\)\) !== 'here'\) return none/.test(handler), 'main reads git only when Prometheus has been proved to share this disk')
+    const handler = main.slice(main.indexOf('const gitFolderFor = async'), main.indexOf('handleFromShell(IPC.WORK_FOLDER_WHERE'))
+    check(handler.length > 0 && /if \(\(await proveHere\(\)\) !== 'here'\) return null/.test(handler), 'main reads git only when Prometheus has been proved to share this disk')
     check(/getDaemon\(`\/api\/sessions\/\$\{encodeURIComponent\(sessionId\)\}\/workspace`\)/.test(handler) && handler.indexOf('proveHere()') < handler.indexOf('getDaemon(') && handler.indexOf('getDaemon(') < handler.indexOf('readGit('), 'the folder is the one Prometheus names for that conversation, asked after the proof and before the reading')
-    check(/async \(_e, sessionId: unknown\)/.test(handler) && !/path: unknown|folder: string\)/.test(handler) && (main.match(/readGit\(/g) ?? []).length === 1, 'the page names a conversation, never a path, and this is the one place main reads git')
-    check(/if \(conn !== connection \|\| typeof folder !== 'string'\) return none/.test(handler), 'an answer from a connection that has since been replaced is not used')
-    check(/if \(folderProblem\(folder, realHome\(\)\) !== ''\) return none/.test(handler) && handler.indexOf('folderProblem(folder') < handler.indexOf('readGit(') && /return readGit\(folder, process\.env, \(top\) => folderProblem\(top, home\) === ''\)/.test(handler), "only a folder Beacon would let a person choose as a work folder is read, whatever set the binding, and the repository's top is held to the same rule")
-    check(reader.indexOf('if (!topAllowed(at.top))') > 0 && reader.indexOf('if (!topAllowed(at.top))') < reader.indexOf('GIT_STATUS_ARGS], folder, env)'), 'the top is judged before status, the command that walks the folder, is run')
+    check(/async \(_e, sessionId: unknown\)/.test(handler) && !/folder: unknown\)|folder: string\)/.test(handler) && (main.match(/readGit\(/g) ?? []).length === 1, 'the page names a conversation, never a path, and this is the one place main reads git')
+    check(/if \(conn !== connection \|\| typeof folder !== 'string'\) return null/.test(handler), 'an answer from a connection that has since been replaced is not used')
+    check(/if \(folderProblem\(folder, home\) !== ''\) return null/.test(handler) && handler.indexOf('folderProblem(folder') < handler.indexOf('readGit(') && /return \{ folder, topAllowed: \(top\) => folderProblem\(top, home\) === '' \}/.test(handler) && /return at \? readGit\(at\.folder, process\.env, at\.topAllowed\) : none/.test(handler), "only a folder Beacon would let a person choose as a work folder is read, whatever set the binding, and the repository's top is held to the same rule")
+    check(reader.indexOf('if (!topAllowed(at.top))') > 0 && reader.indexOf('if (!topAllowed(at.top))') < reader.indexOf('GIT_STATUS_ARGS], folder, o.env)') && (reader.match(/await open\(folder, baseEnv, topAllowed\)/g) ?? []).length === 3, 'the top is judged before status, the command that walks the folder, is run, on every one of the three reads')
     check(/if \(going && going\.conn === conn\) return going\.answer/.test(handler) && /if \(known && known\.conn === conn\) return known\.verdict/.test(main), 'one question per conversation at a time, and the shared-disk proof is good only for the connection it was made on')
+    check(/handleFromShell\(IPC\.GIT_DETAIL, async \(_e, sessionId: unknown\)[\s\S]{0,260}const at = await gitFolderFor\(sessionId\)/.test(main) && /handleFromShell\(IPC\.GIT_DIFF, async \(_e, sessionId: unknown, path: unknown, mode: unknown\)[\s\S]{0,420}const at = await gitFolderFor\(sessionId\)\s*return at \? readGitDiff\(at\.folder, path, mode, process\.env, at\.topAllowed\)/.test(main) && (main.match(/gitFolderFor\(/g) ?? []).length === 3, "the panel's two reads find their folder the same way: the conversation's, proved here, allowed")
+    check(/if \(going && going\.conn === conn\) return going\.answer as Promise<T>/.test(main) && /oncePer\(`detail\\n\$\{sessionId\}`/.test(main) && /oncePer\(`diff\\n\$\{sessionId\}\\n\$\{mode\}\\n\$\{path\}`/.test(main) && /if \(waiting\.length >= WAITING_MAX\) return BUSY/.test(reader) && /const WAITING_MAX = 16/.test(reader), 'the same question asked again while it is being answered is one question, and no more than a few reads wait their turn')
+    check(/const entry = parseGitEntries\(out\)\?\.entries\.find\(\(e\) => e\.path === path\)\s*if \(!entry \|\| !entryHasDiff\(entry, mode\)\) return \{ kind: 'none' \}/.test(reader), 'a diff is read only for a path git itself has just listed, in the way it was listed')
+    const untrackedSrc = read('src/main/git-untracked.ts')
+    check(/if \(mode === 'untracked'\) return readUntracked\(o\.at\.top, path\)/.test(reader) && reader.indexOf("if (!entry || !entryHasDiff(entry, mode)) return { kind: 'none' }") < reader.indexOf('readUntracked(o.at.top, path)') && /O_RDONLY \| constants\.O_NOFOLLOW \| constants\.O_NONBLOCK/.test(untrackedSrc) && /if \(!real\.startsWith\(realTop === '\/' \? '\/' : `\$\{realTop\}\/`\)\)/.test(untrackedSrc), 'a file git does not track is read by Beacon itself, only once git has listed it, only if it is really inside the top, without following a link')
+    check(/if \(!\(await ownStore\(o\)\)\) return \{ kind: 'unreadable', why: GIT_BORROWED \}/.test(reader) && reader.indexOf("if (!(await ownStore(o))) return { kind: 'unreadable'") < reader.indexOf('const r = await run([o.git, ...args], o.at.top, o.env)') && (reader.match(/if \(!\(await ownStore\(o\)\)\) return \{ kind: 'unreadable', why: GIT_BORROWED \}/g) ?? []).length === 2 && /if \(at\.linked\) \{\s*const back = await run\(\['\/bin\/cat', '--', `\$\{at\.gitDir\}\/gitdir`\], '\/', env\)\s*if \(back\.code !== 0 \|\| !worktreeNamesBack\(at\.top, at\.gitDir, back\.out\)\) return \{ kind: 'none' \}/.test(reader), "the file list, a tracked file's diff and the commit subjects are read only from a repository whose store is its own, and a linked worktree only if its store names the folder back")
     check((reader.match(/execFile\(/g) ?? []).length === 1 && (reader.match(/'exec "\$@"'/g) ?? []).length === 2 && /execFile\(SH, \['-c', script, 'sh', \.\.\.argv\]/.test(reader) && !/exec\(|spawn\(|shell: true/.test(reader), 'every command the reader runs goes through the one call that applies the process limit, with its arguments as data; the two that run without it (the self-test control, and asking where git is) run at the top of the disk, never in the folder')
     check(/timeout: TIME_MS, killSignal: 'SIGKILL', maxBuffer: OUT_MAX/.test(reader) && /if \(!\(await forkLimitEnforced\(probeEnv\)\)\) return \{ kind: 'unreadable', why: GIT_UNSAFE_HERE \}/.test(reader) && /if \(free\.code !== 0 \|\| !\/\^started:0\$\/m\.test\(free\.out\)\) return false/.test(reader) && /if \(limited\.timedOut \|\| limited\.code === null\) return false/.test(reader), 'each has a time limit and an output limit; nothing is read where the process limit is not enforced, and the self-test counts as passed only when the probe ran both without the limit (and worked) and under it (and did not)')
     const store = read('src/renderer/src/git-store.ts')

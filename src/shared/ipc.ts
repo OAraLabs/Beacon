@@ -79,6 +79,8 @@ export const IPC = {
   WINDOW_RELOAD: 'window:reload',
   APPROVALS_NEW: 'approvals:new', // renderer -> main (send): NEW pending requests (from poll) → main decides notification. Main is the ONE notification authority (push frames feed the same path) — one dedupe set, one request gets one notification.
   CAPTURE_OPEN_MAIN: 'capture:open-main', // renderer -> main (send): quick-capture → open main on a session
+  GIT_DETAIL: 'git:detail', // renderer -> main: the changed files and commits ahead in a conversation's work folder
+  GIT_DIFF: 'git:diff', // renderer -> main: one changed file's diff (the path is used only if git lists it)
   GIT_READ: 'git:read', // renderer -> main: what git says about a conversation's work folder, when Prometheus shares this disk (@shared/git-state)
   WORK_FOLDER_WHERE: 'work-folder:where', // renderer -> main: is Prometheus on this computer, and this computer's home folder
   WORK_FOLDER_PICK: 'work-folder:pick', // renderer -> main: the system folder picker, offered only when Prometheus is on this computer
@@ -1136,6 +1138,10 @@ export interface BeaconBridge {
    *  page names a conversation, never a path. `{ kind: 'none' }` whenever there is nothing to show. */
   git: {
     read(sessionId: string): Promise<import('./git-state').GitRead>
+    /** The changed files and the commits not yet upstream. */
+    detail(sessionId: string): Promise<import('./git-state').GitDetail>
+    /** One changed file's diff. `path` must be one `detail` listed; anything else is `{ kind: 'none' }`. */
+    diff(sessionId: string, path: string, mode: import('./git-state').GitDiffMode): Promise<import('./git-state').GitDiff>
   }
   workFolder: {
     where(): Promise<import('./work-folder').FolderWhere>

@@ -105,8 +105,8 @@ import { registerIntegrationsHandlers } from './integrations-ipc'
 import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
 import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
-import { readGit } from './git-reader'
-import type { GitRead } from '@shared/git-state'
+import { readGit, readGitDetail, readGitDiff } from './git-reader'
+import type { GitDetail, GitDiff, GitRead } from '@shared/git-state'
 import { folderProblem, hereVerdict, isThisComputer, type FolderPick, type FolderWhere } from '@shared/work-folder'
 import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
 import { registerBrowserPane } from './browser-pane'
@@ -2474,37 +2474,72 @@ app.whenReady().then(() => {
   // CONVERSATION; main asks Prometheus which folder that is and reads it only when Prometheus has
   // been proved to share this disk (the folder Prometheus names is then a path here too). The
   // reading itself cannot start a program: see git-reader.ts.
-  const gitAsks = new Map<string, { conn: ConnectionManager; answer: Promise<GitRead> }>()
+  /** The folder git may be read in for a conversation, with the rule for repository tops, or null:
+   *  Prometheus proved to share this disk, the folder it names for that conversation, and only a
+   *  folder Beacon would let a person choose as a work folder (not the disk, a system folder, the
+   *  whole home, or the hidden folders at its top), whatever set the binding. */
+  const gitFolderFor = async (sessionId: unknown): Promise<{ folder: string; topAllowed: (top: string) => boolean } | null> => {
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 200 || sessionId === '.' || sessionId === '..') return null
+    const conn = connection
+    if (!conn) return null
+    if ((await proveHere()) !== 'here') return null
+    let folder: unknown
+    try {
+      folder = ((await conn.getDaemon(`/api/sessions/${encodeURIComponent(sessionId)}/workspace`)) as { workspace?: unknown } | null)?.workspace
+    } catch {
+      return null
+    }
+    // The connection may have been replaced while Prometheus was answering: its folder is not this one's to read.
+    if (conn !== connection || typeof folder !== 'string') return null
+    const home = realHome()
+    if (folderProblem(folder, home) !== '') return null
+    // The repository's top is held to the same rule: its settings can name a folder above this one.
+    return { folder, topAllowed: (top) => folderProblem(top, home) === '' }
+  }
+  const gitAsks = new Map<string, { conn: ConnectionManager | null; answer: Promise<GitRead> }>()
   handleFromShell(IPC.GIT_READ, async (_e, sessionId: unknown): Promise<GitRead> => {
     const none: GitRead = { kind: 'none' }
-    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 200 || sessionId === '.' || sessionId === '..') return none
-    const conn = connection
-    if (!conn) return none
+    if (typeof sessionId !== 'string') return none
     // One question per conversation at a time, however many rows and panes ask.
-    const key = sessionId
-    const going = gitAsks.get(key)
+    const conn = connection
+    const going = gitAsks.get(sessionId)
     if (going && going.conn === conn) return going.answer
     const answer = (async (): Promise<GitRead> => {
-      if ((await proveHere()) !== 'here') return none
-      let folder: unknown
-      try {
-        folder = ((await conn.getDaemon(`/api/sessions/${encodeURIComponent(sessionId)}/workspace`)) as { workspace?: unknown } | null)?.workspace
-      } catch {
-        return none
-      }
-      // The connection may have been replaced while Prometheus was answering: its folder is not this one's to read.
-      if (conn !== connection || typeof folder !== 'string') return none
-      // Only a folder Beacon would let a person choose as a work folder: not the disk, a system
-      // folder, the whole home, or the hidden folders at its top. Whatever set this binding.
-      if (folderProblem(folder, realHome()) !== '') return none
-      // The repository's top is held to the same rule: its settings can name a folder above this one.
-      const home = realHome()
-      return readGit(folder, process.env, (top) => folderProblem(top, home) === '')
+      const at = await gitFolderFor(sessionId)
+      return at ? readGit(at.folder, process.env, at.topAllowed) : none
     })().finally(() => {
-      if (gitAsks.get(key)?.answer === answer) gitAsks.delete(key)
+      if (gitAsks.get(sessionId)?.answer === answer) gitAsks.delete(sessionId)
     })
-    gitAsks.set(key, { conn, answer })
+    gitAsks.set(sessionId, { conn, answer })
     return answer
+  })
+  // The Git panel: the changed files and commits ahead, and one file's diff. The page names a
+  // conversation and, for a diff, a path; the path is used only if git lists it (git-reader.ts).
+  // The same question asked again while it is being answered (a held key, two windows) is one question.
+  const gitPanelAsks = new Map<string, { conn: ConnectionManager | null; answer: Promise<unknown> }>()
+  const oncePer = <T>(key: string, make: () => Promise<T>): Promise<T> => {
+    const conn = connection
+    const going = gitPanelAsks.get(key)
+    if (going && going.conn === conn) return going.answer as Promise<T>
+    const answer = make().finally(() => {
+      if (gitPanelAsks.get(key)?.answer === answer) gitPanelAsks.delete(key)
+    })
+    gitPanelAsks.set(key, { conn, answer })
+    return answer
+  }
+  handleFromShell(IPC.GIT_DETAIL, async (_e, sessionId: unknown): Promise<GitDetail> => {
+    if (typeof sessionId !== 'string') return { kind: 'none' }
+    return oncePer(`detail\n${sessionId}`, async (): Promise<GitDetail> => {
+      const at = await gitFolderFor(sessionId)
+      return at ? readGitDetail(at.folder, process.env, at.topAllowed) : { kind: 'none' }
+    })
+  })
+  handleFromShell(IPC.GIT_DIFF, async (_e, sessionId: unknown, path: unknown, mode: unknown): Promise<GitDiff> => {
+    if (typeof sessionId !== 'string' || typeof path !== 'string' || typeof mode !== 'string') return { kind: 'none' }
+    return oncePer(`diff\n${sessionId}\n${mode}\n${path}`, async (): Promise<GitDiff> => {
+      const at = await gitFolderFor(sessionId)
+      return at ? readGitDiff(at.folder, path, mode, process.env, at.topAllowed) : { kind: 'none' }
+    })
   })
   handleFromShell(IPC.WORK_FOLDER_WHERE, async (): Promise<FolderWhere> => {
     const verdict = await proveHere()
