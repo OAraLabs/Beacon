@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { gitChip, gitMark, type GitMarkKind } from '@shared/git-view'
-import { useGit } from '../git-store'
+import { useGit, usePr } from '../git-store'
 import { GitPanel } from './GitPanel'
 import { Icon, type IconName } from './Icon'
 
-const GLYPH: Record<GitMarkKind, IconName> = { branch: 'git-branch', changes: 'git-branch', moved: 'git-moved', alert: 'git-alert' }
+const GLYPH: Record<GitMarkKind, IconName> = { branch: 'git-branch', changes: 'git-branch', moved: 'git-moved', alert: 'git-alert', 'pr-open': 'git-pr', 'pr-draft': 'git-pr-draft', 'pr-merged': 'git-merged', 'pr-closed': 'git-pr-closed' }
 
 /**
  * The git mark on a conversation's row in the session list: a glyph, and the number of changed
@@ -24,7 +24,7 @@ export function GitMark({ sessionId }: { sessionId: string }) {
     io.observe(el)
     return () => io.disconnect()
   }, [])
-  const mark = gitMark(useGit(sessionId, { watch: seen }))
+  const mark = gitMark(useGit(sessionId, { watch: seen }), usePr(sessionId))
   return (
     <span ref={ref} className={`git-mark${mark ? ` is-${mark.kind}` : ' is-empty'}`} title={mark?.words} aria-label={mark?.words} role={mark ? 'img' : undefined} data-testid="git-mark" data-kind={mark?.kind ?? 'none'}>
       {mark ? (
@@ -43,7 +43,8 @@ export function GitMark({ sessionId }: { sessionId: string }) {
  * it for the Git panel (the changed files, their diffs, the commits not yet upstream).
  */
 export function GitChip({ sessionId, refreshKey }: { sessionId: string; refreshKey?: unknown }) {
-  const chip = gitChip(useGit(sessionId, { watch: true, open: true, refreshKey }))
+  const pr = usePr(sessionId)
+  const chip = gitChip(useGit(sessionId, { watch: true, open: true, refreshKey }), pr)
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement | null>(null)
   const button = useRef<HTMLButtonElement | null>(null)
@@ -109,8 +110,9 @@ export function GitChip({ sessionId, refreshKey }: { sessionId: string; refreshK
         {chip.count ? <span className="git-chip-count">{chip.count}</span> : null}
         {chip.ahead > 0 ? <span className="git-chip-move">↑{chip.ahead}</span> : null}
         {chip.behind > 0 ? <span className="git-chip-move">↓{chip.behind}</span> : null}
+        {chip.pr ? <span className="git-chip-pr">{chip.pr}</span> : null}
       </button>
-      {open && place ? <GitPanel sessionId={sessionId} words={chip.words} refreshKey={`${String(refreshKey)}:${chip.words}`} place={place} /> : null}
+      {open && place ? <GitPanel sessionId={sessionId} words={chip.words} refreshKey={`${String(refreshKey)}:${chip.words}`} place={place} pr={pr?.kind === 'pr' ? pr.pr : null} /> : null}
     </div>
   )
 }

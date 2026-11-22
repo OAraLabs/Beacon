@@ -7194,3 +7194,46 @@ button.git-file:focus-visible {
   font-size: 11px;
   color: var(--c-text-dim);
 }
+
+/* ── Pull requests: the row mark, the chip's number, the link in the panel ──────────────────── */
+.git-mark.is-pr-open {
+  color: var(--online-text);
+}
+.git-mark.is-pr-merged {
+  color: var(--lapis-text);
+}
+.git-mark.is-pr-closed {
+  color: var(--c-err-text);
+}
+.session-row.is-active .git-mark.is-pr-open,
+.session-row.is-active .git-mark.is-pr-merged {
+  color: var(--ink);
+}
+.git-chip-pr {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-text);
+}
+.git-pr-link {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  color: var(--c-text);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+.git-pr-link:hover {
+  border-color: var(--c-line-bright);
+}
+.git-pr-link:focus-visible {
+  outline: 2px solid var(--c-arc);
+  outline-offset: 2px;
+}
+.git-pr-link-what {
+  color: var(--c-text-dim);
+  font-size: 12px;
+}

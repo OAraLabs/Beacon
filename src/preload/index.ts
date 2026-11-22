@@ -254,6 +254,7 @@ const api: BeaconBridge = {
   },
   git: {
     read: (sessionId: string) => ipcRenderer.invoke(IPC.GIT_READ, sessionId),
+    pr: (sessionId: string) => ipcRenderer.invoke(IPC.GIT_PR, sessionId),
     detail: (sessionId: string) => ipcRenderer.invoke(IPC.GIT_DETAIL, sessionId),
     diff: (sessionId: string, path: string, mode: 'staged' | 'unstaged' | 'untracked') => ipcRenderer.invoke(IPC.GIT_DIFF, sessionId, path, mode)
   },

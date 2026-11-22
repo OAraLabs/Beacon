@@ -1,0 +1,50 @@
+{
+  "_about": "Real output of `gh pr list --repo <owner/name> --head <branch> --state all --limit 5 --json number,state,isDraft,mergeable,url,statusCheckRollup,headRefName,isCrossRepository` against this repository, captured 2026-11-21 (gh 2.92). Read from disk by smoke:git-reader; never imported.",
+  "draft": [
+    {
+      "headRefName": "ha/approval-card",
+      "isCrossRepository": false,
+      "isDraft": true,
+      "mergeable": "UNKNOWN",
+      "number": 46,
+      "state": "OPEN",
+      "statusCheckRollup": [
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-11-17T02:02:18Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/OAraLabs/Beacon/actions/runs/43999278798/job/133758995319",
+          "name": "verify",
+          "startedAt": "2026-11-17T01:56:19Z",
+          "status": "COMPLETED",
+          "workflowName": "CI"
+        }
+      ],
+      "url": "https://github.com/OAraLabs/Beacon/pull/46"
+    }
+  ],
+  "merged": [
+    {
+      "headRefName": "feat/git-panel",
+      "isCrossRepository": false,
+      "isDraft": false,
+      "mergeable": "UNKNOWN",
+      "number": 65,
+      "state": "MERGED",
+      "statusCheckRollup": [
+        {
+          "__typename": "CheckRun",
+          "completedAt": "2026-11-22T01:30:43Z",
+          "conclusion": "SUCCESS",
+          "detailsUrl": "https://github.com/OAraLabs/Beacon/actions/runs/44971281794/job/137051398929",
+          "name": "verify",
+          "startedAt": "2026-11-22T01:24:03Z",
+          "status": "COMPLETED",
+          "workflowName": "CI"
+        }
+      ],
+      "url": "https://github.com/OAraLabs/Beacon/pull/65"
+    }
+  ],
+  "none": []
+}

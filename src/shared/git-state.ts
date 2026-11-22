@@ -41,6 +41,9 @@ const SAFE_CONFIG = [
 
 const withConfig = (args: readonly string[]): string[] => [...SAFE_CONFIG.flatMap((c) => ['-c', c]), '--no-optional-locks', '--no-pager', ...args]
 
+/** What every read-only git command starts with: the settings above, no locks, no pager. */
+export const GIT_SAFE_PREFIX: readonly string[] = withConfig([])
+
 /** Whether the folder is inside a work tree, then the repository's top folder, then its git folder,
  *  one per line. Fails outside a repository. */
 export const GIT_WHERE_ARGS: readonly string[] = withConfig(['rev-parse', '--is-inside-work-tree', '--show-toplevel', '--absolute-git-dir'])

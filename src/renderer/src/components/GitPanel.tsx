@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { diffLineTone } from '@shared/coding'
 import type { GitDetail, GitDiff, GitDiffMode } from '@shared/git-state'
-import { gitEmptyWords, gitGroups, gitMoreWords } from '@shared/git-view'
+import { gitEmptyWords, gitGroups, gitMoreWords, prStateWords } from '@shared/git-view'
+import type { GitPr } from '@shared/git-pr'
 import { diffLineShown, gitText } from '@shared/git-state'
 
 /**
@@ -9,7 +10,7 @@ import { diffLineShown, gitText } from '@shared/git-state'
  * the commits this branch has that its upstream lacks. Read-only. Everything shown is text git
  * printed about the conversation's own folder; nothing here runs, stages or commits anything.
  */
-export function GitPanel({ sessionId, words, refreshKey, place }: { sessionId: string; words: string; refreshKey?: unknown; place: { left: number; width: number; maxHeight: number } }) {
+export function GitPanel({ sessionId, words, refreshKey, place, pr }: { sessionId: string; words: string; refreshKey?: unknown; place: { left: number; width: number; maxHeight: number }; pr: GitPr | null }) {
   const [detail, setDetail] = useState<GitDetail | null>(null)
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [diffs, setDiffs] = useState<Record<string, GitDiff>>({})
@@ -84,6 +85,14 @@ export function GitPanel({ sessionId, words, refreshKey, place }: { sessionId: s
   return (
     <div className="git-panel" role="dialog" aria-label="Git" data-testid="git-panel" style={{ left: place.left, width: place.width, maxHeight: place.maxHeight }}>
       <div className="git-panel-head">{words}</div>
+      {pr ? (
+        // Opens in the browser: main lets a window open only an https address, and this one is
+        // built from the repository's name and the number, never taken from an answer.
+        <a className={`git-pr-link is-${pr.state}`} href={pr.url} target="_blank" rel="noreferrer" data-testid="git-pr-link">
+          {`Pull request #${pr.number}`}
+          <span className="git-pr-link-what">{prStateWords(pr)}</span>
+        </a>
+      ) : null}
       {detail === null ? <div className="git-panel-note">Reading…</div> : null}
       {empty ? (
         <div className="git-panel-note" data-testid="git-panel-empty">

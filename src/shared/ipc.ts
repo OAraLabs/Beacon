@@ -79,6 +79,7 @@ export const IPC = {
   WINDOW_RELOAD: 'window:reload',
   APPROVALS_NEW: 'approvals:new', // renderer -> main (send): NEW pending requests (from poll) → main decides notification. Main is the ONE notification authority (push frames feed the same path) — one dedupe set, one request gets one notification.
   CAPTURE_OPEN_MAIN: 'capture:open-main', // renderer -> main (send): quick-capture → open main on a session
+  GIT_PR: 'git:pr', // renderer -> main: the pull request for a conversation's branch, through gh on this computer
   GIT_DETAIL: 'git:detail', // renderer -> main: the changed files and commits ahead in a conversation's work folder
   GIT_DIFF: 'git:diff', // renderer -> main: one changed file's diff (the path is used only if git lists it)
   GIT_READ: 'git:read', // renderer -> main: what git says about a conversation's work folder, when Prometheus shares this disk (@shared/git-state)
@@ -1138,6 +1139,8 @@ export interface BeaconBridge {
    *  page names a conversation, never a path. `{ kind: 'none' }` whenever there is nothing to show. */
   git: {
     read(sessionId: string): Promise<import('./git-state').GitRead>
+    /** The pull request for the branch, through `gh` on this computer; none without gh, a GitHub remote or a pushed branch. */
+    pr(sessionId: string): Promise<import('./git-pr').GitPrRead>
     /** The changed files and the commits not yet upstream. */
     detail(sessionId: string): Promise<import('./git-state').GitDetail>
     /** One changed file's diff. `path` must be one `detail` listed; anything else is `{ kind: 'none' }`. */

@@ -6,9 +6,14 @@
 //   changes  the branch glyph with a count: that many changed files
 //   moved    the branch glyph with an arrow: commits ahead of or behind the upstream, no changes
 //   alert    a warning glyph: a merge, rebase or the like under way, or files in conflict
+//   pr-open, pr-draft, pr-merged, pr-closed
+//            the branch has a pull request: its own glyph per state, and its NUMBER beside it
+//            in place of the changed-file count (the words still say both). A trailing `!` on
+//            the number says the pull request needs attention: conflicts, or failing checks.
+import type { GitPr, GitPrRead } from './git-pr'
 import { GIT_MAX_ENTRIES, gitText, type GitDetail, type GitDiffMode, type GitEntry, type GitOperation, type GitRead, type GitState } from './git-state'
 
-export type GitMarkKind = 'branch' | 'changes' | 'moved' | 'alert'
+export type GitMarkKind = 'branch' | 'changes' | 'moved' | 'alert' | 'pr-open' | 'pr-draft' | 'pr-merged' | 'pr-closed'
 
 export interface GitMark {
   kind: GitMarkKind
@@ -52,8 +57,37 @@ export function gitCount(s: GitState, truncated: boolean): string {
   return truncated ? `${GIT_MAX_ENTRIES}+` : String(s.changed)
 }
 
-/** The mark for a row, or null when there is nothing to show (no repository, or not read). */
-export function gitMark(read: GitRead | null | undefined): GitMark | null {
+const PR_STATE_WORDS: Record<GitPr['state'], string> = { open: 'open', draft: 'a draft', merged: 'merged', closed: 'closed' }
+
+/** "open, checks passed" / "a draft, it has conflicts, checks are failing" / "merged". */
+export function prStateWords(pr: GitPr): string {
+  const live = pr.state === 'open' || pr.state === 'draft'
+  const extra = live ? [pr.conflicts ? 'it has conflicts' : '', pr.checks === 'failing' ? 'checks are failing' : pr.checks === 'pending' ? 'checks are running' : pr.checks === 'passing' ? 'checks passed' : ''].filter(Boolean) : []
+  return [PR_STATE_WORDS[pr.state], ...extra].join(', ')
+}
+
+/** "pull request #65 is open, checks passed". */
+export function prWords(pr: GitPr): string {
+  return `pull request #${pr.number} is ${prStateWords(pr)}`
+}
+
+/** Whether an open pull request needs attention: it cannot be merged as it stands, or its checks failed. */
+export function prTrouble(pr: GitPr): boolean {
+  return (pr.state === 'open' || pr.state === 'draft') && (pr.conflicts || pr.checks === 'failing')
+}
+
+/** The mark for a row, or null when there is nothing to show (no repository, or not read). With
+ *  a pull request, the mark is the pull request's and the number is its number, unless something
+ *  is under way in the folder itself (a merge, a conflict), which is the more urgent thing. */
+export function gitMark(read: GitRead | null | undefined, prRead?: GitPrRead | null): GitMark | null {
+  const base = localMark(read)
+  const pr = prRead?.kind === 'pr' ? prRead.pr : null
+  if (!base || !pr) return base
+  if (base.kind === 'alert') return { ...base, words: `${base.words} · ${prWords(pr)}` }
+  return { kind: `pr-${pr.state}`, count: `#${pr.number}${prTrouble(pr) ? '!' : ''}`, words: `${base.words} · ${prWords(pr)}` }
+}
+
+function localMark(read: GitRead | null | undefined): GitMark | null {
   if (!read || read.kind !== 'state') return null
   const s = read.state
   const head = gitHead(s)
@@ -74,19 +108,23 @@ export interface GitChipView {
   /** The branch (or where HEAD is), cut for the header. */
   head: string
   count: string
+  /** `#65` (or `#65!`) when the branch has a pull request, else ''. */
+  pr: string
   ahead: number
   behind: number
   words: string
 }
 
 /** The header chip, or null when there is nothing to show. */
-export function gitChip(read: GitRead | null | undefined): GitChipView | null {
+export function gitChip(read: GitRead | null | undefined, prRead?: GitPrRead | null): GitChipView | null {
   // A repository that could not be read still has a chip: it is how a person finds out why.
-  if (read?.kind === 'unreadable') return { kind: 'alert', head: 'git not read', count: '', ahead: 0, behind: 0, words: `Git: ${read.why}` }
-  const mark = gitMark(read)
-  if (!mark || !read || read.kind !== 'state') return null
+  if (read?.kind === 'unreadable') return { kind: 'alert', head: 'git not read', count: '', pr: '', ahead: 0, behind: 0, words: `Git: ${read.why}` }
+  const mark = gitMark(read, prRead)
+  const local = localMark(read)
+  if (!mark || !local || !read || read.kind !== 'state') return null
   const s = read.state
-  return { kind: mark.kind, head: s.branch ? gitText(s.branch, 28) : s.commit ? `detached ${s.commit}` : 'no commits', count: mark.count, ahead: s.upstream ? (s.ahead ?? 0) : 0, behind: s.upstream ? (s.behind ?? 0) : 0, words: mark.words }
+  // The header has room for both: the changed-file count stays, and the pull request's number follows it.
+  return { kind: mark.kind, head: s.branch ? gitText(s.branch, 28) : s.commit ? `detached ${s.commit}` : 'no commits', count: local.count, pr: mark.kind.startsWith('pr-') ? mark.count : '', ahead: s.upstream ? (s.ahead ?? 0) : 0, behind: s.upstream ? (s.behind ?? 0) : 0, words: mark.words }
 }
 
 /** How long a row's reading is good for, and the open conversation's. */

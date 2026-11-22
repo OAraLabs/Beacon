@@ -45,12 +45,14 @@ import {
   parseGitStatus,
   parseGitWhere
 } from '@shared/git-state'
-import { GIT_OPEN_FRESH_MS, GIT_ROW_FRESH_MS, gitChip, gitEmptyWords, gitGroups, gitMark, gitMoreWords, gitStale } from '@shared/git-view'
+import { GIT_OPEN_FRESH_MS, GIT_ROW_FRESH_MS, gitChip, gitEmptyWords, gitGroups, gitMark, gitMoreWords, gitStale, prTrouble, prWords } from '@shared/git-view'
 import type { GitRead, GitState } from '@shared/git-state'
 import { forgetGitReads, forkLimitEnforced, readGit, readGitDetail, readGitDiff } from './git-reader'
 import { UNTRACKED_MAX_BYTES, readUntracked } from './git-untracked'
+import { readGitPr, resetGitPr } from './git-pr'
+import { GH_PLACES, branchOk, ghEnv, ghPrArgs, githubRepo, parseGhPrs, remoteUrl, upstreamOf, type GitPr, type GitPrRead } from '@shared/git-pr'
 
-const MIN_CHECKS = 208
+const MIN_CHECKS = 292
 let checks = 0
 let failures = 0
 /** Said again at the very end: a run's output is long, and CI shows only its last lines. */
@@ -205,6 +207,61 @@ console.log('1c. the panel: entries, the arguments of a diff, the log')
   check(groups[1].rows.map((r) => `${r.shown}=${r.what}/${r.mode}`).join('|') === 'both.txt=modified/staged|added.txt=added/staged' && groups[3].rows.map((r) => `${r.what}/${r.mode}`).join() === 'new file/untracked,new folder/null', 'each row says what happened and which diff it opens; a new folder opens none')
   check(gitGroups([]).length === 0 && gitMoreWords(0) === '' && gitMoreWords(1) === '1 more changed file is not listed.' && gitMoreWords(7) === '7 more changed files are not listed.', 'nothing changed is no groups; more than fit are counted in words')
   check(gitEmptyWords({ kind: 'detail', entries: [], more: 0, commits: [] }) === 'Nothing is changed.' && gitEmptyWords({ kind: 'unreadable', why: 'Git did not answer in time.' }) === 'Git did not answer in time.' && gitEmptyWords({ kind: 'detail', entries: E, more: 0, commits: [] }) === '' && gitChip({ kind: 'unreadable', why: 'Git did not answer in time.' })?.head === 'git not read', 'an empty list, and a repository that could not be read, say so')
+}
+
+console.log('1d. pull requests')
+{
+  const Z0 = String.fromCharCode(0)
+  const branches = [`refs/heads/main${Z0}origin${Z0}refs/heads/main`, `refs/heads/feat/x${Z0}origin${Z0}refs/heads/feat/x-remote`, `refs/heads/local-only${Z0}${Z0}`, `refs/heads/odd${Z0}origin${Z0}refs/tags/v1`].join('\n')
+  check(JSON.stringify(upstreamOf('refs/heads/feat/x\n', branches)) === '{"remote":"origin","branch":"feat/x-remote"}', 'where the current branch is pushed: the remote, and its name there')
+  check(upstreamOf('refs/heads/local-only', branches) === null && upstreamOf('HEAD', branches) === null && upstreamOf('refs/heads/missing', branches) === null && upstreamOf('refs/heads/odd', branches) === null, 'a branch with no upstream, a detached HEAD, and an upstream that is not a branch have none')
+  const remotes = `remote.origin.url\nhttps://github.com/acme/site.git${Z0}remote.fork.url\ngit@github.com:someone/site.git${Z0}`
+  check(remoteUrl(remotes, 'origin') === 'https://github.com/acme/site.git' && remoteUrl(remotes, 'fork') === 'git@github.com:someone/site.git' && remoteUrl(remotes, 'nope') === null && remoteUrl(remotes, 'origi') === null, "a remote's address is the one under exactly its name")
+  for (const [url, want] of [['https://github.com/acme/site.git', 'acme/site'], ['https://github.com/acme/site', 'acme/site'], ['https://github.com/acme/site/', 'acme/site'], ['git@github.com:acme/site.git', 'acme/site'], ['ssh://git@github.com/acme/my.repo-name_1.git', 'acme/my.repo-name_1']] as const) {
+    check(githubRepo(url) === want, `${url} is ${want}`, String(githubRepo(url)))
+  }
+  for (const url of ['https://gitlab.com/acme/site.git', 'https://github.com.evil.example/acme/site', 'https://user:secret@github.com/acme/site.git', 'https://github.com:8443/acme/site', 'https://github.com/acme/site/extra', 'https://github.com/acme', 'https://github.com/acme/..', 'https://github.com/-flag/site', 'https://github.com/acme/site?x=1', 'https://github.com/ac me/site', '/home/demo/repos/site.git', 'file:///home/demo/site', '--upload-pack=x', 'ext::sh -c x', 'http://github.com/acme/site', '', null] as const) {
+    check(githubRepo(url) === null, `not a github.com repository: ${JSON.stringify(url)}`, String(githubRepo(url)))
+  }
+  for (const b of ['main', 'feat/x', 'release-1.2', 'user@thing', 'a+b', '_x']) check(branchOk(b), `${b} is a branch name to ask about`)
+  for (const b of ['-x', '--repo=evil/x', 'a b', 'a..b', 'a//b', 'x/', 'x.lock', 'a\nb', 'a;b', 'a$b', '', 'x'.repeat(201), null, 7]) check(!branchOk(b), `not one: ${JSON.stringify(typeof b === 'string' ? b.slice(0, 20) : b)}`)
+  const args = ghPrArgs('acme/site', 'feat/x') ?? []
+  check(args.join(' ') === 'pr list --repo acme/site --head feat/x --state all --limit 5 --json number,state,isDraft,mergeable,url,statusCheckRollup,headRefName,isCrossRepository', 'gh is asked about that branch of that repository, by name, and nothing else', args.join(' '))
+  check(ghPrArgs(null, 'x') === null && ghPrArgs('acme/site', '-x') === null && ghPrArgs('acme', 'x') === null && ghPrArgs('acme/site/extra', 'x') === null && ghPrArgs('--flag/x', 'x') === null, 'no repository, or a branch that is not one, is not asked about')
+  const env = ghEnv({ HOME: '/home/demo', PATH: '.:/evil', GH_TOKEN: 'never', GITHUB_TOKEN: 'never', GH_HOST: 'evil.example', GH_ENTERPRISE_TOKEN: 'never', GIT_DIR: '/evil', GH_CONFIG_DIR: 'relative/evil' })
+  check(Object.keys(env).sort().join() === 'GH_HOST,GH_NO_UPDATE_NOTIFIER,GH_PAGER,GH_PROMPT_DISABLED,HOME,LANG,NO_COLOR,PATH' && env.GH_HOST === 'github.com' && !env.PATH.includes('.:') && env.PATH.split(':').every((d) => d.startsWith('/')), "gh's environment is a short fixed list: no token from Beacon's own environment reaches it, and the host is github.com whatever was set", Object.keys(env).join())
+  check(ghEnv({ XDG_CONFIG_HOME: '/home/demo/.config-elsewhere', GH_CONFIG_DIR: '/home/demo/gh' }).XDG_CONFIG_HOME === '/home/demo/.config-elsewhere' && ghEnv({ GH_CONFIG_DIR: '/home/demo/gh' }).GH_CONFIG_DIR === '/home/demo/gh', "where the person keeps gh's own settings, if they moved them, is passed on")
+  check(GH_PLACES.every((p) => p.startsWith('/') && p.endsWith('/gh')) && Object.isFrozen(GH_PLACES), 'gh is looked for in fixed places only, and the list cannot be changed')
+  // The real answers, captured from gh.
+  const fx = JSON.parse(readFileSync(new URL('../../scripts/fixtures/gh-pr-list.json', import.meta.url), 'utf8')) as Record<string, unknown[]>
+  const draft = parseGhPrs(JSON.stringify(fx.draft), 'OAraLabs/Beacon', 'ha/approval-card')
+  check(!!draft && draft.number === 46 && draft.state === 'draft' && !draft.conflicts && draft.url === 'https://github.com/OAraLabs/Beacon/pull/46' && ['passing', 'failing', 'pending', 'none'].includes(draft.checks), 'a real answer for a draft pull request: its number, state and checks', JSON.stringify(draft))
+  const merged = parseGhPrs(JSON.stringify(fx.merged), 'OAraLabs/Beacon', 'feat/git-panel')
+  check(!!merged && merged.number === 65 && merged.state === 'merged' && merged.checks === 'passing', 'a real answer for a merged one', JSON.stringify(merged))
+  check(parseGhPrs(JSON.stringify(fx.none), 'acme/site', 'x') === null && parseGhPrs('', 'acme/site', 'x') === null && parseGhPrs('{"number":1}', 'acme/site', 'x') === null && parseGhPrs('not json', 'acme/site', 'x') === null, 'no pull request, and an answer that is not a list, are none')
+  const pr = (over: Record<string, unknown>): string => JSON.stringify([{ number: 7, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', headRefName: 'feat/x', isCrossRepository: false, url: 'https://evil.example/phish', statusCheckRollup: [], ...over }])
+  check(parseGhPrs(pr({}), 'acme/site', 'feat/x')?.url === 'https://github.com/acme/site/pull/7', "the link is built from the repository and the number: the answer's own url is not used")
+  check(parseGhPrs(pr({ headRefName: 'other' }), 'acme/site', 'feat/x') === null && parseGhPrs(pr({ number: '7' }), 'acme/site', 'feat/x') === null && parseGhPrs(pr({ number: -1 }), 'acme/site', 'feat/x') === null && parseGhPrs(pr({ state: 'WEIRD' }), 'acme/site', 'feat/x') === null && parseGhPrs(pr({ number: 1e21 }), 'acme/site', 'feat/x') === null && parseGhPrs(pr({ number: 7.5 }), 'acme/site', 'feat/x') === null, "another branch's pull request, a number that is not one, or a state that is not one, is none")
+  check(parseGhPrs(pr({ isCrossRepository: true }), 'acme/site', 'feat/x') === null && parseGhPrs(pr({ isCrossRepository: undefined }), 'acme/site', 'feat/x') === null, "a pull request from someone's fork, from a branch of the same name, is not this branch's (nor is one that does not say)")
+  check(parseGhPrs(pr({ isDraft: true }), 'acme/site', 'feat/x')?.state === 'draft' && parseGhPrs(pr({ state: 'CLOSED' }), 'acme/site', 'feat/x')?.state === 'closed' && parseGhPrs(pr({ mergeable: 'CONFLICTING' }), 'acme/site', 'feat/x')?.conflicts === true, 'a draft, a closed one, and one with conflicts are told apart')
+  const roll = (...cs: Record<string, string>[]): string | undefined => parseGhPrs(pr({ statusCheckRollup: cs }), 'acme/site', 'feat/x')?.checks
+  check(roll() === 'none' && roll({ status: 'COMPLETED', conclusion: 'SUCCESS' }, { status: 'COMPLETED', conclusion: 'SKIPPED' }) === 'passing' && roll({ status: 'COMPLETED', conclusion: 'SUCCESS' }, { status: 'IN_PROGRESS', conclusion: '' }) === 'pending' && roll({ status: 'COMPLETED', conclusion: 'FAILURE' }, { status: 'IN_PROGRESS', conclusion: '' }) === 'failing' && roll({ state: 'SUCCESS' }) === 'passing' && roll({ state: 'PENDING' }) === 'pending' && roll({ state: 'ERROR' }) === 'failing' && roll({ status: 'COMPLETED', conclusion: 'SOMETHING_NEW' }) === 'pending', 'checks: all passed, some running, any failed, none; a verdict nobody knows counts as not passed yet')
+  const two = JSON.stringify([{ number: 3, state: 'CLOSED', headRefName: 'feat/x', isCrossRepository: false }, { number: 9, state: 'OPEN', headRefName: 'feat/x', isDraft: false, isCrossRepository: false }])
+  check(parseGhPrs(two, 'acme/site', 'feat/x')?.number === 9, 'with several for one branch, the open one is the one shown')
+  // How it is shown.
+  const st: GitState = { branch: 'feat/x', commit: '0a0dc05', upstream: 'origin/feat/x', ahead: 0, behind: 0, staged: 0, unstaged: 2, untracked: 0, conflicted: 0, changed: 2, operation: null }
+  const rd: GitRead = { kind: 'state', state: st, top: '/home/demo/site', truncated: false }
+  const P = (over: Partial<GitPr> = {}): GitPrRead => ({ kind: 'pr', pr: { number: 65, state: 'open', conflicts: false, checks: 'passing', url: 'https://github.com/acme/site/pull/65', ...over } })
+  const m1 = gitMark(rd, P())
+  check(m1?.kind === 'pr-open' && m1.count === '#65' && m1.words === 'Git: feat/x · 2 changed files · pull request #65 is open, checks passed', 'with a pull request, the row shows its mark and its number; the words still say how many files are changed', JSON.stringify(m1))
+  check(gitMark(rd, P({ state: 'draft' }))?.kind === 'pr-draft' && gitMark(rd, P({ state: 'merged' }))?.kind === 'pr-merged' && gitMark(rd, P({ state: 'closed' }))?.kind === 'pr-closed' && gitMark(rd, P({ state: 'merged', checks: 'failing', conflicts: true }))?.count === '#65', 'each state has its own mark; a merged or closed one is never flagged')
+  check(gitMark(rd, P({ conflicts: true }))?.count === '#65!' && /it has conflicts/.test(gitMark(rd, P({ conflicts: true }))?.words ?? '') && gitMark(rd, P({ checks: 'failing' }))?.count === '#65!' && /checks are failing/.test(gitMark(rd, P({ checks: 'failing' }))?.words ?? '') && gitMark(rd, P({ checks: 'pending' }))?.count === '#65', 'an open one that needs attention carries a ! after its number, and says why')
+  check(gitMark(rd, { kind: 'none' })?.kind === 'changes' && gitMark(rd, { kind: 'unknown' })?.kind === 'changes' && gitMark(rd, null)?.count === '2' && gitMark({ kind: 'none' }, P()) === null, 'without a pull request the row is as before; with no repository there is no mark at all')
+  const busy = gitMark({ ...rd, state: { ...st, operation: 'rebase' } }, P())
+  check(busy?.kind === 'alert' && /a rebase is under way/.test(busy.words) && /pull request #65/.test(busy.words), 'something under way in the folder itself still wins the mark; the pull request is in the words')
+  const chip = gitChip(rd, P({ checks: 'failing' }))
+  check(chip?.kind === 'pr-open' && chip.count === '2' && chip.pr === '#65!' && gitChip(rd)?.pr === '', 'the header chip keeps the changed-file count and adds the pull request number')
+  check(prWords({ number: 1, state: 'merged', conflicts: true, checks: 'failing', url: '' }) === 'pull request #1 is merged' && prTrouble({ number: 1, state: 'draft', conflicts: true, checks: 'none', url: '' }), 'a finished pull request is just said to be finished; a draft with conflicts needs attention')
 }
 
 console.log('2. the commands and the environment')
@@ -624,6 +681,97 @@ void (async () => {
       }
       check(existsSync(mark), '(control) plain git log there does start it')
     }
+    {
+      // The pull request, against a real repository with a GitHub remote and a stand-in gh.
+      const repo = make('with-remote')
+      g(repo, 'checkout', '-q', '-b', 'feat/git-panel')
+      g(repo, 'remote', 'add', 'origin', 'https://github.com/OAraLabs/Beacon.git')
+      g(repo, 'update-ref', 'refs/remotes/origin/feat/git-panel', 'HEAD')
+      g(repo, 'branch', '-q', '--set-upstream-to=origin/feat/git-panel')
+      const fakeDir = join(root, 'fake-bin')
+      mkdirSync(fakeDir)
+      const fake = join(fakeDir, 'gh')
+      const callLog = join(root, 'gh-calls.log')
+      // The real answer gh gave for this repository's merged pull request, as the stand-in's answer.
+      const answer = join(root, 'gh-answer.json')
+      writeFileSync(answer, JSON.stringify((JSON.parse(readFileSync(join(process.cwd(), 'scripts', 'fixtures', 'gh-pr-list.json'), 'utf8')) as { merged: unknown }).merged))
+      // A stand-in gh: records where it was run and with what, and gives that answer.
+      writeFileSync(fake, `#!/bin/sh\necho "cwd=$(pwd) args=$*" >> ${JSON.stringify(callLog)}\necho "env=$(env | sort | tr '\\n' ' ')" >> ${JSON.stringify(callLog)}\ncat ${JSON.stringify(answer)}\n`)
+      chmodSync(fake, 0o755)
+      const calls = (): number => (existsSync(callLog) ? (readFileSync(callLog, 'utf8').match(/^cwd=/gm) ?? []).length : 0)
+      resetGitPr([fake])
+      const pr1 = await readGitPr(repo, ENV)
+      const log1 = existsSync(callLog) ? readFileSync(callLog, 'utf8') : ''
+      check(pr1.kind === 'pr' && pr1.pr.number === 65 && pr1.pr.state === 'merged' && pr1.pr.url === 'https://github.com/OAraLabs/Beacon/pull/65', "a branch pushed to a GitHub remote: its pull request, read from gh's answer", JSON.stringify(pr1))
+      check(/^cwd=\/ args=pr list --repo OAraLabs\/Beacon --head feat\/git-panel --state all --limit 5 --json /m.test(log1), 'gh was run at the top of the disk, not in the repository, and told the repository and branch by name', log1.slice(0, 200))
+      const envLine = log1.split('\n').find((l) => l.startsWith('env=')) ?? 'GIT_'
+      check(!/GIT_|GH_TOKEN|GITHUB_TOKEN/.test(envLine) && /GH_HOST=github\.com/.test(envLine), 'with no git or token variable in its environment, and the host fixed')
+      await readGitPr(repo, ENV)
+      await readGitPr(repo, ENV)
+      check(calls() === 1, 'asked again within the minute, GitHub is not asked again')
+      // Nothing to ask about.
+      resetGitPr([fake])
+      rmSync(callLog)
+      check((await readGitPr(clean, ENV)).kind === 'none' && (await readGitPr(root, ENV)).kind === 'none' && calls() === 0, 'a branch with no upstream, and a folder that is not a repository, ask gh nothing')
+      const lab = make('other-host')
+      g(lab, 'remote', 'add', 'origin', 'https://gitlab.com/acme/site.git')
+      g(lab, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+      g(lab, 'branch', '-q', '--set-upstream-to=origin/main')
+      check((await readGitPr(lab, ENV)).kind === 'none' && calls() === 0, 'a remote that is not github.com asks gh nothing')
+      // A repository's settings cannot turn the question into something else.
+      const sly = make('sly-remote')
+      g(sly, 'remote', 'add', 'origin', 'https://github.com/acme/site.git')
+      g(sly, 'config', 'remote.origin.url', 'https://github.com/acme/site --web --repo evil/x')
+      g(sly, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+      g(sly, 'branch', '-q', '--set-upstream-to=origin/main')
+      check((await readGitPr(sly, ENV)).kind === 'none' && calls() === 0, 'a remote address with anything after the repository in it is not asked about')
+      check((await readGitPr(repo, ENV, () => false)).kind === 'none', "and the caller's rule for repository tops holds here too")
+      // No more than a few questions a minute, whatever is asked about: a branch renamed again and again is not a stream of questions.
+      resetGitPr([fake])
+      const kinds: string[] = []
+      for (let i = 0; i < 9; i++) {
+        g(repo, 'branch', '-q', '-m', `spin-${i}`)
+        g(repo, 'update-ref', `refs/remotes/origin/spin-${i}`, 'HEAD')
+        g(repo, 'branch', '-q', `--set-upstream-to=origin/spin-${i}`)
+        kinds.push((await readGitPr(repo, ENV)).kind)
+      }
+      check(calls() === 6 && kinds.slice(0, 6).every((k) => k === 'none') && kinds.slice(6).every((k) => k === 'unknown'), 'nine branches in a row: six questions reach gh, the rest are "not known just now"', `${calls()} ${kinds.join()}`)
+      // No gh at all: none, and remembered.
+      resetGitPr([join(root, 'no-such-dir', 'gh')])
+      const t0 = Date.now()
+      const absent = await readGitPr(repo, ENV)
+      const again = await readGitPr(repo, ENV)
+      check(absent.kind === 'none' && again.kind === 'none' && Date.now() - t0 < 4000, 'with no gh on this computer there is simply no pull request state')
+      // gh that fails (not signed in): not known, and not an error.
+      const failing = join(fakeDir, 'gh-fails')
+      writeFileSync(failing, '#!/bin/sh\necho "HTTP 401: Requires authentication" >&2\nexit 1\n')
+      chmodSync(failing, 0o755)
+      resetGitPr([failing])
+      check((await readGitPr(repo, ENV)).kind === 'unknown', 'a gh that is not signed in, or cannot reach GitHub, is "not known just now", not "no pull request"')
+      // gh that never answers, with a helper of its own still running: stopped, helper and all, and not asked again for a while.
+      const stuck = join(fakeDir, 'gh-stuck')
+      const helperMark = `beacon-smoke-helper-${process.pid}`
+      writeFileSync(stuck, `#!/bin/sh\necho x >> ${JSON.stringify(callLog)}.stuck\n/bin/sh -c 'exec -a ${helperMark} sleep 300' &\nwait\n`)
+      chmodSync(stuck, 0o755)
+      resetGitPr([stuck])
+      const t1 = Date.now()
+      const stalled = await readGitPr(repo, ENV)
+      const took = Date.now() - t1
+      await new Promise((r) => setTimeout(r, 300))
+      let left = ''
+      try {
+        left = execFileSync('/usr/bin/pgrep', ['-f', helperMark], { encoding: 'utf8' })
+      } catch {
+        /* pgrep exits 1 when it finds none */
+      }
+      check(stalled.kind === 'unknown' && took >= 7000 && took < 12000 && left.trim() === '', `a gh that does not answer is stopped after its time (${took} ms), with the helper it started, and the answer is "not known"`, left)
+      g(repo, 'branch', '-q', '-m', 'after-stall')
+      g(repo, 'update-ref', 'refs/remotes/origin/after-stall', 'HEAD')
+      g(repo, 'branch', '-q', '--set-upstream-to=origin/after-stall')
+      const t2 = Date.now()
+      check((await readGitPr(repo, ENV)).kind === 'unknown' && Date.now() - t2 < 3000, 'and gh is not started again for a while after that, whatever is asked about')
+      resetGitPr()
+    }
     await hostile("settings smuggled in through Beacon's own environment", () => undefined, { expectPlainRuns: false, baseEnv: { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: join(root, `prog-${n + 1}.sh`) } })
     {
       // A folder dressed up as a bare repository, with a config of its own.
@@ -686,21 +834,26 @@ void (async () => {
     check(/if \(folderProblem\(folder, home\) !== ''\) return null/.test(handler) && handler.indexOf('folderProblem(folder') < handler.indexOf('readGit(') && /return \{ folder, topAllowed: \(top\) => folderProblem\(top, home\) === '' \}/.test(handler) && /return at \? readGit\(at\.folder, process\.env, at\.topAllowed\) : none/.test(handler), "only a folder Beacon would let a person choose as a work folder is read, whatever set the binding, and the repository's top is held to the same rule")
     check(reader.indexOf('if (!topAllowed(at.top))') > 0 && reader.indexOf('if (!topAllowed(at.top))') < reader.indexOf('GIT_STATUS_ARGS], folder, o.env)') && (reader.match(/await open\(folder, baseEnv, topAllowed\)/g) ?? []).length === 3, 'the top is judged before status, the command that walks the folder, is run, on every one of the three reads')
     check(/if \(going && going\.conn === conn\) return going\.answer/.test(handler) && /if \(known && known\.conn === conn\) return known\.verdict/.test(main), 'one question per conversation at a time, and the shared-disk proof is good only for the connection it was made on')
-    check(/handleFromShell\(IPC\.GIT_DETAIL, async \(_e, sessionId: unknown\)[\s\S]{0,260}const at = await gitFolderFor\(sessionId\)/.test(main) && /handleFromShell\(IPC\.GIT_DIFF, async \(_e, sessionId: unknown, path: unknown, mode: unknown\)[\s\S]{0,420}const at = await gitFolderFor\(sessionId\)\s*return at \? readGitDiff\(at\.folder, path, mode, process\.env, at\.topAllowed\)/.test(main) && (main.match(/gitFolderFor\(/g) ?? []).length === 3, "the panel's two reads find their folder the same way: the conversation's, proved here, allowed")
+    check(/handleFromShell\(IPC\.GIT_DETAIL, async \(_e, sessionId: unknown\)[\s\S]{0,260}const at = await gitFolderFor\(sessionId\)/.test(main) && /handleFromShell\(IPC\.GIT_DIFF, async \(_e, sessionId: unknown, path: unknown, mode: unknown\)[\s\S]{0,420}const at = await gitFolderFor\(sessionId\)\s*return at \? readGitDiff\(at\.folder, path, mode, process\.env, at\.topAllowed\)/.test(main) && (main.match(/gitFolderFor\(/g) ?? []).length === 4, "the panel's two reads find their folder the same way: the conversation's, proved here, allowed")
     check(/if \(going && going\.conn === conn\) return going\.answer as Promise<T>/.test(main) && /oncePer\(`detail\\n\$\{sessionId\}`/.test(main) && /oncePer\(`diff\\n\$\{sessionId\}\\n\$\{mode\}\\n\$\{path\}`/.test(main) && /if \(waiting\.length >= WAITING_MAX\) return BUSY/.test(reader) && /const WAITING_MAX = 16/.test(reader), 'the same question asked again while it is being answered is one question, and no more than a few reads wait their turn')
     check(/const entry = parseGitEntries\(out\)\?\.entries\.find\(\(e\) => e\.path === path\)\s*if \(!entry \|\| !entryHasDiff\(entry, mode\)\) return \{ kind: 'none' \}/.test(reader), 'a diff is read only for a path git itself has just listed, in the way it was listed')
+    const prSrc = read('src/main/git-pr.ts')
+    check(/spawn\(place, \[\.\.\.args\], \{ cwd: '\/', env, detached: true, stdio: \['ignore', 'pipe', 'ignore'\]/.test(prSrc) && (prSrc.match(/spawn\(/g) ?? []).length === 1 && /process\.kill\(-child\.pid, 'SIGKILL'\)/.test(prSrc) && /const args = ghPrArgs\(repo, up\.branch\)/.test(prSrc) && !/shell: true|execFile/.test(prSrc), 'gh is started in one place: at the top of the disk, as the head of its own group so that all of it can be stopped, and only with arguments ghPrArgs made')
+    check(/handleFromShell\(IPC\.GIT_PR, async \(_e, sessionId: unknown\)[\s\S]{0,300}const at = await gitFolderFor\(sessionId\)\s*return at \? readGitPr\(at\.folder, process\.env, at\.topAllowed\)/.test(main), "the pull request is asked for the conversation's own folder, found the same way as every other git read")
     const untrackedSrc = read('src/main/git-untracked.ts')
     check(/if \(mode === 'untracked'\) return readUntracked\(o\.at\.top, path\)/.test(reader) && reader.indexOf("if (!entry || !entryHasDiff(entry, mode)) return { kind: 'none' }") < reader.indexOf('readUntracked(o.at.top, path)') && /O_RDONLY \| constants\.O_NOFOLLOW \| constants\.O_NONBLOCK/.test(untrackedSrc) && /if \(!real\.startsWith\(realTop === '\/' \? '\/' : `\$\{realTop\}\/`\)\)/.test(untrackedSrc), 'a file git does not track is read by Beacon itself, only once git has listed it, only if it is really inside the top, without following a link')
     check(/if \(!\(await ownStore\(o\)\)\) return \{ kind: 'unreadable', why: GIT_BORROWED \}/.test(reader) && reader.indexOf("if (!(await ownStore(o))) return { kind: 'unreadable'") < reader.indexOf('const r = await run([o.git, ...args], o.at.top, o.env)') && (reader.match(/if \(!\(await ownStore\(o\)\)\) return \{ kind: 'unreadable', why: GIT_BORROWED \}/g) ?? []).length === 2 && /if \(at\.linked\) \{\s*const back = await run\(\['\/bin\/cat', '--', `\$\{at\.gitDir\}\/gitdir`\], '\/', env\)\s*if \(back\.code !== 0 \|\| !worktreeNamesBack\(at\.top, at\.gitDir, back\.out\)\) return \{ kind: 'none' \}/.test(reader), "the file list, a tracked file's diff and the commit subjects are read only from a repository whose store is its own, and a linked worktree only if its store names the folder back")
     check((reader.match(/execFile\(/g) ?? []).length === 1 && (reader.match(/'exec "\$@"'/g) ?? []).length === 2 && /execFile\(SH, \['-c', script, 'sh', \.\.\.argv\]/.test(reader) && !/exec\(|spawn\(|shell: true/.test(reader), 'every command the reader runs goes through the one call that applies the process limit, with its arguments as data; the two that run without it (the self-test control, and asking where git is) run at the top of the disk, never in the folder')
-    check(/timeout: TIME_MS, killSignal: 'SIGKILL', maxBuffer: OUT_MAX/.test(reader) && /if \(!\(await forkLimitEnforced\(probeEnv\)\)\) return \{ kind: 'unreadable', why: GIT_UNSAFE_HERE \}/.test(reader) && /if \(free\.code !== 0 \|\| !\/\^started:0\$\/m\.test\(free\.out\)\) return false/.test(reader) && /if \(limited\.timedOut \|\| limited\.code === null\) return false/.test(reader), 'each has a time limit and an output limit; nothing is read where the process limit is not enforced, and the self-test counts as passed only when the probe ran both without the limit (and worked) and under it (and did not)')
+    check(/timeout: timeMs, killSignal: 'SIGKILL', maxBuffer: OUT_MAX/.test(reader) && /script = NO_FORK_SCRIPT, timeMs = TIME_MS\)/.test(reader) && /const ONCE_TIME_MS = 20_000/.test(reader) && /if \(!\(await forkLimitEnforced\(probeEnv\)\)\) return \{ kind: 'unreadable', why: GIT_UNSAFE_HERE \}/.test(reader) && /if \(free\.code !== 0 \|\| !\/\^started:0\$\/m\.test\(free\.out\)\) return false/.test(reader) && /if \(limited\.timedOut \|\| limited\.code === null\) return false/.test(reader), 'each has a time limit and an output limit; nothing is read where the process limit is not enforced, and the self-test counts as passed only when the probe ran both without the limit (and worked) and under it (and did not)')
     const store = read('src/renderer/src/git-store.ts')
     check(/if \(here === null\) return askHere\(\)/.test(store) && /if \(!here\) return/.test(store) && /if \(!b \|\| here !== true\) return/.test(store), 'the window asks for nothing until main has said Prometheus shares this disk, and nothing at all when it does not')
     check(/\(w\) => \(w\.verdict === 'unknown' \? null : w\.here === true\)/.test(store) && /if \(answer === null\) \{[\s\S]{0,200}window\.setTimeout\(askHere, Math\.min\(30_000, 1000 \* 2 \*\* hereTries\+\+\)\)/.test(store), '"could not be told just now" is not "no": it is asked again, less and less often')
-    check(/epoch\+\+\s*here = null\s*hereTries = 0\s*entries\.clear\(\)\s*asking\.clear\(\)\s*queue\.length = 0/.test(store) && (store.match(/if \(asked !== epoch\) return/g) ?? []).length >= 3, "another Prometheus, or a reconnection, forgets what was read, and an answer still on its way from the old one is ignored")
+    check(/epoch\+\+\s*here = null\s*hereTries = 0\s*entries\.clear\(\)\s*prs\.clear\(\)\s*prAsking\.clear\(\)\s*prQueue\.length = 0\s*asking\.clear\(\)\s*queue\.length = 0/.test(store) && (store.match(/if \(asked !== epoch\) return/g) ?? []).length >= 3, "another Prometheus, or a reconnection, forgets what was read, and an answer still on its way from the old one is ignored")
     check(/while \(asking\.size < AT_ONCE && queue\.length > 0\)/.test(store) && /const AT_ONCE = 3/.test(store) && /queue\.findIndex\(\(id\) => openIds\.has\(id\)\)/.test(store), 'at most three questions are with main at a time, the open conversation first')
     check(/if \(showing\(\)\) requestGit\(id, \{ open \}\)/.test(store) && /document\.addEventListener\('visibilitychange', ask\)/.test(store), 'a window that is not showing asks nothing, and asks again when it is shown')
     check(/window\.addEventListener\(WORKSPACE_CHANGED,[\s\S]{0,160}requestGit\(id, \{ force: true \}\)/.test(store) && /const WORKSPACE_CHANGED = 'beacon:workspace-changed'/.test(store) && /export const WORKSPACE_CHANGED = 'beacon:workspace-changed'/.test(read('src/renderer/src/components/WorkFolderChip.tsx')) && /if \(opts\.force\) going\.again = true/.test(store), "a conversation whose folder changes is read again at once, even if a read was already under way")
+    check(/const branch = read\.kind === 'state' && read\.state\.branch && read\.state\.upstream \? read\.state\.branch : null/.test(store) && /Date\.now\(\) - now\.at < \(now\.retry \? PR_RETRY_MS : open \? PR_OPEN_MS : PR_ROW_MS\)/.test(store) && /const PR_OPEN_MS = 60_000\s*const PR_ROW_MS = 5 \* 60_000/.test(store) && /prAsking\.size >= 1/.test(store), 'the window asks about a pull request only for a branch that has an upstream, one question at a time, once a minute for the open conversation and once in five for a row')
+    check(/if \(known && known\.branch !== branch\) \{\s*prs\.delete\(sessionId\)\s*notify\(sessionId\)/.test(store) && /if \(pr\.kind === 'unknown'\) \{[\s\S]{0,220}retry: true/.test(store), "a pull request learned for one branch is dropped the moment the branch changes; 'not known just now' keeps what was known and asks again soon")
     const markSrc = read('src/renderer/src/components/GitMark.tsx')
     check(/new IntersectionObserver\(/.test(markSrc) && /useGit\(sessionId, \{ watch: seen \}\)/.test(markSrc) && /useGit\(sessionId, \{ watch: true, open: true, refreshKey \}\)/.test(markSrc), 'a row reads only while it is on screen; the open conversation reads more often and when a turn ends')
     check(/<GitMark sessionId=\{s\.id\} \/>/.test(read('src/renderer/src/components/Sidebar.tsx')) && /<GitChip sessionId=\{sessionId\} refreshKey=\{turnsEnded\} \/>/.test(read('src/renderer/src/components/ChatShell.tsx')), 'the mark is on every session row and the chip in the conversation header')
