@@ -168,6 +168,7 @@
     "smoke:drafts": "node scripts/drafts-smoke.mjs",
     "probe:drafts": "node scripts/drafts-app-probe.mjs",
     "probe:os-entry": "node scripts/os-entry-app-probe.mjs",
+    "probe:git": "node scripts/git-app-probe.mjs",
     "probe:approval-critical": "node scripts/approval-critical-app-probe.mjs",
     "probe:chat-projects": "node scripts/chat-projects-app-probe.mjs",
     "probe:connectors": "node scripts/connectors-app-probe.mjs",

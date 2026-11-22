@@ -5,6 +5,9 @@ import type { ReactNode } from 'react'
 // Hand-authored lucide-style paths; add here rather than importing an icon dependency.
 
 export type IconName =
+  | 'git-branch'
+  | 'git-moved'
+  | 'git-alert'
   | 'plug'
   | 'warning'
   | 'chat'
@@ -48,6 +51,31 @@ export type IconName =
   | 'panel'
 
 const PATHS: Record<IconName, ReactNode> = {
+  // Git (session list and header). Three shapes, so the state is never told by colour alone:
+  // a branch; a branch with an arrow beside it (ahead of or behind its upstream); a warning.
+  'git-branch': (
+    <>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </>
+  ),
+  'git-moved': (
+    <>
+      <line x1="5" y1="3" x2="5" y2="15" />
+      <circle cx="5" cy="18" r="3" />
+      <path d="M17 21V8" />
+      <path d="m12 12 5-5 5 5" />
+    </>
+  ),
+  'git-alert': (
+    <>
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </>
+  ),
   // plug — integrations (two prongs + body + cord)
   plug: (
     <>

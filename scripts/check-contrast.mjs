@@ -159,6 +159,10 @@ const PAIRS = [
   { fg: '--sang-text', on: ['--node', '--sang-soft'], what: 'active dock segment glyph', where: '.dock-seg.is-active' },
   { fg: '--online-text', on: ['--node', '--online-soft'], what: 'health label on its own tint', where: 'stateChip ok' },
   { fg: '--lapis-text', on: ['--node', '--lapis-soft'], what: 'permission label on its own tint', where: 'summaryBar' },
+  { fg: '--ink', on: ['--node', '--sang-soft'], what: 'git mark with changes on the active session row', where: '.session-row.is-active .git-mark.is-changes' },
+  { fg: '--sang-text', on: ['--node'], what: 'git warning mark on a session row', where: '.git-mark.is-alert' },
+  { fg: '--sang-text', on: ['--node', '--sang-soft'], what: 'git warning mark on the active session row', where: '.session-row.is-active .git-mark.is-alert' },
+  { fg: '--ink4', on: ['--node', '--sang-soft'], what: 'clean git mark on the active session row', where: '.session-row.is-active .git-mark' },
   // identifier chips + inactive pills: a glyph on a neutral hairline wash
   { fg: '--ink3', on: ['--node', '--line3'], what: 'session source tag (BN/TG/VO)', where: '.gw' },
   // …and the same tag on the SELECTED row, which adds the selection tint UNDER the chip's wash.
