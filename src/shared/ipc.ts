@@ -79,6 +79,7 @@ export const IPC = {
   WINDOW_RELOAD: 'window:reload',
   APPROVALS_NEW: 'approvals:new', // renderer -> main (send): NEW pending requests (from poll) → main decides notification. Main is the ONE notification authority (push frames feed the same path) — one dedupe set, one request gets one notification.
   CAPTURE_OPEN_MAIN: 'capture:open-main', // renderer -> main (send): quick-capture → open main on a session
+  GIT_READ: 'git:read', // renderer -> main: what git says about a conversation's work folder, when Prometheus shares this disk (@shared/git-state)
   WORK_FOLDER_WHERE: 'work-folder:where', // renderer -> main: is Prometheus on this computer, and this computer's home folder
   WORK_FOLDER_PICK: 'work-folder:pick', // renderer -> main: the system folder picker, offered only when Prometheus is on this computer
   // Files handed to Beacon by the system (@shared/os-entry). An offer is a list of names; nothing is
@@ -1130,6 +1131,12 @@ export interface BeaconBridge {
   }
   /** A conversation's working folder, chosen on this computer (@shared/work-folder). Main decides
    *  whether Prometheus is here; the page never tells it. */
+  /** What git says about a conversation's work folder (@shared/git-state). Main finds the folder
+   *  itself, from Prometheus, and reads it only when Prometheus shares this computer's disk: the
+   *  page names a conversation, never a path. `{ kind: 'none' }` whenever there is nothing to show. */
+  git: {
+    read(sessionId: string): Promise<import('./git-state').GitRead>
+  }
   workFolder: {
     where(): Promise<import('./work-folder').FolderWhere>
     /** Opens the system folder picker. 'not-here' when Prometheus is on another computer: no picker is shown. */

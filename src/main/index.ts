@@ -105,6 +105,8 @@ import { registerIntegrationsHandlers } from './integrations-ipc'
 import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
 import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
+import { readGit } from './git-reader'
+import type { GitRead } from '@shared/git-state'
 import { folderProblem, hereVerdict, isThisComputer, type FolderPick, type FolderWhere } from '@shared/work-folder'
 import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
 import { registerBrowserPane } from './browser-pane'
@@ -2429,14 +2431,16 @@ app.whenReady().then(() => {
   // accept it for a throwaway session id, which Prometheus only does for a folder it can see. The
   // binding is taken back and the folder removed whatever the answer. Proved once per address for
   // as long as Beacon runs; an answer that proves nothing is asked again next time.
-  const hereProof = new Map<string, 'here' | 'tunnel'>()
+  const hereProof = new Map<string, { conn: ConnectionManager; verdict: 'here' | 'tunnel' }>()
   const proveHere = async (): Promise<FolderWhere['verdict']> => {
     const apiBase = repo?.getDefaultGatewayProfile()?.apiBase
     if (!apiBase || !isThisComputer(apiBase)) return 'elsewhere'
-    const known = hereProof.get(apiBase)
-    if (known) return known
     const conn = connection
     if (!conn) return 'unknown'
+    // Good for the connection it was proved on: a new connection to the same address may be to a
+    // Prometheus that has moved (a container, a tunnel), and the proof now also lets git be read.
+    const known = hereProof.get(apiBase)
+    if (known && known.conn === conn) return known.verdict
     let marker: string
     try {
       marker = mkdtempSync(join(realpathSync(tmpdir()), 'beacon-here-'))
@@ -2456,7 +2460,7 @@ app.whenReady().then(() => {
     }
     if (verdict === 'unknown') return 'unknown'
     const kept = verdict === 'here' ? 'here' : 'tunnel'
-    hereProof.set(apiBase, kept)
+    hereProof.set(apiBase, { conn, verdict: kept })
     return kept
   }
   const realHome = (): string => {
@@ -2466,6 +2470,42 @@ app.whenReady().then(() => {
       return app.getPath('home')
     }
   }
+  // What git says about a conversation's work folder (@shared/git-state). The page names a
+  // CONVERSATION; main asks Prometheus which folder that is and reads it only when Prometheus has
+  // been proved to share this disk (the folder Prometheus names is then a path here too). The
+  // reading itself cannot start a program: see git-reader.ts.
+  const gitAsks = new Map<string, { conn: ConnectionManager; answer: Promise<GitRead> }>()
+  handleFromShell(IPC.GIT_READ, async (_e, sessionId: unknown): Promise<GitRead> => {
+    const none: GitRead = { kind: 'none' }
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 200 || sessionId === '.' || sessionId === '..') return none
+    const conn = connection
+    if (!conn) return none
+    // One question per conversation at a time, however many rows and panes ask.
+    const key = sessionId
+    const going = gitAsks.get(key)
+    if (going && going.conn === conn) return going.answer
+    const answer = (async (): Promise<GitRead> => {
+      if ((await proveHere()) !== 'here') return none
+      let folder: unknown
+      try {
+        folder = ((await conn.getDaemon(`/api/sessions/${encodeURIComponent(sessionId)}/workspace`)) as { workspace?: unknown } | null)?.workspace
+      } catch {
+        return none
+      }
+      // The connection may have been replaced while Prometheus was answering: its folder is not this one's to read.
+      if (conn !== connection || typeof folder !== 'string') return none
+      // Only a folder Beacon would let a person choose as a work folder: not the disk, a system
+      // folder, the whole home, or the hidden folders at its top. Whatever set this binding.
+      if (folderProblem(folder, realHome()) !== '') return none
+      // The repository's top is held to the same rule: its settings can name a folder above this one.
+      const home = realHome()
+      return readGit(folder, process.env, (top) => folderProblem(top, home) === '')
+    })().finally(() => {
+      if (gitAsks.get(key)?.answer === answer) gitAsks.delete(key)
+    })
+    gitAsks.set(key, { conn, answer })
+    return answer
+  })
   handleFromShell(IPC.WORK_FOLDER_WHERE, async (): Promise<FolderWhere> => {
     const verdict = await proveHere()
     return { here: verdict === 'here', verdict, home: realHome() }
