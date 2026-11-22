@@ -43,6 +43,8 @@ import {
   mountWords,
   nightWords,
   nightHeadline,
+  gymFormProblem,
+  GYM_FORM_COPY,
   parseGymStatus,
   roundsOptions,
   type GymScorecard,
@@ -66,7 +68,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 75
+const EXPECTED = 77
 process.on('exit', () => {
   if (checks !== EXPECTED) {
     console.error(`[gym-smoke] FAIL — ran ${checks} checks, expected exactly ${EXPECTED}`)
@@ -333,6 +335,20 @@ async function main(): Promise<void> {
   assert(!/console\.(log|warn|error|info|debug)/.test(gymSources), 'token: no gym file writes to a log at all, so none can write the token to one')
   const calls = [...new Set((panel.match(/\bb\.[a-zA-Z]+\s*\.[a-zA-Z]+/g) ?? []).map((c) => c.replace(/\s+/g, '')))].sort().join(',')
   assert(calls === 'b.gym.read,b.gym.setAddress,b.gym.setToken,b.gym.settings' && !/fetch\(/.test(panel) && /type="password"/.test(panel), 'read-only: the panel calls the gym read and its two settings, and nothing else; the token field does not show what is typed', calls)
+
+  // The connection form: a missing field is said by name, and Save never clears the address
+  assert(
+    gymFormProblem({ address: '', savedAddress: '' }) === GYM_FORM_COPY.noAddress && gymFormProblem({ address: '   ', savedAddress: '' }) === GYM_FORM_COPY.noAddress && gymFormProblem({ address: '', savedAddress: 'http://gym-box:18097/v2/status' }) === GYM_FORM_COPY.noAddressSaved && gymFormProblem({ address: 'gym-box:18097', savedAddress: '' }) === null && /address is empty/.test(GYM_FORM_COPY.noAddress) && /Forget this gym/.test(GYM_FORM_COPY.noAddressSaved),
+    'form: an empty address is a missing field, named, whether or not one was saved before; with one saved it points at "Forget this gym"'
+  )
+  {
+    const save = panel.slice(panel.indexOf('const save = async'), panel.indexOf('const forget = async'))
+    const forgetGym = panel.slice(panel.indexOf('const forgetGym = async'), panel.indexOf('return (', panel.indexOf('const forgetGym = async')))
+    assert(
+      save.indexOf('gymFormProblem(') > 0 && save.indexOf('gymFormProblem(') < save.indexOf('b.gym.setAddress(') && /if \(missing\) return setError\(missing\)/.test(save) && /GYM_FORM_COPY\.tokenForgotten/.test(save) && /b\.gym\.setAddress\(''\)/.test(forgetGym) && !/setAddress\(''\)/.test(save) && /disabled=\{noStatus\}/.test(panel) && /GYM_FORM_COPY\.setUpFirst/.test(panel),
+      'form: Save checks for the missing field before anything is saved, says when a kept token was forgotten, and never clears the address (only "Forget this gym" does); the sections are switched off, with a line saying why, until there is a status'
+    )
+  }
 
   // ── 6. the status ───────────────────────────────────────────────────────────────────────────────────────────────────────
   const s = parseGymStatus(sample) as GymStatus

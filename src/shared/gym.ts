@@ -329,6 +329,22 @@ export interface GymSettings {
   hasToken: boolean
 }
 
+/** What the connection form says about itself. */
+export const GYM_FORM_COPY = {
+  noAddress: 'The address is empty. Fill in where the gym’s status is.',
+  noAddressSaved: 'The address is empty. Fill in where the gym’s status is, or use “Forget this gym” to stop using it.',
+  tokenForgotten: 'The token you had saved was for the previous address, so Beacon forgot it. Paste the token for this gym.',
+  setUpFirst: 'Set up the connection below first.'
+} as const
+
+/** Why Save must not go ahead, or null. Save never clears the address: an empty address field is a missing field, said so by
+ *  name, whatever else was typed. (Saving it used to "work": the address was cleared, a typed token was kept with nowhere to
+ *  send it, and the form said nothing.) Clearing on purpose is its own action, "Forget this gym". */
+export function gymFormProblem(form: { address: string; savedAddress: string }): string | null {
+  if (form.address.trim() !== '') return null
+  return form.savedAddress.trim() !== '' ? GYM_FORM_COPY.noAddressSaved : GYM_FORM_COPY.noAddress
+}
+
 export const GYM_READ_COPY = {
   unset: 'Beacon doesn’t know where your gym is yet.',
   unreachable: 'Beacon couldn’t reach the gym. Check that Tailscale is running here and that the gym’s computer is on.',
