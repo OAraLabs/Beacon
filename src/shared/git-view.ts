@@ -6,7 +6,7 @@
 //   changes  the branch glyph with a count: that many changed files
 //   moved    the branch glyph with an arrow: commits ahead of or behind the upstream, no changes
 //   alert    a warning glyph: a merge, rebase or the like under way, or files in conflict
-import { GIT_MAX_ENTRIES, gitText, type GitOperation, type GitRead, type GitState } from './git-state'
+import { GIT_MAX_ENTRIES, gitText, type GitDetail, type GitDiffMode, type GitEntry, type GitOperation, type GitRead, type GitState } from './git-state'
 
 export type GitMarkKind = 'branch' | 'changes' | 'moved' | 'alert'
 
@@ -81,6 +81,8 @@ export interface GitChipView {
 
 /** The header chip, or null when there is nothing to show. */
 export function gitChip(read: GitRead | null | undefined): GitChipView | null {
+  // A repository that could not be read still has a chip: it is how a person finds out why.
+  if (read?.kind === 'unreadable') return { kind: 'alert', head: 'git not read', count: '', ahead: 0, behind: 0, words: `Git: ${read.why}` }
   const mark = gitMark(read)
   if (!mark || !read || read.kind !== 'state') return null
   const s = read.state
@@ -94,4 +96,49 @@ export const GIT_OPEN_FRESH_MS = 9_000
 /** Whether a reading taken `age` ms ago should be taken again. */
 export function gitStale(age: number, open: boolean): boolean {
   return !(age < (open ? GIT_OPEN_FRESH_MS : GIT_ROW_FRESH_MS))
+}
+
+// ── The Git panel ──────────────────────────────────────────────────────────────────────────
+
+const LETTER: Record<string, string> = { M: 'modified', A: 'added', D: 'deleted', T: 'type changed', R: 'renamed', C: 'copied', U: 'in conflict' }
+
+export interface GitFileRow {
+  /** The path as git wrote it: what a diff is asked for by. */
+  path: string
+  /** The path as shown. */
+  shown: string
+  what: string
+  /** Which diff this row opens, or null when it has none (an untracked folder). */
+  mode: GitDiffMode | null
+}
+
+export interface GitGroup {
+  title: string
+  rows: GitFileRow[]
+}
+
+const row = (e: GitEntry, letter: string, mode: GitDiffMode | null): GitFileRow => ({ path: e.path, shown: gitText(e.path, 200), what: LETTER[letter] ?? 'changed', mode })
+
+/** The changed files, grouped as a person thinks of them. A file changed in both the index and
+ *  the folder is in both groups: each row opens that side's diff. Empty groups are left out. */
+export function gitGroups(entries: readonly GitEntry[]): GitGroup[] {
+  const groups: GitGroup[] = [
+    { title: 'In conflict', rows: entries.filter((e) => e.kind === 'conflicted').map((e) => ({ ...row(e, 'U', 'unstaged') })) },
+    { title: 'Staged', rows: entries.filter((e) => e.kind === 'changed' && e.index !== '.').map((e) => row(e, e.index, 'staged')) },
+    { title: 'Not staged', rows: entries.filter((e) => e.kind === 'changed' && e.tree !== '.').map((e) => row(e, e.tree, 'unstaged')) },
+    { title: 'Untracked', rows: entries.filter((e) => e.kind === 'untracked').map((e) => ({ path: e.path, shown: gitText(e.path, 200), what: e.path.endsWith('/') ? 'new folder' : 'new file', mode: e.path.endsWith('/') ? null : ('untracked' as const) })) }
+  ]
+  return groups.filter((g) => g.rows.length > 0)
+}
+
+/** The line under the lists when there are more entries than the panel shows. */
+export function gitMoreWords(more: number): string {
+  return more > 0 ? `${more} more changed ${more === 1 ? 'file is' : 'files are'} not listed.` : ''
+}
+
+/** What the panel says when there is nothing to list. */
+export function gitEmptyWords(detail: GitDetail): string {
+  if (detail.kind === 'unreadable') return detail.why
+  if (detail.kind === 'none') return 'This folder is not a git repository any more.'
+  return detail.entries.length === 0 ? 'Nothing is changed.' : ''
 }

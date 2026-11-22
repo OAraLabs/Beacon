@@ -201,18 +201,49 @@ export function gitOperation(namesInGitDir: readonly string[]): GitOperation | n
  * - the folder must be inside the work tree git found (asked of git, so links in the path do not
  *   matter), and
  * - the git folder must be that top's own `.git`, or a linked worktree's or a submodule's
- *   (`…/.git/worktrees/<name>`, `…/.git/modules/…`).
+ *   (`…/.git/worktrees/<name>`, or `…/.git/modules/…` under a folder above the top). For a linked
+ *   worktree (`linked`), main also checks that the store names this folder back (`worktreeNamesBack`).
  * A repository's config can point git at any folder (`core.worktree`, a `.git` file naming
  * another place). The assistant writes that config, and Beacon does not go and read whatever
  * folder it names: with `core.worktree` set, the top is no longer the folder that holds `.git`.
  */
-export function parseGitWhere(out: string): { top: string; gitDir: string } | null {
+export function parseGitWhere(out: string): { top: string; gitDir: string; linked: boolean } | null {
   const lines = out.split('\n').filter((l) => l !== '')
   if (lines.length !== 3 || lines[0] !== 'true' || !lines[1].startsWith('/') || !lines[2].startsWith('/')) return null
   const [, top, gitDir] = lines
   const own = gitDir === (top === '/' ? '/.git' : `${top}/.git`)
-  const linked = /\/\.git\/(worktrees\/[^/]+|modules\/.+)$/.test(gitDir)
-  return own || linked ? { top, gitDir } : null
+  const worktree = /\/\.git\/worktrees\/[^/]+$/.test(gitDir)
+  // A submodule's git folder is inside the repository that holds it: `<a folder above top>/.git/modules/…`.
+  // One that is somewhere else is another repository's, named by a `.git` file the assistant wrote.
+  const at = gitDir.indexOf('/.git/modules/')
+  const submodule = at > 0 && top.startsWith(`${gitDir.slice(0, at)}/`)
+  return own || worktree || submodule ? { top, gitDir, linked: worktree } : null
+}
+
+const squash = (p: string): string => {
+  const out: string[] = []
+  for (const part of p.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return `/${out.join('/')}`
+}
+/** On a Mac /tmp, /var and /etc are also /private/tmp and so on: one folder, two spellings. */
+const unprivate = (p: string): string => p.replace(/^\/private\/(tmp|var|etc)(?=\/|$)/, '/$1')
+
+/**
+ * Whether a linked worktree's store names THIS folder back. A linked worktree is two halves: the
+ * folder's `.git` file names a store (`<main>/.git/worktrees/<name>`), and that store's `gitdir`
+ * file names the folder's `.git`. The assistant can write the first half and point it at any
+ * repository's existing worktree store on this computer; it cannot write the second (that is
+ * inside the other repository). `gitdirFile` is the store's `gitdir` file as read.
+ */
+export function worktreeNamesBack(top: string, gitDir: string, gitdirFile: string): boolean {
+  const named = gitdirFile.split('\n')[0].trim()
+  if (named === '') return false
+  const full = squash(named.startsWith('/') ? named : `${gitDir}/${named}`)
+  return unprivate(full) === unprivate(squash(`${top}/.git`))
 }
 
 /** What reading a folder came to. */
@@ -236,4 +267,190 @@ export function gitText(raw: string | null | undefined, max = 60): string {
   const cleaned = (raw ?? '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\u2028\u2029]/gu, '').trim()
   const chars = Array.from(cleaned)
   return chars.length <= max ? cleaned : `${chars.slice(0, max - 1).join('')}…`
+}
+
+// ── The Git panel: which files are changed, a file's diff, the commits not yet upstream ──────
+// The same floor as the status above (no program can be started), and the same care: `git diff`
+// has its own ways to run a program a repository names (an external diff tool, a textconv
+// filter), switched off by name here as well, and the one argument that is not fixed, the path,
+// is taken only from what git itself just listed, after `--`, never read as a pattern.
+
+/** One changed path, as status listed it. */
+export interface GitEntry {
+  /** Relative to the repository's top, exactly as git wrote it. Shown through `gitText`. */
+  path: string
+  /** The one-letter states in the index and in the folder ('.' is "no change there"). */
+  index: string
+  tree: string
+  kind: 'changed' | 'untracked' | 'conflicted'
+}
+
+/** The most entries the panel lists. */
+export const GIT_ENTRIES_MAX = 300
+
+/** The entries of a status (the same output `parseGitStatus` counts), or null when it is not one. */
+export function parseGitEntries(out: string): { entries: GitEntry[]; more: number } | null {
+  if (typeof out !== 'string' || !out.startsWith('# branch.')) return null
+  const entries: GitEntry[] = []
+  let more = 0
+  let inHeader = true
+  const push = (e: GitEntry): void => {
+    if (entries.length < GIT_ENTRIES_MAX) entries.push(e)
+    else more++
+  }
+  for (const rec of out.split('\0')) {
+    if (rec === '') continue
+    if (inHeader && rec.startsWith('# ')) continue
+    inHeader = false
+    const kind = rec[0]
+    if (kind === '?') {
+      if (rec[1] !== ' ' || rec.length < 3) return null
+      push({ path: rec.slice(2), index: '.', tree: '?', kind: 'untracked' })
+    } else if (kind === '1' || kind === 'u') {
+      // "1 XY sub mH mI mW hH hI path" has 8 fields before the path; "u XY sub m1 m2 m3 mW h1 h2 h3 path" has 10.
+      const before = kind === '1' ? 8 : 10
+      const fields = rec.split(' ')
+      if (fields.length <= before || fields[1].length !== 2) return null
+      const path = fields.slice(before).join(' ')
+      if (path === '') return null
+      push({ path, index: fields[1][0], tree: fields[1][1], kind: kind === 'u' ? 'conflicted' : 'changed' })
+    } else if (kind === '!') {
+      continue
+    } else {
+      return null
+    }
+  }
+  return { entries, more }
+}
+
+/** Which side of a file's change to show. */
+export type GitDiffMode = 'staged' | 'unstaged' | 'untracked'
+
+/** Whether an entry has a diff of this kind. An untracked FOLDER (its path ends in `/`) has none. */
+export function entryHasDiff(e: GitEntry, mode: GitDiffMode): boolean {
+  if (mode === 'untracked') return e.kind === 'untracked' && !e.path.endsWith('/')
+  if (e.kind === 'untracked') return false
+  return mode === 'staged' ? e.index !== '.' : e.tree !== '.'
+}
+
+/** A path git listed, as an argument: relative, no `..` part, nothing git could take for an option. */
+export function gitPathOk(path: unknown): path is string {
+  return typeof path === 'string' && path.length > 0 && path.length <= 4096 && !path.includes('\0') && !path.startsWith('/') && !path.startsWith('-') && !path.split('/').includes('..')
+}
+
+const DIFF_COMMON = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--unified=3'] as const
+
+/** The arguments for one file's diff, run from the repository's top, or null for a path that is not one. */
+export function gitDiffArgs(mode: GitDiffMode, path: string): string[] | null {
+  if (!gitPathOk(path)) return null
+  // An untracked file is not git's to diff: main reads it itself (git-untracked.ts says why).
+  if (mode === 'untracked') return null
+  // `--literal-pathspecs`: the path is a name, never a pattern (`:(top)…`, `*`).
+  const head = withConfig([]).concat('--literal-pathspecs')
+  return [...head, 'diff', ...(mode === 'staged' ? ['--cached'] : []), ...DIFF_COMMON, '--', path]
+}
+
+/** The commits on this branch that its upstream lacks, newest first: short hash, a tab, the subject; NUL between. */
+export const GIT_LOG_ARGS: readonly string[] = [...withConfig([]), '-c', 'log.showSignature=false', 'log', '--no-show-signature', '--no-color', '--no-decorate', '-z', '--format=%h%x09%s', '-n', '30', '@{upstream}..HEAD']
+
+export interface GitCommit {
+  hash: string
+  subject: string
+}
+
+export function parseGitLog(out: string): GitCommit[] {
+  const commits: GitCommit[] = []
+  for (const rec of (out ?? '').split('\0')) {
+    const m = /^([0-9a-f]{4,40})\t(.*)$/s.exec(rec.replace(/^\n+/, ''))
+    if (m) commits.push({ hash: m[1], subject: m[2].split('\n')[0] })
+  }
+  return commits
+}
+
+/** What the panel lists. */
+export type GitDetail =
+  | { kind: 'detail'; entries: GitEntry[]; more: number; commits: GitCommit[] }
+  | { kind: 'none' }
+  | { kind: 'unreadable'; why: string }
+
+/** Where the repository keeps what it has committed: the folder shared by all its worktrees. */
+export const GIT_COMMON_ARGS: readonly string[] = withConfig(['rev-parse', '--path-format=absolute', '--git-common-dir'])
+
+/** The names directly inside a repository's git folder that, as LINKS, would have it read another
+ *  repository's index, refs or objects. */
+const STORE_NAMES = new Set(['HEAD', 'index', 'packed-refs', 'objects', 'refs', 'config', 'commondir', 'info', 'shallow'])
+
+/** The arguments (to `find`, twice) that list links where a repository's own store should be: at
+ *  the top of each git folder, and anywhere under refs and objects (a loose object or a ref that
+ *  is a link to another repository's is that repository's content). */
+export function storeLinkArgs(gitDir: string, common: string): { top: string[]; deep: string[] } {
+  return { top: ['-P', ...new Set([common, gitDir]), '-maxdepth', '1', '-type', 'l'], deep: ['-P', `${common}/refs`, `${common}/objects`, '-type', 'l'] }
+}
+
+/**
+ * Whether a repository's history and index are its OWN, so that what a diff or a log prints comes
+ * from this repository and nowhere else. A repository can be made to borrow another's: a
+ * `commondir` file, an `alternates` list, or links in place of its index, refs or objects.
+ * A diff would then print another repository's committed files under this folder's name. So:
+ * - the common folder git reports must be the git folder itself, or the one a linked worktree
+ *   hangs off (`<common>/worktrees/<name>`);
+ * - there is no alternates list;
+ * - none of the store's names at the top of a git folder is a link, and nothing under refs or
+ *   objects is.
+ * `topLinks` and `deepLinks` are what `find` printed for `storeLinkArgs`; `infoNames` the names in
+ * `<common>/objects/info`.
+ * This is not a wall: whoever can write the folder can also copy files into it, and what is shown
+ * is shown to the person only. It keeps the panel from being pointed at another repository by a
+ * line of configuration or a link.
+ */
+export function storeIsOwn(gitDir: string, common: string, infoNames: readonly string[], topLinks: readonly string[], deepLinks: readonly string[]): boolean {
+  const worktree = gitDir.startsWith(`${common}/worktrees/`) && !gitDir.slice(`${common}/worktrees/`.length).includes('/')
+  if (common !== gitDir && !worktree) return false
+  if (infoNames.includes('alternates') || infoNames.includes('http-alternates')) return false
+  if (deepLinks.some((l) => l !== '')) return false
+  for (const link of topLinks) {
+    if (link === '') continue
+    const cut = link.lastIndexOf('/')
+    if ((link.slice(0, cut) === common || link.slice(0, cut) === gitDir) && STORE_NAMES.has(link.slice(cut + 1))) return false
+  }
+  return true
+}
+
+export const GIT_BORROWED = 'This repository reads from another one on this computer (a shared or linked store), so Beacon does not show what its files contain.'
+
+/** The most of a diff that is shown: characters, and lines (each line is drawn on its own). */
+export const GIT_DIFF_SHOW_MAX = 200_000
+export const GIT_DIFF_LINES_MAX = 5000
+
+export type GitDiff =
+  | { kind: 'diff'; text: string; truncated: boolean }
+  /** The file is no longer listed as changed that way (it was committed, reverted, or never was). */
+  | { kind: 'none' }
+  | { kind: 'unreadable'; why: string }
+
+export const GIT_DIFF_TOO_BIG = 'This change is too large to show here.'
+
+/** A diff as shown: cut at the limit, on a line. Nothing else is done to it; the view shows it as text. */
+export function clipDiff(text: string): { text: string; truncated: boolean } {
+  let out = text
+  let truncated = false
+  if (out.length > GIT_DIFF_SHOW_MAX) {
+    const cut = out.lastIndexOf('\n', GIT_DIFF_SHOW_MAX)
+    out = out.slice(0, cut > 0 ? cut : GIT_DIFF_SHOW_MAX)
+    truncated = true
+  }
+  // A change of thousands of short lines is as heavy to draw as a long one.
+  let at = -1
+  for (let n = 0; n < GIT_DIFF_LINES_MAX; n++) {
+    at = out.indexOf('\n', at + 1)
+    if (at < 0) return { text: out, truncated }
+  }
+  return at + 1 < out.length ? { text: out.slice(0, at), truncated: true } : { text: out, truncated }
+}
+
+/** A diff line as drawn: the characters that reorder, hide or break text on screen (direction
+ *  marks, overrides and isolates, zero-width characters, stray line separators) are taken out, so
+ *  a line reads in the order its characters are in, on one line. */
+export function diffLineShown(line: string): string {
+  return line.replace(/[\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\r]/g, '')
 }

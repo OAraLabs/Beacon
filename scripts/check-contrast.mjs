@@ -161,6 +161,7 @@ const PAIRS = [
   { fg: '--lapis-text', on: ['--node', '--lapis-soft'], what: 'permission label on its own tint', where: 'summaryBar' },
   { fg: '--ink', on: ['--node', '--sang-soft'], what: 'git mark with changes on the active session row', where: '.session-row.is-active .git-mark.is-changes' },
   { fg: '--sang-text', on: ['--node'], what: 'git warning mark on a session row', where: '.git-mark.is-alert' },
+  { fg: '--ink', on: ['--node', '--line3'], what: 'a file row in the Git panel, hovered or open', where: 'button.git-file:hover' },
   { fg: '--sang-text', on: ['--node', '--sang-soft'], what: 'git warning mark on the active session row', where: '.session-row.is-active .git-mark.is-alert' },
   { fg: '--ink4', on: ['--node', '--sang-soft'], what: 'clean git mark on the active session row', where: '.session-row.is-active .git-mark' },
   // identifier chips + inactive pills: a glyph on a neutral hairline wash
