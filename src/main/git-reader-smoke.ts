@@ -53,12 +53,15 @@ import { UNTRACKED_MAX_BYTES, readUntracked } from './git-untracked'
 const MIN_CHECKS = 208
 let checks = 0
 let failures = 0
+/** Said again at the very end: a run's output is long, and CI shows only its last lines. */
+const failed: string[] = []
 let skipped = false
 function check(cond: boolean, name: string, detail = ''): void {
   checks++
   if (cond) console.log(`  ✓ ${name}`)
   else {
     console.error(`  ✗ ${name}${detail ? ` — ${detail}` : ''}`)
+    failed.push(`${name}${detail ? ` — ${detail.slice(0, 240)}` : ''}`)
     failures++
   }
 }
@@ -68,6 +71,7 @@ process.on('exit', () => {
     console.error(`git-reader smoke: FAIL ✗ (only ${checks} of at least ${MIN_CHECKS} checks ran)`)
     process.exitCode = 1
   } else if (failures > 0) {
+    for (const f of failed.slice(0, 40)) console.error(`  failed: ${f}`)
     console.error(`git-reader smoke: FAIL ✗ (${failures} of ${checks})`)
     process.exitCode = 1
   } else console.log(`git-reader smoke: PASS ✓ (${checks} checks: parser, how it is shown, fixed commands, real repositories, hostile repositories, wiring)`)
