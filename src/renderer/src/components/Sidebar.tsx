@@ -1,3 +1,4 @@
+import { GitMark } from './GitMark'
 import { useCallback, useEffect, useRef, useState, type DragEvent as RDragEvent, type ReactNode } from 'react'
 import type { SessionSummary } from '@shared/ipc'
 import { InstanceList } from './InstanceList'
@@ -920,6 +921,7 @@ export function Sidebar({ sessions, active, unread, onSelect, onForget, titles, 
                           <Icon name="popout" size={11} />
                         </span>
                       ) : null}
+                      <GitMark sessionId={s.id} />
                       <TurnIndicator turn={sessionActivity[s.id]} now={activityNow} />
                       {s.id !== active && unread[s.id] ? <span className="unread-dot" /> : null}
                       <span className="session-time">{relTime(s.lastActive)}</span>

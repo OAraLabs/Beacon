@@ -29,9 +29,11 @@ import {
   parseGitStatus,
   parseGitWhere
 } from '@shared/git-state'
+import { GIT_OPEN_FRESH_MS, GIT_ROW_FRESH_MS, gitChip, gitMark, gitStale } from '@shared/git-view'
+import type { GitRead, GitState } from '@shared/git-state'
 import { forgetGitReads, forkLimitEnforced, readGit } from './git-reader'
 
-const MIN_CHECKS = 97
+const MIN_CHECKS = 120
 let checks = 0
 let failures = 0
 let skipped = false
@@ -51,7 +53,7 @@ process.on('exit', () => {
   } else if (failures > 0) {
     console.error(`git-reader smoke: FAIL ✗ (${failures} of ${checks})`)
     process.exitCode = 1
-  } else console.log(`git-reader smoke: PASS ✓ (${checks} checks: parser, fixed commands, real repositories, hostile repositories, wiring)`)
+  } else console.log(`git-reader smoke: PASS ✓ (${checks} checks: parser, how it is shown, fixed commands, real repositories, hostile repositories, wiring)`)
 })
 
 const Z = String.fromCharCode(0)
@@ -96,6 +98,35 @@ console.log('1. the parser')
   const RLO = String.fromCharCode(0x202e)
   const ZW = String.fromCharCode(0x200b)
   check(gitText(`main${RLO}${ZW}\n`) === 'main' && gitText('x'.repeat(200)).length === 60 && gitText(null) === '', 'a name is shown without invisible characters, and a long one is cut')
+}
+
+console.log('1b. how it is shown')
+{
+  const st = (over: Partial<GitState> = {}): GitState => ({ branch: 'main', commit: '0a0dc05', upstream: null, ahead: null, behind: null, staged: 0, unstaged: 0, untracked: 0, conflicted: 0, changed: 0, operation: null, ...over })
+  const rd = (over: Partial<GitState> = {}, truncated = false): GitRead => ({ kind: 'state', state: st(over), top: '/home/demo/site', truncated })
+  check(gitMark(null) === null && gitMark(undefined) === null && gitMark({ kind: 'none' }) === null && gitMark({ kind: 'unreadable', why: 'x' }) === null, 'no repository, or one that could not be read, has no mark')
+  const clean = gitMark(rd())
+  check(clean?.kind === 'branch' && clean.count === '' && clean.words === 'Git: main · nothing changed', 'a clean repository: the plain branch mark, no number', clean?.words)
+  const dirty = gitMark(rd({ unstaged: 2, untracked: 1, changed: 3 }))
+  check(dirty?.kind === 'changes' && dirty.count === '3' && dirty.words === 'Git: main · 3 changed files', 'changed files: the mark with their number')
+  check(gitMark(rd({ unstaged: 1, changed: 1 }))?.words === 'Git: main · 1 changed file', 'one file is "1 changed file"')
+  const moved = gitMark(rd({ upstream: 'origin/main', ahead: 2, behind: 1 }))
+  check(moved?.kind === 'moved' && moved.count === '' && moved.words === 'Git: main · nothing changed · 2 ahead and 1 behind origin/main' && gitMark(rd({ upstream: 'origin/main', ahead: 0, behind: 4 }))?.words === 'Git: main · nothing changed · 4 behind origin/main', 'nothing changed but ahead or behind: the moved mark, and how far in words', moved?.words)
+  check(gitMark(rd({ upstream: 'origin/main', ahead: 0, behind: 0 }))?.kind === 'branch' && gitMark(rd({ upstream: 'origin/gone' }))?.kind === 'branch', 'in step with its upstream, or an upstream that is gone, is the plain mark')
+  const both = gitMark(rd({ unstaged: 1, changed: 1, upstream: 'origin/main', ahead: 3, behind: 0 }))
+  check(both?.kind === 'changes' && /1 changed file · 3 ahead of origin\/main$/.test(both.words), 'changes win over distance for the mark; the words say both')
+  const merging = gitMark(rd({ operation: 'merge', conflicted: 2, changed: 2 }))
+  check(merging?.kind === 'alert' && merging.count === '2' && /a merge is under way, 2 in conflict/.test(merging.words), 'something under way, or files in conflict: the warning mark')
+  check(gitMark(rd({ operation: 'rebase' }))?.kind === 'alert' && gitMark(rd({ conflicted: 1, changed: 1 }))?.kind === 'alert', 'either alone is enough for it')
+  check(gitMark(rd({ branch: null }))?.words === 'Git: detached at 0a0dc05 · nothing changed' && gitMark(rd({ branch: null, commit: null }))?.words === 'Git: no commits yet · nothing changed', 'a detached HEAD and an empty repository are said as such')
+  check(gitMark(rd({ untracked: 5000, changed: 5000 }))?.count === '5000' && gitMark(rd({ untracked: 5000, changed: 5000 }, true))?.count === '5000+' && /more than 5000 changed files/.test(gitMark(rd({ untracked: 5000, changed: 5000 }, true))?.words ?? ''), 'where the reader stopped counting, the number says "at least"')
+  const RLO2 = String.fromCharCode(0x202e)
+  const nasty = gitMark(rd({ branch: `main${RLO2}evil\n`, upstream: `origin/x${RLO2}` , ahead: 1, behind: 0 }))
+  check(!!nasty && !nasty.words.includes(RLO2) && !nasty.words.includes('\n'), 'a branch or upstream name is shown without invisible characters')
+  const chip = gitChip(rd({ branch: 'feat/a-very-long-branch-name-that-goes-on-and-on', unstaged: 1, changed: 1, upstream: 'origin/x', ahead: 2, behind: 4 }))
+  check(!!chip && chip.kind === 'changes' && Array.from(chip.head).length <= 28 && chip.head.endsWith('…') && chip.count === '1' && chip.ahead === 2 && chip.behind === 4, 'the header chip: the branch cut to fit, the count, and the distance')
+  check(gitChip(rd({ ahead: 5, behind: 5 }))?.ahead === 0 && gitChip({ kind: 'none' }) === null && gitChip(rd({ branch: null }))?.head === 'detached 0a0dc05', 'no upstream means no distance; no repository means no chip; detached shows the commit')
+  check(GIT_OPEN_FRESH_MS < GIT_ROW_FRESH_MS && gitStale(GIT_OPEN_FRESH_MS, true) && !gitStale(GIT_OPEN_FRESH_MS - 1, true) && !gitStale(GIT_OPEN_FRESH_MS, false) && gitStale(GIT_ROW_FRESH_MS, false) && gitStale(NaN, false), 'the open conversation is read again sooner than a row; a time that makes no sense counts as stale')
 }
 
 console.log('2. the commands and the environment')
@@ -393,6 +424,16 @@ void (async () => {
     check(/if \(going && going\.conn === conn\) return going\.answer/.test(handler) && /if \(known && known\.conn === conn\) return known\.verdict/.test(main), 'one question per conversation at a time, and the shared-disk proof is good only for the connection it was made on')
     check((reader.match(/execFile\(/g) ?? []).length === 1 && (reader.match(/'exec "\$@"'/g) ?? []).length === 2 && /execFile\(SH, \['-c', script, 'sh', \.\.\.argv\]/.test(reader) && !/exec\(|spawn\(|shell: true/.test(reader), 'every command the reader runs goes through the one call that applies the process limit, with its arguments as data; the two that run without it (the self-test control, and asking where git is) run at the top of the disk, never in the folder')
     check(/timeout: TIME_MS, killSignal: 'SIGKILL', maxBuffer: OUT_MAX/.test(reader) && /if \(!\(await forkLimitEnforced\(probeEnv\)\)\) return \{ kind: 'unreadable', why: GIT_UNSAFE_HERE \}/.test(reader) && /if \(free\.code !== 0 \|\| !\/\^started:0\$\/m\.test\(free\.out\)\) return false/.test(reader) && /if \(limited\.timedOut \|\| limited\.code === null\) return false/.test(reader), 'each has a time limit and an output limit; nothing is read where the process limit is not enforced, and the self-test counts as passed only when the probe ran both without the limit (and worked) and under it (and did not)')
+    const store = read('src/renderer/src/git-store.ts')
+    check(/if \(here === null\) return askHere\(\)/.test(store) && /if \(!here\) return/.test(store) && /if \(!b \|\| here !== true\) return/.test(store), 'the window asks for nothing until main has said Prometheus shares this disk, and nothing at all when it does not')
+    check(/\(w\) => \(w\.verdict === 'unknown' \? null : w\.here === true\)/.test(store) && /if \(answer === null\) \{[\s\S]{0,200}window\.setTimeout\(askHere, Math\.min\(30_000, 1000 \* 2 \*\* hereTries\+\+\)\)/.test(store), '"could not be told just now" is not "no": it is asked again, less and less often')
+    check(/epoch\+\+\s*here = null\s*hereTries = 0\s*entries\.clear\(\)\s*asking\.clear\(\)\s*queue\.length = 0/.test(store) && (store.match(/if \(asked !== epoch\) return/g) ?? []).length >= 3, "another Prometheus, or a reconnection, forgets what was read, and an answer still on its way from the old one is ignored")
+    check(/while \(asking\.size < AT_ONCE && queue\.length > 0\)/.test(store) && /const AT_ONCE = 3/.test(store) && /queue\.findIndex\(\(id\) => openIds\.has\(id\)\)/.test(store), 'at most three questions are with main at a time, the open conversation first')
+    check(/if \(showing\(\)\) requestGit\(id, \{ open \}\)/.test(store) && /document\.addEventListener\('visibilitychange', ask\)/.test(store), 'a window that is not showing asks nothing, and asks again when it is shown')
+    check(/window\.addEventListener\(WORKSPACE_CHANGED,[\s\S]{0,160}requestGit\(id, \{ force: true \}\)/.test(store) && /const WORKSPACE_CHANGED = 'beacon:workspace-changed'/.test(store) && /export const WORKSPACE_CHANGED = 'beacon:workspace-changed'/.test(read('src/renderer/src/components/WorkFolderChip.tsx')) && /if \(opts\.force\) going\.again = true/.test(store), "a conversation whose folder changes is read again at once, even if a read was already under way")
+    const markSrc = read('src/renderer/src/components/GitMark.tsx')
+    check(/new IntersectionObserver\(/.test(markSrc) && /useGit\(sessionId, \{ watch: seen \}\)/.test(markSrc) && /useGit\(sessionId, \{ watch: true, open: true, refreshKey \}\)/.test(markSrc), 'a row reads only while it is on screen; the open conversation reads more often and when a turn ends')
+    check(/<GitMark sessionId=\{s\.id\} \/>/.test(read('src/renderer/src/components/Sidebar.tsx')) && /<GitChip sessionId=\{sessionId\} refreshKey=\{turnsEnded\} \/>/.test(read('src/renderer/src/components/ChatShell.tsx')), 'the mark is on every session row and the chip in the conversation header')
     check(!/from 'electron'|from 'node:fs'|from 'fs'/.test(reader) && !/from 'node:|from 'electron'/.test(read('src/shared/git-state.ts')), 'the reader touches the folder only through those commands; the rules are pure')
   }
 })().catch((e) => {

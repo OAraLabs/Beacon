@@ -6955,3 +6955,89 @@ div.ctx-footer {
   font-size: 14px;
   color: var(--ink);
 }
+
+/* ── Git: the mark on a session row, and the branch chip in a conversation's header ──────────
+   Each kind has its own SHAPE (GitMark.tsx); the colour only repeats what the shape says. */
+.git-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  color: var(--ink4);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+/* Nothing to show, but still in the row so it can tell when the row is on screen. It takes no
+   room: the negative margin gives back the gap the row puts between its marks. */
+.git-mark.is-empty {
+  width: 0;
+  height: 1px;
+  margin-left: -6px;
+}
+.git-mark.is-changes,
+.git-mark.is-moved {
+  color: var(--lapis-text);
+}
+.git-mark.is-alert {
+  color: var(--c-err-text);
+}
+/* On the active row's tint the accent falls just short of readable in two themes: there the mark
+   is the row's own ink, and its shape and number carry the meaning. */
+.session-row.is-active .git-mark.is-changes,
+.session-row.is-active .git-mark.is-moved {
+  color: var(--ink);
+}
+.git-mark-count {
+  min-width: 1ch;
+}
+.git-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  max-width: 240px;
+  padding: 0 9px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--line3);
+  color: var(--ink4);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.git-chip-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-text);
+}
+.git-chip-count,
+.git-chip-move {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.git-chip.is-changes .git-chip-count {
+  color: var(--lapis-text);
+}
+.git-chip.is-alert {
+  border-color: var(--c-err);
+}
+.git-chip.is-alert .git-chip-count {
+  color: var(--c-err-text);
+}
+@container (max-width: 620px) {
+  .git-chip {
+    max-width: 120px;
+    padding: 0 7px;
+  }
+}
+@container (max-width: 300px) {
+  /* The narrowest header: the mark and its number stay, the branch name goes (it is in the tooltip). */
+  .git-chip-head {
+    display: none;
+  }
+}

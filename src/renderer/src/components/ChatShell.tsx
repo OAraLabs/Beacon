@@ -18,6 +18,7 @@ import { coalesceToolResults, groupForRender } from '@shared/timeline'
 import { finalizeRow, orderForRender } from '@shared/message-order'
 import { ModelSwitcher } from './ModelSwitcher'
 import { hostDisplayName } from '@shared/daemon-api'
+import { GitChip } from './GitMark'
 import { WorkFolderChip } from './WorkFolderChip'
 import { otherComputerName } from '@shared/work-folder'
 import { speakable, speechText } from '@shared/speech-text'
@@ -1880,6 +1881,7 @@ export function ChatShell({
               which this is: the workspace routes are the owner's, and nothing is asked that
               would be refused. */}
           {limited || !roleHeard ? null : <WorkFolderChip sessionId={sessionId} where={otherComputerName(hostDisplayName(status.gateway))} refreshKey={turnsEnded} />}
+          {limited || !roleHeard ? null : <GitChip sessionId={sessionId} refreshKey={turnsEnded} />}
           {/* One chip for state, host and distance — shared with Mission's banner. */}
           <HostChip />
           <button
