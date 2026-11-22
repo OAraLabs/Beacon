@@ -36,6 +36,9 @@ import {
 
 const SH = '/bin/sh'
 const TIME_MS = 4000
+/** The questions asked once per run (does the limit bind, where is git): a busy computer just
+ *  after launch can be slow to start anything, and a wrong "no" here would cost every later read. */
+const ONCE_TIME_MS = 20_000
 const OUT_MAX = 4 * 1024 * 1024
 
 interface Ran {
@@ -46,9 +49,9 @@ interface Ran {
 }
 
 /** One command under the process limit. `argv` are arguments to `sh -c SCRIPT sh …`: data, never script. */
-function run(argv: readonly string[], cwd: string, env: Record<string, string>, script = NO_FORK_SCRIPT): Promise<Ran> {
+export function run(argv: readonly string[], cwd: string, env: Record<string, string>, script = NO_FORK_SCRIPT, timeMs = TIME_MS): Promise<Ran> {
   return new Promise((resolve) => {
-    execFile(SH, ['-c', script, 'sh', ...argv], { cwd, env, timeout: TIME_MS, killSignal: 'SIGKILL', maxBuffer: OUT_MAX, windowsHide: true, encoding: 'utf8' }, (err, stdout) => {
+    execFile(SH, ['-c', script, 'sh', ...argv], { cwd, env, timeout: timeMs, killSignal: 'SIGKILL', maxBuffer: OUT_MAX, windowsHide: true, encoding: 'utf8' }, (err, stdout) => {
       const e = err as (Error & { code?: number | string; killed?: boolean; signal?: string }) | null
       resolve({
         code: e ? (typeof e.code === 'number' ? e.code : null) : 0,
@@ -76,9 +79,9 @@ let asking: Promise<boolean> | null = null
 export function forkLimitEnforced(env: Record<string, string>): Promise<boolean> {
   if (enforced !== null) return Promise.resolve(enforced)
   asking ??= (async () => {
-    const free = await run(PROBE, '/', env, 'exec "$@"')
+    const free = await run(PROBE, '/', env, 'exec "$@"', ONCE_TIME_MS)
     if (free.code !== 0 || !/^started:0$/m.test(free.out)) return false // the probe cannot be run here: not known, not kept
-    const limited = await run(PROBE, '/', env)
+    const limited = await run(PROBE, '/', env, NO_FORK_SCRIPT, ONCE_TIME_MS)
     if (limited.timedOut || limited.code === null) return false // did not run: not known, not kept
     enforced = limited.code !== NO_FORK_UNSET && !/started:0/.test(limited.out)
     return enforced
@@ -95,7 +98,7 @@ export function forkLimitEnforced(env: Record<string, string>): Promise<boolean>
 let stub: Promise<boolean> | null = null
 function gitIsAStub(env: Record<string, string>): Promise<boolean> {
   if (process.platform !== 'darwin') return Promise.resolve(false)
-  stub ??= run(['/usr/bin/xcode-select', '-p'], '/', env).then((r) => r.code !== 0)
+  stub ??= run(['/usr/bin/xcode-select', '-p'], '/', env, NO_FORK_SCRIPT, ONCE_TIME_MS).then((r) => r.code !== 0)
   return stub
 }
 
@@ -111,7 +114,7 @@ function gitIsAStub(env: Record<string, string>): Promise<boolean> {
 let program: Promise<string> | null = null
 function gitProgram(env: Record<string, string>): Promise<string> {
   if (process.platform !== 'darwin') return Promise.resolve('git')
-  program ??= run(['/usr/bin/xcrun', '--find', 'git'], '/', env, 'exec "$@"').then((r) => {
+  program ??= run(['/usr/bin/xcrun', '--find', 'git'], '/', env, 'exec "$@"', ONCE_TIME_MS).then((r) => {
     const found = r.code === 0 ? r.out.trim() : ''
     return /^\/(Library\/Developer\/CommandLineTools|Applications\/Xcode[^/]*\.app\/Contents\/Developer)\/[A-Za-z0-9_./-]+\/git$/.test(found) && !found.includes('..') ? found : 'git'
   })
@@ -129,7 +132,7 @@ const waiting: (() => void)[] = []
 /** The most reads that may wait their turn. Past it a read is not queued: it is answered "busy". */
 const WAITING_MAX = 16
 const BUSY = { kind: 'unreadable', why: 'Beacon is already reading git for several conversations. Try again in a moment.' } as const
-async function turn<T>(fn: () => Promise<T>): Promise<T | typeof BUSY> {
+export async function turn<T>(fn: () => Promise<T>): Promise<T | typeof BUSY> {
   if (running >= AT_ONCE) {
     if (waiting.length >= WAITING_MAX) return BUSY
     await new Promise<void>((r) => waiting.push(r))
@@ -173,7 +176,7 @@ export function readGit(
 }
 
 type Fail = { kind: 'none' } | { kind: 'unreadable'; why: string }
-interface Opened {
+export interface Opened {
   env: Record<string, string>
   git: string
   at: { top: string; gitDir: string; linked: boolean }
@@ -181,7 +184,7 @@ interface Opened {
 
 /** Everything that must hold before any command reads the folder: the limit binds, the real git
  *  is known, and the repository git finds is plainly here with a top the caller accepts. */
-async function open(folder: string, baseEnv: Record<string, string | undefined>, topAllowed: (top: string) => boolean): Promise<Opened | Fail> {
+export async function open(folder: string, baseEnv: Record<string, string | undefined>, topAllowed: (top: string) => boolean): Promise<Opened | Fail> {
   if (typeof folder !== 'string' || !folder.startsWith('/') || folder.includes('\0') || folder.includes('\n')) return { kind: 'none' }
   const probeEnv = gitReadEnv(baseEnv)
   if (!(await forkLimitEnforced(probeEnv))) return { kind: 'unreadable', why: GIT_UNSAFE_HERE }

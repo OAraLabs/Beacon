@@ -106,6 +106,8 @@ import { registerVoiceHandlers } from './voice'
 import { registerHandsFreeHandlers } from './vad-client'
 import { grabSource, registerScreenshotHandlers } from './screenshot-ipc'
 import { readGit, readGitDetail, readGitDiff } from './git-reader'
+import { readGitPr } from './git-pr'
+import type { GitPrRead } from '@shared/git-pr'
 import type { GitDetail, GitDiff, GitRead } from '@shared/git-state'
 import { folderProblem, hereVerdict, isThisComputer, type FolderPick, type FolderWhere } from '@shared/work-folder'
 import { CAPTURE_HOLD_MAX_MS, hidesOnBlur, hidesOnHoldTimeout, holdAfter, isCaptureSender, toggleAllowed, type HoldEvent } from '@shared/quick-capture'
@@ -2527,6 +2529,14 @@ app.whenReady().then(() => {
     gitPanelAsks.set(key, { conn, answer })
     return answer
   }
+  // The branch's pull request, through `gh` on this computer (git-pr.ts). Answers are remembered for a minute.
+  handleFromShell(IPC.GIT_PR, async (_e, sessionId: unknown): Promise<GitPrRead> => {
+    if (typeof sessionId !== 'string') return { kind: 'none' }
+    return oncePer(`pr\n${sessionId}`, async (): Promise<GitPrRead> => {
+      const at = await gitFolderFor(sessionId)
+      return at ? readGitPr(at.folder, process.env, at.topAllowed) : { kind: 'none' }
+    })
+  })
   handleFromShell(IPC.GIT_DETAIL, async (_e, sessionId: unknown): Promise<GitDetail> => {
     if (typeof sessionId !== 'string') return { kind: 'none' }
     return oncePer(`detail\n${sessionId}`, async (): Promise<GitDetail> => {

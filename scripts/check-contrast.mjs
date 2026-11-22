@@ -162,6 +162,9 @@ const PAIRS = [
   { fg: '--ink', on: ['--node', '--sang-soft'], what: 'git mark with changes on the active session row', where: '.session-row.is-active .git-mark.is-changes' },
   { fg: '--sang-text', on: ['--node'], what: 'git warning mark on a session row', where: '.git-mark.is-alert' },
   { fg: '--ink', on: ['--node', '--line3'], what: 'a file row in the Git panel, hovered or open', where: 'button.git-file:hover' },
+  { fg: '--online-text', on: ['--node'], what: 'open pull request mark on a session row', where: '.git-mark.is-pr-open' },
+  { fg: '--lapis-text', on: ['--node'], what: 'merged pull request mark on a session row', where: '.git-mark.is-pr-merged' },
+  { fg: '--sang-text', on: ['--node'], what: 'closed pull request mark on a session row', where: '.git-mark.is-pr-closed' },
   { fg: '--sang-text', on: ['--node', '--sang-soft'], what: 'git warning mark on the active session row', where: '.session-row.is-active .git-mark.is-alert' },
   { fg: '--ink4', on: ['--node', '--sang-soft'], what: 'clean git mark on the active session row', where: '.session-row.is-active .git-mark' },
   // identifier chips + inactive pills: a glyph on a neutral hairline wash

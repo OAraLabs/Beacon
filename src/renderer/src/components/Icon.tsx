@@ -5,6 +5,10 @@ import type { ReactNode } from 'react'
 // Hand-authored lucide-style paths; add here rather than importing an icon dependency.
 
 export type IconName =
+  | 'git-pr'
+  | 'git-pr-draft'
+  | 'git-merged'
+  | 'git-pr-closed'
   | 'git-branch'
   | 'git-moved'
   | 'git-alert'
@@ -53,6 +57,42 @@ export type IconName =
 const PATHS: Record<IconName, ReactNode> = {
   // Git (session list and header). Three shapes, so the state is never told by colour alone:
   // a branch; a branch with an arrow beside it (ahead of or behind its upstream); a warning.
+  // Pull requests. Four shapes: a line coming in to a branch (open); the same with a broken line
+  // (draft); two lines joined (merged); a cross on the branch (closed without merging).
+  'git-pr': (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="18" r="3" />
+      <line x1="6" y1="9" x2="6" y2="21" />
+      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+    </>
+  ),
+  'git-pr-draft': (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="18" r="3" />
+      <line x1="6" y1="9" x2="6" y2="21" />
+      <path d="M18 4v2.5" />
+      <path d="M18 9.5v2.5" />
+    </>
+  ),
+  'git-merged': (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="18" r="3" />
+      <path d="M6 9v12" />
+      <path d="M6 9a9 9 0 0 0 9 9" />
+    </>
+  ),
+  'git-pr-closed': (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="18" r="3" />
+      <line x1="6" y1="9" x2="6" y2="21" />
+      <path d="m15 4 6 6" />
+      <path d="m21 4-6 6" />
+    </>
+  ),
   'git-branch': (
     <>
       <line x1="6" y1="3" x2="6" y2="15" />

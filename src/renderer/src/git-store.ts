@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { GitRead } from '@shared/git-state'
 import { gitStale } from '@shared/git-view'
+import type { GitPrRead } from '@shared/git-pr'
 
 // What git says about each conversation's work folder, for this window. A module singleton: the
 // session list, the header chip and the Git pane all read the same answers.
@@ -24,6 +25,14 @@ interface Entry {
   at: number
 }
 const entries = new Map<string, Entry>()
+/** Each conversation's pull request, asked for less often than its git state (it is a question to GitHub). */
+const prs = new Map<string, { read: GitPrRead; at: number; branch: string; retry: boolean }>()
+const prAsking = new Set<string>()
+const prQueue: { sessionId: string; branch: string }[] = []
+const PR_OPEN_MS = 60_000
+const PR_ROW_MS = 5 * 60_000
+/** After "could not be told just now". */
+const PR_RETRY_MS = 30_000
 const subs = new Map<string, Set<() => void>>()
 /** With main now, and whether to ask again when the answer comes (something changed meanwhile). */
 const asking = new Map<string, { again: boolean }>()
@@ -83,6 +92,9 @@ function start(): void {
       here = null
       hereTries = 0
       entries.clear()
+      prs.clear()
+      prAsking.clear()
+      prQueue.length = 0
       asking.clear()
       queue.length = 0
       notifyAll()
@@ -116,6 +128,7 @@ function pump(): void {
           const was = entries.get(sessionId)
           entries.set(sessionId, { read, at: Date.now() })
           if (!was || JSON.stringify(was.read) !== JSON.stringify(read)) notify(sessionId)
+          requestPr(sessionId, read, openIds.has(sessionId))
         },
         () => undefined
       )
@@ -127,6 +140,57 @@ function pump(): void {
         pump()
       })
   }
+}
+
+/** Ask for the branch's pull request, when the folder is a repository on a branch with an
+ *  upstream, and what is known is old or was about another branch. One question to main at a
+ *  time, the open conversation's first: each may become a question to GitHub. */
+function requestPr(sessionId: string, read: GitRead, open: boolean): void {
+  if (!window.beacon) return
+  const branch = read.kind === 'state' && read.state.branch && read.state.upstream ? read.state.branch : null
+  const known = prs.get(sessionId)
+  // Another branch (or none): what was known was about the old one. It goes at once, before the
+  // new answer, so one branch's pull request is never shown beside another's name.
+  if (known && known.branch !== branch) {
+    prs.delete(sessionId)
+    notify(sessionId)
+  }
+  if (branch === null) return
+  const now = prs.get(sessionId)
+  if (now && Date.now() - now.at < (now.retry ? PR_RETRY_MS : open ? PR_OPEN_MS : PR_ROW_MS)) return
+  if (prAsking.has(sessionId) || prQueue.some((q) => q.sessionId === sessionId)) return
+  prQueue.push({ sessionId, branch })
+  pumpPr()
+}
+
+function pumpPr(): void {
+  const b = window.beacon
+  if (!b || prAsking.size >= 1 || prQueue.length === 0) return
+  const at = prQueue.findIndex((q) => openIds.has(q.sessionId))
+  const { sessionId, branch } = prQueue.splice(at >= 0 ? at : 0, 1)[0]
+  const asked = epoch
+  prAsking.add(sessionId)
+  void b.git
+    .pr(sessionId)
+    .then(
+      (pr) => {
+        if (asked !== epoch) return
+        const was = prs.get(sessionId)
+        // "Could not be told just now": what was known stands (if it was about this branch), and it is asked again soon.
+        if (pr.kind === 'unknown') {
+          prs.set(sessionId, { read: was && was.branch === branch ? was.read : { kind: 'none' }, at: Date.now(), branch, retry: true })
+          return
+        }
+        prs.set(sessionId, { read: pr, at: Date.now(), branch, retry: false })
+        if (!was || JSON.stringify(was.read) !== JSON.stringify(pr)) notify(sessionId)
+      },
+      () => undefined
+    )
+    .finally(() => {
+      if (asked !== epoch) return
+      prAsking.delete(sessionId)
+      pumpPr()
+    })
 }
 
 /** Ask for a conversation's git state if what is known is old (or `force`). */
@@ -142,7 +206,10 @@ export function requestGit(sessionId: string, opts: { open?: boolean; force?: bo
   }
   if (queue.includes(sessionId)) return
   const known = entries.get(sessionId)
-  if (known && !opts.force && !gitStale(Date.now() - known.at, opts.open === true)) return
+  if (known && !opts.force && !gitStale(Date.now() - known.at, opts.open === true)) {
+    requestPr(sessionId, known.read, opts.open === true) // the pull request has its own, slower clock
+    return
+  }
   queue.push(sessionId)
   pump()
 }
@@ -200,4 +267,21 @@ export function useGit(sessionId: string | null | undefined, opts: { watch: bool
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
   return read
+}
+
+/** The pull request for a conversation's branch, as last learned (the git state's watcher asks for it). */
+export function usePr(sessionId: string | null | undefined): GitPrRead | null {
+  const id = sessionId ?? ''
+  return useSyncExternalStore(
+    (cb) => {
+      const set = subs.get(id) ?? new Set()
+      subs.set(id, set)
+      set.add(cb)
+      return () => {
+        set.delete(cb)
+        if (set.size === 0) subs.delete(id)
+      }
+    },
+    () => prs.get(id)?.read ?? null
+  )
 }
