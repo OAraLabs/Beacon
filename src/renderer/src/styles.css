@@ -6908,6 +6908,15 @@ div.ctx-footer {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.gym-address input::placeholder {
+  /* an example, and it has to look like one: lighter than what was typed, and slanted */
+  color: var(--ink4);
+  font-style: italic;
+}
+.gym-tabs .pill:disabled {
+  color: var(--ink4);
+  cursor: not-allowed;
+}
 .gym-address label {
   margin-top: 6px;
   color: var(--ink2);
