@@ -14,7 +14,7 @@ import { scrubWriteError } from '@shared/connectors'
 
 let failures = 0
 let checks = 0
-const EXPECTED = 42
+const EXPECTED = 43
 function assert(cond: boolean, label: string): void {
   checks++
   console.log(`[smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}`)
@@ -103,6 +103,17 @@ assert(plansSupported(recorded) && workspaceRegions(recorded).length > 0, 'the r
 const realQwen = real.find((s) => s.id === 'qwen')!
 assert(servicePlans(realQwen)?.map((p) => p.id).join() === 'payg-intl,payg-us,token-plan,coding-plan,workspace' && currentPlanId(realQwen) === 'payg-intl', "the real Qwen plans, on its default")
 assert(servicePlans(real.find((s) => s.id === 'deepseek')!) === null, 'the real DeepSeek: plans [] is a normal key row')
+// The daemon refuses any PUT naming a plan without the key in the same body (separate_keys on every plan): Beacon never sends one.
+const realOthers = (servicePlans(realQwen) ?? []).filter((p) => p.id !== 'payg-intl' && !p.custom)
+assert(
+  realOthers.length > 0 &&
+    realOthers.every((p) => {
+      const bare = buildPlanPayload({ svc: realQwen, typed: {}, plan: p.id, regions: workspaceRegions(recorded) })
+      const keyed = buildPlanPayload({ svc: realQwen, typed: { QWEN_API_KEY: 'k' }, plan: p.id, regions: workspaceRegions(recorded) })
+      return !bare.ok && keyed.ok && 'plan' in keyed.payload && 'values' in keyed.payload
+    }),
+  'every plan change against the real catalog carries the key in the same body'
+)
 const pinnedSvc = svc('glm2')
 assert(planPinned(pinnedSvc) && !planPinned(glm), 'a plan pinned in prometheus.yaml is read as such')
 assert(planWarnings(qwen).length === 1 && planWarnings(glm).length === 0, "the daemon's warnings come through, display only")

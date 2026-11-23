@@ -417,14 +417,18 @@ function ServiceRow({
       const m = e instanceof Error ? e.message : String(e)
       if (isCustomConflict(m)) {
         // Beacon's copy was stale: the daemon has a custom endpoint. Read the catalog again so the sheet offers the confirm.
-        // Two things answer 409: a custom endpoint (confirm to replace it) and a plan pinned in prometheus.yaml (no change from here).
+        // 409 means one of: a custom endpoint (confirm to replace it), a plan pinned in prometheus.yaml (no change from here), or
+        // something else the daemon refuses (e.g. the provider was swapped in yaml): then its own words, which name no key or host.
         const fresh = await b.daemon.get(KEYS_CATALOG_PATH).catch(() => null)
         if (fresh) onCatalog(fresh)
         const now = fresh ? coerceKeyServices(fresh).find((x) => x.id === svc.id) : undefined
+        const daemonSays = m.match(/\{"error":"([^"]+)"\}/)?.[1]
         setErr(
           now && planPinned(now)
             ? `The ${svc.label} plan is set in prometheus.yaml on the Prometheus computer, so it can't be changed here.`
-            : `This Prometheus uses a custom endpoint for ${svc.label}. Tick "Replace the custom endpoint" to replace it.`
+            : !now || currentPlanId(now) === 'custom'
+              ? `This Prometheus uses a custom endpoint for ${svc.label}. Tick "Replace the custom endpoint" to replace it.`
+              : daemonSays ?? `Prometheus refused this plan change for ${svc.label}.`
         )
         return
       }
