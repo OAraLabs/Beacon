@@ -113,6 +113,7 @@ export default defineConfig({
           'owner-promotion-smoke': resolve('src/main/owner-promotion-smoke.ts'),
           'approval-push-smoke': resolve('src/main/approval-push-smoke.ts'),
           'git-reader-smoke': resolve('src/main/git-reader-smoke.ts'),
+          'git-actions-smoke': resolve('src/main/git-actions-smoke.ts'),
           'approval-critical-smoke': resolve('src/main/approval-critical-smoke.ts'),
           'chat-projects-smoke': resolve('src/main/chat-projects-smoke.ts'),
           'chat-projects-content-smoke': resolve('src/main/chat-projects-content-smoke.ts'),
