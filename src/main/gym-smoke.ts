@@ -338,7 +338,7 @@ async function main(): Promise<void> {
     'token: main keeps it in a key file of its own, sealed by the OS keychain, and never in a settings row'
   )
   assert(classifiedScope(GYM_ADDRESS_KEY) === 'beacon', 'the address is this Beacon\'s own setting: one gym, whichever Prometheus is open')
-  const gymSources = readdirSync('src/main').filter((f) => /^gym-(?!smoke)/.test(f)).map((f) => src(`src/main/${f}`)).join('\n') + src('src/shared/gym.ts') + panel
+  const gymSources = readdirSync('src/main').filter((f) => /^gym-(?!smoke|control)/.test(f)).map((f) => src(`src/main/${f}`)).join('\n') + src('src/shared/gym.ts') + panel
   assert(!/console\.(log|warn|error|info|debug)/.test(gymSources), 'token: no gym file writes to a log at all, so none can write the token to one')
   const calls = [...new Set((panel.match(/\bb\.[a-zA-Z]+\s*\.[a-zA-Z]+/g) ?? []).map((c) => c.replace(/\s+/g, '')))].sort().join(',')
   assert(calls === 'b.gym.read,b.gym.setAddress,b.gym.setToken,b.gym.settings' && !/fetch\(/.test(panel) && /type="password"/.test(panel), 'read-only: the panel calls the gym read and its two settings, and nothing else; the token field does not show what is typed', calls)

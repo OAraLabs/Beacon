@@ -174,7 +174,11 @@ import { plainPublicRefusal } from './plain-public'
 import { GymStatusReader } from './gym-status'
 import { StatusServiceTransport } from './gym-transport'
 import { registerGymHandlers } from './gym-ipc'
+import { GymControl } from './gym-control'
+import { registerGymControlHandlers } from './gym-control-ipc'
+import { confirmationDialog } from './gym-control-dialog'
 import { GYM_ADDRESS_KEY } from '@shared/gym'
+import { GYM_CONTROL_ADDRESS_KEY } from '@shared/gym-control'
 
 // ── a release build refuses remote debugging (src/shared/release-gate.ts) ────
 // First statement of the module body, before the single-instance lock: Chromium opens the
@@ -2257,6 +2261,28 @@ app.whenReady().then(() => {
     }
   })
   registerGymHandlers(new GymStatusReader({ transport: gymService, sampleFile: debuggingAllowedHere() ? process.env.BEACON_GYM_STATUS_FILE || null : null }), gymService)
+  // Activity › Gym › Promote and Roll back: the gym's CONTROL service, a different service from the status one (its own address, its
+  // own WRITE token in a key file of its own, never the read token). The confirmation is drawn by the OS from the plan main holds.
+  // Writes are for the owner of the connected Prometheus only (not knowing the role counts as not being it).
+  const gymControlTokenStore = new CredentialStore(join(app.getPath('userData'), 'gym-control.key'), electronSafeStorageCipher())
+  registerGymControlHandlers(
+    new GymControl({
+      address: () => repo?.getSetting(GYM_CONTROL_ADDRESS_KEY) || null,
+      saveAddress: (url) => repo?.setSetting(GYM_CONTROL_ADDRESS_KEY, url),
+      readToken: () => gymControlTokenStore.getToken(),
+      saveToken: (token) => {
+        try {
+          gymControlTokenStore.setToken(token)
+          return true
+        } catch {
+          return false
+        }
+      },
+      isOwner: () => connection?.getStatus().role === 'owner',
+      confirm: (c) => confirmationDialog(c, BrowserWindow.getFocusedWindow() ?? mainWindow),
+      allowLoopback: debuggingAllowedHere()
+    })
+  )
   registerNetworkSettingHandlers(networkSetting) // Settings → Other computers: the home-network switch, and the restart
   // "Add a phone" (@shared/phone-join): a code with no secret, for any Prometheus Beacon keeps: its address made into a name a phone
   // can reach (this Mac's tailnet, read locally), the node key pinned for it, its name; and, for the one Beacon is on, its bind.

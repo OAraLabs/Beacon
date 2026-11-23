@@ -23,7 +23,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { checkIpcSenders, lex, OPEN_CHANNELS, type Report, type SourceFile } from './ipc-sender-invariant'
 
-const EXPECTED_CHECKS = 61
+const EXPECTED_CHECKS = 63
 let checks = 0
 let failures = 0
 let reported = false
@@ -176,6 +176,7 @@ const REGISTRATIONS: Record<string, { helper: number; raw: number }> = {
   'src/main/join-ipc.ts': { helper: 6, raw: 0 },
   'src/main/network-setting-ipc.ts': { helper: 3, raw: 0 },
   'src/main/gym-ipc.ts': { helper: 4, raw: 0 },
+  'src/main/gym-control-ipc.ts': { helper: 5, raw: 0 },
   'src/main/main-model-ipc.ts': { helper: 5, raw: 0 },
   'src/main/owner-promotion-ipc.ts': { helper: 1, raw: 0 },
   'src/main/chat-projects-ipc.ts': { helper: 3, raw: 0 },

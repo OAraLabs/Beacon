@@ -384,6 +384,13 @@ const api: BeaconBridge = {
     setAddress: (raw: string) => ipcRenderer.invoke(IPC.GYM_ADDRESS_SET, raw),
     setToken: (raw: string) => ipcRenderer.invoke(IPC.GYM_TOKEN_SET, raw)
   },
+  gymControl: {
+    settings: () => ipcRenderer.invoke(IPC.GYM_CONTROL_SETTINGS_GET),
+    setAddress: (raw: string) => ipcRenderer.invoke(IPC.GYM_CONTROL_ADDRESS_SET, raw),
+    setToken: (raw: string) => ipcRenderer.invoke(IPC.GYM_CONTROL_TOKEN_SET, raw),
+    run: (action: 'promote' | 'rollback', candidate?: string) => ipcRenderer.invoke(IPC.GYM_CONTROL_RUN, action, candidate),
+    op: () => ipcRenderer.invoke(IPC.GYM_CONTROL_OP)
+  },
   network: {
     get: () => ipcRenderer.invoke(IPC.NETWORK_GET),
     set: (on: boolean) => ipcRenderer.invoke(IPC.NETWORK_SET, on),

@@ -198,6 +198,12 @@ export const IPC = {
   GYM_SETTINGS_GET: 'gym:settings:get', // renderer -> main: the saved address, and whether a token is kept (never the token)
   GYM_ADDRESS_SET: 'gym:address:set', // renderer -> main: keep an address ('' forgets it); answers what was kept, or the refusal
   GYM_TOKEN_SET: 'gym:token:set', // renderer -> main: keep this computer's token for the gym ('' forgets it); answers only whether it was kept
+  // Activity › Gym › Promote / Roll back (@shared/gym-control): the first actions that change the gym. A separate service, address and WRITE token.
+  GYM_CONTROL_SETTINGS_GET: 'gym:control:settings:get', // renderer -> main: the control service's address, and whether a write token is kept (never the token)
+  GYM_CONTROL_ADDRESS_SET: 'gym:control:address:set', // renderer -> main: keep the control address ('' forgets it, and its token)
+  GYM_CONTROL_TOKEN_SET: 'gym:control:token:set', // renderer -> main: keep the write token ('' forgets it); answers only whether it was kept
+  GYM_CONTROL_RUN: 'gym:control:run', // renderer -> main: ask for Promote (with a model) or Roll back; main plans, the OS confirms, main applies
+  GYM_CONTROL_OP: 'gym:control:op', // renderer -> main: how the operation started from here is going (read only)
   NETWORK_GET: 'network:get', // renderer -> main: the setting as Prometheus reports it, or why there is no section
   NETWORK_SET: 'network:set', // renderer -> main: save on/off, return the setting read back (or the refusal)
   NETWORK_RESTART: 'network:restart', // renderer -> main: restart Prometheus and wait for it to come back as the same computer
@@ -1246,6 +1252,16 @@ export interface BeaconBridge {
     setAddress(raw: string): Promise<{ ok: true; url: string; host: string } | { ok: false; reason: string }>
     /** One way: the token can be given, never read back. */
     setToken(raw: string): Promise<{ ok: true } | { ok: false; reason: string }>
+  }
+  /** Activity › Gym › Promote and Roll back (@shared/gym-control). The page can ask; it can never apply (main does, after a
+   *  confirmation drawn by the OS from the plan main holds). */
+  gymControl: {
+    settings(): Promise<import('./gym-control').GymControlSettings>
+    setAddress(raw: string): Promise<{ ok: true; url: string; host: string } | { ok: false; reason: string }>
+    /** One way: the write token can be given, never read back. */
+    setToken(raw: string): Promise<{ ok: true } | { ok: false; reason: string }>
+    run(action: import('./gym-control').GymControlAction, candidate?: string): Promise<import('./gym-control').GymRunResult>
+    op(): Promise<import('./gym-control').GymOpRead>
   }
   loginItem: {
     get(): Promise<import('./login-item').LoginItemState>

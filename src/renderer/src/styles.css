@@ -7301,3 +7301,29 @@ button.git-file:focus-visible {
 .gym-runstate .gym-state {
   font-size: 15px;
 }
+
+/* Gym › Now › Rehearsal model: Promote and Roll back. */
+.gym-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.gym-actions .pill:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.gym-select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.4));
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+.gym-action-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  opacity: 0.8;
+}

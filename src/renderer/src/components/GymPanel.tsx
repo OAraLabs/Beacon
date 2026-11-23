@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { GymControlCard } from './GymControlCard'
 import {
   GYM_FORM_COPY,
   GYM_POLL_MS,
@@ -440,6 +441,8 @@ function NowSection({ s, now }: { s: GymStatus; now: number }) {
           <p className="gym-note">Anything that depends on these shows as not reported.</p>
         </Card>
       ) : null}
+
+      <GymControlCard s={s} now={now} />
 
       <Card title="What happened" wide>
         {s.timeline.length > 0 ? (
