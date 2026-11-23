@@ -417,9 +417,15 @@ function ServiceRow({
       const m = e instanceof Error ? e.message : String(e)
       if (isCustomConflict(m)) {
         // Beacon's copy was stale: the daemon has a custom endpoint. Read the catalog again so the sheet offers the confirm.
+        // Two things answer 409: a custom endpoint (confirm to replace it) and a plan pinned in prometheus.yaml (no change from here).
         const fresh = await b.daemon.get(KEYS_CATALOG_PATH).catch(() => null)
         if (fresh) onCatalog(fresh)
-        setErr(`This Prometheus uses a custom endpoint for ${svc.label}. Tick "Replace the custom endpoint" to replace it.`)
+        const now = fresh ? coerceKeyServices(fresh).find((x) => x.id === svc.id) : undefined
+        setErr(
+          now && planPinned(now)
+            ? `The ${svc.label} plan is set in prometheus.yaml on the Prometheus computer, so it can't be changed here.`
+            : `This Prometheus uses a custom endpoint for ${svc.label}. Tick "Replace the custom endpoint" to replace it.`
+        )
         return
       }
       const match = m.match(/\{"error":"([^"]+)"\}/)
@@ -431,7 +437,7 @@ function ServiceRow({
 
   const planResult =
     plans && chosen
-      ? buildPlanPayload({ svc, typed, plan: pinned ? (current ?? chosen) : chosen, workspace: { id: wsId, region: wsRegion }, regions, replaceCustom })
+      ? buildPlanPayload({ svc, typed, plan: chosen, workspace: { id: wsId, region: wsRegion }, regions, replaceCustom, pinned })
       : null
   const payload: object | null = plans ? (planResult?.ok ? planResult.payload : null) : buildSavePayload(svc, typed)
   const chosenPlan = plans?.find((p) => p.id === chosen) ?? null
@@ -487,8 +493,8 @@ function ServiceRow({
           </button>
         ) : null}
       </div>
-      {warnings.map((w) => (
-        <div key={w} data-testid="plan-warning" style={{ fontSize: 11, color: 'var(--c-amber)', margin: '0 0 4px 106px' }}>
+      {warnings.map((w, i) => (
+        <div key={i} data-testid="plan-warning" style={{ fontSize: 11, color: 'var(--c-amber)', margin: '0 0 4px 106px' }}>
           {w}
         </div>
       ))}
@@ -522,7 +528,7 @@ function ServiceRow({
                   </label>
                 )
               })}
-              {chosenPlan?.custom ? (
+              {chosenPlan?.custom && !pinned ? (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 22 }}>
                   <input style={{ ...keyInput, width: 180 }} spellCheck={false} placeholder="Workspace id" value={wsId} onChange={(e) => setWsId(e.target.value)} />
                   <select value={wsRegion} onChange={(e) => setWsRegion(e.target.value)} style={{ fontSize: 12 }}>
@@ -535,11 +541,16 @@ function ServiceRow({
                   </select>
                 </div>
               ) : null}
-              {current === 'custom' && chosen && chosen !== 'custom' ? (
+              {current === 'custom' && chosen && chosen !== 'custom' && !pinned ? (
                 <label style={{ display: 'flex', gap: 6, fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>
                   <input type="checkbox" checked={replaceCustom} onChange={(e) => setReplaceCustom(e.target.checked)} />
                   Replace the custom endpoint
                 </label>
+              ) : null}
+              {planResult && !planResult.ok && planResult.reason === 'workspace' && (wsId.trim() || wsRegion) ? (
+                <div style={{ fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>
+                  A workspace needs both its id (letters, digits and hyphens) and its region.
+                </div>
               ) : null}
               {planResult && !planResult.ok && planResult.reason === 'needs-key' ? (
                 <div style={{ fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>A plan takes only its own key: type this plan&apos;s key below.</div>

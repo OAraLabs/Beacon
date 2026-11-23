@@ -68,7 +68,7 @@ export function planPinned(svc: ProviderKeyServiceDTO): boolean {
 /** The daemon's notes about unattended routes running on a subscription plan: shown, never blocking. */
 export function planWarnings(svc: ProviderKeyServiceDTO): string[] {
   const w = (svc as { warnings?: unknown }).warnings
-  return Array.isArray(w) ? w.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim()).slice(0, 5) : []
+  return Array.isArray(w) ? w.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim().slice(0, 300)).slice(0, 5) : []
 }
 
 /** The plan a service is on: a listed id; 'custom' for an endpoint that matches none (or an id the list lacks, never guessed);
@@ -112,6 +112,8 @@ export function buildPlanPayload(input: {
   workspace?: { id: string; region: string }
   regions?: string[]
   replaceCustom?: boolean
+  /** The plan is pinned in prometheus.yaml (planPinned): only a new key for the current plan, never a plan or workspace change. */
+  pinned?: boolean
 }): { ok: true; payload: KeyOrPlanPayload } | { ok: false; reason: 'nothing' | 'unknown' | 'workspace' | 'custom' | 'needs-key' } {
   const plans = servicePlans(input.svc)
   const values: Record<string, string> = {}
@@ -121,6 +123,7 @@ export function buildPlanPayload(input: {
   }
   const current = currentPlanId(input.svc)
   const typedKey = Object.keys(values).length > 0
+  if (input.pinned) return typedKey ? { ok: true, payload: { values } } : { ok: false, reason: 'nothing' }
   const plan = plans?.find((p) => p.id === input.plan)
   const workspaceGiven = !!plan?.custom && !!((input.workspace?.id ?? '').trim() || input.workspace?.region)
   if (plans && input.plan === current && !workspaceGiven) return typedKey ? { ok: true, payload: { values } } : { ok: false, reason: 'nothing' }

@@ -14,7 +14,7 @@ import { scrubWriteError } from '@shared/connectors'
 
 let failures = 0
 let checks = 0
-const EXPECTED = 41
+const EXPECTED = 42
 function assert(cond: boolean, label: string): void {
   checks++
   console.log(`[smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}`)
@@ -106,6 +106,8 @@ assert(servicePlans(real.find((s) => s.id === 'deepseek')!) === null, 'the real 
 const pinnedSvc = svc('glm2')
 assert(planPinned(pinnedSvc) && !planPinned(glm), 'a plan pinned in prometheus.yaml is read as such')
 assert(planWarnings(qwen).length === 1 && planWarnings(glm).length === 0, "the daemon's warnings come through, display only")
+const pinnedWs = buildPlanPayload({ svc: pinnedSvc, typed: { ZAI2_API_KEY: 'k' }, plan: 'payg', workspace: { id: 'x', region: 'us-east-1' }, regions, pinned: true })
+assert(pinnedWs.ok && keys(pinnedWs.payload) === 'values' && !buildPlanPayload({ svc: pinnedSvc, typed: {}, plan: 'payg', pinned: true }).ok, 'a pinned plan: a new key alone, never a plan or workspace change')
 
 if (checks !== EXPECTED) {
   console.log(`[smoke] FAIL — ran ${checks}/${EXPECTED} checks`)
