@@ -299,6 +299,23 @@ export interface GymEvent {
   value: number | null
   ok: boolean | null
 }
+/** The rehearsal model's promotion, as the gym's ledger says (the `promotion` section; null when the gym doesn't send one).
+ *  PROVISIONAL: the field names follow the contract agreed with the gym's side; they are switched to its schema when it exists. */
+export interface GymPromotion {
+  /** none | promoted | rolling_back | rolled_back | failed (and promoting while a promote runs); another is shown as its name. */
+  state: string
+  target: string | null
+  candidate: string | null
+  since: number | null
+  steps: { id: string; status: string }[]
+  beforeMatch: boolean | null
+  realUntouched: boolean | null
+  studentHealth: string | null
+  shadow: GymCount[]
+  /** The archived models Promote may be asked for. Empty: no Promote is drawn. */
+  candidates: string[]
+  rollbackAvailable: boolean | null
+}
 export interface GymStatus {
   generatedAt: number
   sources: GymSource[]
@@ -315,6 +332,7 @@ export interface GymStatus {
   alerts: GymAlert[]
   /** Newest first. */
   timeline: GymEvent[]
+  promotion: GymPromotion | null
 }
 
 /** What main answers the panel. `sample`: read from a fixture file in a non-release build, not from a gym. */
@@ -367,6 +385,18 @@ const SLUG = /^[a-z0-9][a-z0-9_.:-]{0,39}$/
 export function slug(v: unknown): string | null {
   return typeof v === 'string' && SLUG.test(v) ? v : null
 }
+/** A string that is plainly an address or a computer's name on a network (a dotted quad, with or without a port; an IPv6 literal;
+ *  a name ending .local, .lan, .internal, .home, .localhost or .ts.net). NOT a promise that nothing else names a computer: a
+ *  bare name such as `my-laptop` is a valid identifier and cannot be told apart by its shape. The rule the plan and the
+ *  promotion record keep is "identifier shapes only, and the obvious addresses refused". */
+export function addressLike(s: string): boolean {
+  return /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(s) || (s.match(/:/g) ?? []).length >= 2 || /(^|\.)(local|lan|internal|localhost|home|ts\.net)$/.test(s)
+}
+/** An identifier that is also not plainly an address. */
+export function safeId(v: unknown): string | null {
+  const s = slug(v)
+  return s !== null && !addressLike(s) ? s : null
+}
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 const bool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null)
 const obj = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null)
@@ -383,6 +413,7 @@ function time(v: unknown): number | null {
   const t = Date.parse(v)
   return Number.isNaN(t) ? null : t
 }
+export const gymTime = time
 function oneOf<T extends string>(v: unknown, all: readonly T[], otherwise: T): T {
   return all.includes(v as T) ? (v as T) : otherwise
 }
@@ -454,6 +485,35 @@ function parsePostTrain(v: unknown): GymPostTrain | null {
     if (c && id !== null) candidates.push({ id, step: num(c.step), valLoss: num(c.val_loss), probeLoss: num(c.probe_loss) })
   }
   return { status: slug(p.status) ?? 'unknown', outcome: slug(p.outcome), currentStep: slug(p.current_step), currentCandidate: slug(p.current_candidate), updatedAt: time(p.updated_at), stepsDone: num(p.steps_done), stepsTotal: num(p.steps_total), steps, candidates }
+}
+
+function parsePromotion(v: unknown): GymPromotion | null {
+  const p = obj(v)
+  if (!p) return null
+  const steps: GymPromotion['steps'] = []
+  for (const raw of list(p.steps, 40)) {
+    const s = obj(raw)
+    const id = safeId(s?.id)
+    if (s && id !== null) steps.push({ id, status: safeId(s.status) ?? 'unknown' })
+  }
+  const candidates: string[] = []
+  for (const raw of list(p.candidates, 32)) {
+    const c = safeId(raw)
+    if (c !== null) candidates.push(c)
+  }
+  return {
+    state: safeId(p.state) ?? 'unknown',
+    target: safeId(p.target),
+    candidate: safeId(p.candidate),
+    since: time(p.since),
+    steps,
+    beforeMatch: bool(p.before_match),
+    realUntouched: bool(p.real_untouched),
+    studentHealth: safeId(p.student_health),
+    shadow: counts(p.shadow, 20),
+    candidates,
+    rollbackAvailable: bool(p.rollback_available)
+  }
 }
 
 function parseScorecards(v: unknown): GymScorecard[] {
@@ -743,7 +803,8 @@ export function parseGymStatus(json: unknown): GymStatus | null {
     schedule,
     lastNight: parseLastNight(d.last_night),
     alerts,
-    timeline
+    timeline,
+    promotion: parsePromotion(d.promotion)
   }
 }
 
