@@ -70,6 +70,7 @@
     "smoke:daemon-isolation": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-isolation-smoke.js",
     "smoke:daemon-folders": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-folders-smoke.js",
     "smoke:credential-origin": "ELECTRON_RUN_AS_NODE=1 electron out/main/credential-origin-smoke.js",
+    "smoke:provider-plans": "ELECTRON_RUN_AS_NODE=1 electron out/main/provider-plans-smoke.js",
     "smoke:identity-challenge": "ELECTRON_RUN_AS_NODE=1 electron out/main/identity-challenge-smoke.js",
     "smoke:daemon-list": "ELECTRON_RUN_AS_NODE=1 electron out/main/daemon-list-smoke.js",
     "smoke:instance-watch": "ELECTRON_RUN_AS_NODE=1 electron out/main/instance-watch-smoke.js",

@@ -140,6 +140,7 @@ export default defineConfig({
           'daemon-isolation-smoke': resolve('src/main/daemon-isolation-smoke.ts'),
           'daemon-folders-smoke': resolve('src/main/daemon-folders-smoke.ts'),
           'credential-origin-smoke': resolve('src/main/credential-origin-smoke.ts'),
+          'provider-plans-smoke': resolve('src/main/provider-plans-smoke.ts'),
           'identity-challenge-smoke': resolve('src/main/identity-challenge-smoke.ts'),
           'daemon-list-smoke': resolve('src/main/daemon-list-smoke.ts'),
           'instance-watch-smoke': resolve('src/main/instance-watch-smoke.ts'),
