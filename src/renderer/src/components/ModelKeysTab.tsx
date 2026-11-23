@@ -12,7 +12,7 @@ import {
   type ProviderKeyServiceDTO
 } from '@shared/model-keys'
 import { catalogAuthBadges, MODELS_CATALOG_PATH } from '@shared/model-auth'
-import { buildPlanPayload, currentPlanId, isCustomConflict, planChipText, plansSupported, servicePlans } from '@shared/provider-plans'
+import { buildPlanPayload, currentPlanId, isCustomConflict, planChipText, planPinned, plansSupported, planWarnings, servicePlans, workspaceRegions } from '@shared/provider-plans'
 import { MainModelSection } from './MainModelSection'
 import { backendReading, defaultRowLabel, isCloudPrimary } from '@shared/backend-health'
 import { useBackendRecheck } from '../backend-recheck'
@@ -358,6 +358,7 @@ function ServiceRow({
   svc,
   authBadge,
   plansOn,
+  regions,
   versions,
   onCatalog,
   onAuthChanged
@@ -368,6 +369,8 @@ function ServiceRow({
   authBadge: string | null
   /** The daemon serves subscription plans (@shared/provider-plans plansSupported): only then is a plan offered. */
   plansOn: boolean
+  /** The regions a workspace plan can be in (the catalog's workspace_regions). */
+  regions: string[]
   /** Every selectable version for this provider, default first (Prometheus PR 542).
    * Empty / single → the row renders the plain model string exactly as before. */
   versions: ModelVersion[]
@@ -393,6 +396,8 @@ function ServiceRow({
   const [wsRegion, setWsRegion] = useState('')
   const [replaceCustom, setReplaceCustom] = useState(false)
   const planText = plans ? planChipText(svc) : null
+  const pinned = plans ? planPinned(svc) : false
+  const warnings = plans ? planWarnings(svc) : []
 
   const put = async (payload: object): Promise<void> => {
     const b = window.beacon
@@ -426,7 +431,7 @@ function ServiceRow({
 
   const planResult =
     plans && chosen
-      ? buildPlanPayload({ svc, typed, plan: chosen, workspace: { id: wsId, region: wsRegion }, replaceCustom })
+      ? buildPlanPayload({ svc, typed, plan: pinned ? (current ?? chosen) : chosen, workspace: { id: wsId, region: wsRegion }, regions, replaceCustom })
       : null
   const payload: object | null = plans ? (planResult?.ok ? planResult.payload : null) : buildSavePayload(svc, typed)
   const chosenPlan = plans?.find((p) => p.id === chosen) ?? null
@@ -482,6 +487,11 @@ function ServiceRow({
           </button>
         ) : null}
       </div>
+      {warnings.map((w) => (
+        <div key={w} data-testid="plan-warning" style={{ fontSize: 11, color: 'var(--c-amber)', margin: '0 0 4px 106px' }}>
+          {w}
+        </div>
+      ))}
       {versionsOpen && hasVersionChoice(versions) ? (
         <VersionPanel serviceId={svc.id} versions={versions} />
       ) : null}
@@ -489,11 +499,17 @@ function ServiceRow({
         <div style={{ ...card, margin: '0 0 8px' }}>
           {plans ? (
             <div role="radiogroup" aria-label={`${svc.label} plan`} data-testid="plan-picker" style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
-              {current === 'custom' ? (
-                <div style={{ fontSize: 11, color: 'var(--c-text-dim)' }}>Now: a custom endpoint, set by hand. Choosing a plan replaces it.</div>
+              {pinned ? (
+                <div style={{ fontSize: 11, color: 'var(--c-text-dim)' }}>The plan is set in prometheus.yaml on the Prometheus computer. You can still replace the key here.</div>
+              ) : null}
+              {current === 'custom' && !pinned ? (
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: 'var(--ink)', cursor: 'pointer' }}>
+                  <input type="radio" name={`plan-${svc.id}`} disabled={busy} checked={chosen === 'custom'} onChange={() => setPick(null)} />
+                  <span>Keep the custom endpoint<span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-dim)' }}>Set by hand on the Prometheus computer. Choosing a plan replaces it.</span></span>
+                </label>
               ) : null}
               {plans.map((p) => {
-                const offered = !p.custom || (p.regions ?? []).length > 0
+                const offered = !pinned && (!p.custom || regions.length > 0)
                 return (
                   <label key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: offered ? 'var(--ink)' : 'var(--ink4)', cursor: offered ? 'pointer' : 'default' }}>
                     <input type="radio" name={`plan-${svc.id}`} disabled={!offered || busy} checked={chosen === p.id} onChange={() => setPick(p.id)} />
@@ -501,7 +517,7 @@ function ServiceRow({
                       {p.label}
                       {p.subscription ? <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--ink4)', marginLeft: 6 }}>subscription</span> : null}
                       {p.terms ? <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-dim)' }}>{p.terms}</span> : null}
-                      {!offered ? <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-dim)' }}>Set this one up on the Prometheus computer.</span> : null}
+                      {!offered && !pinned ? <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-dim)' }}>Set this one up on the Prometheus computer.</span> : null}
                     </span>
                   </label>
                 )
@@ -511,7 +527,7 @@ function ServiceRow({
                   <input style={{ ...keyInput, width: 180 }} spellCheck={false} placeholder="Workspace id" value={wsId} onChange={(e) => setWsId(e.target.value)} />
                   <select value={wsRegion} onChange={(e) => setWsRegion(e.target.value)} style={{ fontSize: 12 }}>
                     <option value="">Region…</option>
-                    {(chosenPlan.regions ?? []).map((r) => (
+                    {regions.map((r) => (
                       <option key={r} value={r}>
                         {r}
                       </option>
@@ -526,8 +542,9 @@ function ServiceRow({
                 </label>
               ) : null}
               {planResult && !planResult.ok && planResult.reason === 'needs-key' ? (
-                <div style={{ fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>This plan uses its own keys: type its key below.</div>
+                <div style={{ fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>A plan takes only its own key: type this plan&apos;s key below.</div>
               ) : null}
+
             </div>
           ) : null}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -544,7 +561,7 @@ function ServiceRow({
                   spellCheck={false}
                   autoFocus={v === svc.env_vars[0]}
                   style={keyInput}
-                  placeholder={plans && state !== 'unset' ? 'leave blank to keep the saved key' : PLACEHOLDER}
+                  placeholder={plans && chosen !== current ? "this plan's key" : plans && state !== 'unset' ? 'leave blank to keep the saved key' : PLACEHOLDER}
                   value={typed[v.name] ?? ''}
                   onChange={(e) => setTyped((t) => ({ ...t, [v.name]: e.target.value }))}
                 />
@@ -856,6 +873,7 @@ export function ModelKeysTab({ data }: { data: unknown }) {
                 svc={svc}
                 authBadge={authBadges[svc.id] ?? null}
                 plansOn={plansSupported(catalog)}
+                regions={workspaceRegions(catalog)}
                 versions={versionsFor(catalogVersionIndex, svc.id)}
                 onCatalog={setCatalog}
                 onAuthChanged={() => setAuthEpoch((e) => e + 1)}

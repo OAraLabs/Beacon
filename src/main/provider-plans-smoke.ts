@@ -9,12 +9,12 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { coerceKeyServices, type ProviderKeyServiceDTO } from '@shared/model-keys'
-import { buildPlanPayload, currentPlanId, isCustomConflict, planChipText, plansSupported, servicePlans } from '@shared/provider-plans'
+import { buildPlanPayload, currentPlanId, isCustomConflict, planChipText, planPinned, plansSupported, planWarnings, servicePlans, workspaceRegions } from '@shared/provider-plans'
 import { scrubWriteError } from '@shared/connectors'
 
 let failures = 0
 let checks = 0
-const EXPECTED = 35
+const EXPECTED = 41
 function assert(cond: boolean, label: string): void {
   checks++
   console.log(`[smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}`)
@@ -29,6 +29,10 @@ const qwen = svc('qwen')
 const kimi = svc('kimi')
 const deepseek = svc('deepseek')
 const mimo = svc('mimo')
+const regions = workspaceRegions(fixture)
+// The answer recorded from the real route (Prometheus feat/subscription-plans, tests/fixtures/provider_plans/get_keys.json).
+const recorded = JSON.parse(readFileSync(join(__dirname.replace(/out\/main.*$/, ''), 'src/main/fixtures/provider_plans_recorded.json'), 'utf8')) as Record<string, unknown>
+const real = coerceKeyServices(recorded)
 
 console.log('\n[smoke] === the gate ===')
 assert(plansSupported(fixture), 'a daemon that says capabilities.plans 1 serves plans')
@@ -62,16 +66,16 @@ const keys = (p: unknown): string => Object.keys((p as Record<string, unknown>) 
 const both = buildPlanPayload({ svc: kimi, typed: { MOONSHOT_API_KEY: '  sk-kimi  ' }, plan: 'kimi-code' })
 assert(both.ok && JSON.stringify(both.payload) === JSON.stringify({ values: { MOONSHOT_API_KEY: 'sk-kimi' }, plan: 'kimi-code' }), 'key and plan go together, in one PUT (the key trimmed)')
 const planOnly = buildPlanPayload({ svc: glm, typed: {}, plan: 'payg' })
-assert(planOnly.ok && keys(planOnly.payload) === 'plan', 'a plan change alone keeps the saved key: {plan}')
+assert(!planOnly.ok && planOnly.reason === 'needs-key', 'a plan change without a key is refused: a plan takes only its own key (the daemon 400s a plan alone)')
 assert(!buildPlanPayload({ svc: glm, typed: {}, plan: 'coding-plan' }).ok, 'nothing changed: nothing to save')
 assert(!buildPlanPayload({ svc: glm, typed: {}, plan: 'not-a-plan' }).ok, 'a plan the daemon did not list is refused')
-const ws = buildPlanPayload({ svc: qwen, typed: {}, plan: 'workspace', workspace: { id: 'team-42', region: 'ap-southeast-1' } })
+const ws = buildPlanPayload({ svc: qwen, typed: { QWEN_API_KEY: 'sk-ws' }, plan: 'workspace', workspace: { id: 'team-42', region: 'ap-southeast-1' }, regions })
 assert(ws.ok && JSON.stringify((ws.payload as { workspace?: unknown }).workspace) === JSON.stringify({ id: 'team-42', region: 'ap-southeast-1' }), 'a workspace plan carries its id and region')
-assert(!buildPlanPayload({ svc: qwen, typed: {}, plan: 'workspace', workspace: { id: 'a.b/c', region: 'ap-southeast-1' } }).ok && !buildPlanPayload({ svc: qwen, typed: {}, plan: 'workspace', workspace: { id: 'ok', region: 'mars-1' } }).ok, 'a workspace id that is not a slug, or a region not listed: refused')
-const offCustom = buildPlanPayload({ svc: mimo, typed: {}, plan: 'payg' })
-const offCustomOk = buildPlanPayload({ svc: mimo, typed: {}, plan: 'payg', replaceCustom: true })
+assert(!buildPlanPayload({ svc: qwen, typed: { QWEN_API_KEY: 'k' }, plan: 'workspace', workspace: { id: 'a.b/c', region: 'ap-southeast-1' }, regions }).ok && !buildPlanPayload({ svc: qwen, typed: { QWEN_API_KEY: 'k' }, plan: 'workspace', workspace: { id: 'ok', region: 'mars-1' }, regions }).ok, 'a workspace id that is not a slug, or a region not listed: refused')
+const offCustom = buildPlanPayload({ svc: mimo, typed: { MIMO_API_KEY: 'sk-m' }, plan: 'payg' })
+const offCustomOk = buildPlanPayload({ svc: mimo, typed: { MIMO_API_KEY: 'sk-m' }, plan: 'payg', replaceCustom: true })
 assert(!offCustom.ok && offCustom.reason === 'custom' && offCustomOk.ok && (offCustomOk.payload as { replace_custom?: boolean }).replace_custom === true, 'leaving a custom endpoint needs the person to confirm, then says replace_custom')
-const all = [both, planOnly, ws, offCustomOk].map((r) => (r.ok ? JSON.stringify(r.payload) : ''))
+const all = [both, ws, offCustomOk].map((r) => (r.ok ? JSON.stringify(r.payload) : ''))
 assert(all.every((p) => !/https?:|base_url|url/i.test(p)), 'no payload ever carries a URL')
 assert(isCustomConflict('HTTP 409: PUT /api/providers/keys/mimo — {"error":"custom endpoint"}') && !isCustomConflict('HTTP 400: PUT x'), 'the daemon\'s 409 is read as "confirm replacing a custom endpoint"')
 
@@ -80,18 +84,28 @@ assert(isCustomConflict("Error invoking remote method 'daemon:write': Error: HTT
 const keyOnlyCustom = buildPlanPayload({ svc: mimo, typed: { MIMO_API_KEY: 'sk-new' }, plan: 'custom' })
 assert(keyOnlyCustom.ok && keys(keyOnlyCustom.payload) === 'values', 'on a custom endpoint, a new key alone is saved as {values}, endpoint untouched')
 const qwenWs = { ...qwen, plan: 'workspace' } as ProviderKeyServiceDTO
-const keyOnlyWs = buildPlanPayload({ svc: qwenWs, typed: { QWEN_API_KEY: 'sk-new' }, plan: 'workspace' })
+const keyOnlyWs = buildPlanPayload({ svc: qwenWs, typed: { QWEN_API_KEY: 'sk-new' }, plan: 'workspace', regions })
 assert(keyOnlyWs.ok && keys(keyOnlyWs.payload) === 'values', 'on a workspace, a new key alone needs no workspace id again')
+const moveWs = buildPlanPayload({ svc: qwenWs, typed: { QWEN_API_KEY: 'sk-new' }, plan: 'workspace', workspace: { id: 'other', region: 'us-east-1' }, regions })
+assert(moveWs.ok && keys(moveWs.payload) === 'plan,values,workspace', 'on a workspace, a new id or region is a plan save with its key, never dropped')
 assert(planChipText({ ...mimo, env_vars: [{ name: 'MIMO_API_KEY', set: false }] } as ProviderKeyServiceDTO) === null, 'a custom endpoint with no key saved keeps today\'s "no key" chip')
 assert(currentPlanId({ ...glm, plan: undefined, endpoint_set: true } as ProviderKeyServiceDTO) === 'custom', 'no plan from the daemon but an endpoint set: custom, so nothing clears it unconfirmed')
-const glmCn = { ...glm, plans: (glm.plans as Record<string, unknown>[]).map((p) => (p.id === 'cn' ? { ...p, separate_keys: true } : p)) } as ProviderKeyServiceDTO
-const toCn = buildPlanPayload({ svc: glmCn, typed: {}, plan: 'cn' })
-assert(!toCn.ok && toCn.reason === 'needs-key' && buildPlanPayload({ svc: glmCn, typed: { ZAI_API_KEY: 'cn-key' }, plan: 'cn' }).ok, 'moving to a separate-keys plan needs a newly typed key, never the saved one')
-assert(!buildPlanPayload({ svc: qwen, typed: {}, plan: 'workspace', workspace: { id: '-bad', region: 'ap-southeast-1' } }).ok && !buildPlanPayload({ svc: qwen, typed: {}, plan: 'workspace', workspace: { id: 'a'.repeat(61), region: 'ap-southeast-1' } }).ok, 'a workspace id that could not be a hostname label is refused')
+assert(!buildPlanPayload({ svc: qwen, typed: { QWEN_API_KEY: 'k' }, plan: 'workspace', workspace: { id: '-bad', region: 'ap-southeast-1' }, regions }).ok && !buildPlanPayload({ svc: qwen, typed: { QWEN_API_KEY: 'k' }, plan: 'workspace', workspace: { id: 'a'.repeat(61), region: 'ap-southeast-1' }, regions }).ok, 'a workspace id that could not be a hostname label is refused')
 const dup = [...(glm.plans as Record<string, unknown>[]), { id: 'payg', label: 'Again', subscription: false, terms: null, default: false, custom: false }]
 assert(servicePlans({ ...glm, plans: dup } as ProviderKeyServiceDTO)?.filter((p) => p.id === 'payg').length === 1, 'a duplicate plan id: the first one stands')
 const scrubbed = scrubWriteError('HTTP 400: PUT /api/providers/keys/qwen — {"error":"bad key sk-very-secret-value"}', { values: { QWEN_API_KEY: 'sk-very-secret-value' } })
 assert(!scrubbed.includes('sk-very-secret-value'), 'a daemon error that quotes the key never shows it')
+const wsErr = scrubWriteError('HTTP 400: PUT x — {"error":"workspace team-secret-42 in us-east-1"}', { workspace: { id: 'team-secret-42', region: 'us-east-1' } })
+assert(!wsErr.includes('team-secret-42') && wsErr.includes('us-east-1'), "a workspace id is blanked from errors, its region is not")
+
+console.log('\n[smoke] === the confirmed contract and the recorded answer ===')
+assert(plansSupported(recorded) && workspaceRegions(recorded).length > 0, 'the real route says plans 1 and lists workspace regions')
+const realQwen = real.find((s) => s.id === 'qwen')!
+assert(servicePlans(realQwen)?.map((p) => p.id).join() === 'payg-intl,payg-us,token-plan,coding-plan,workspace' && currentPlanId(realQwen) === 'payg-intl', "the real Qwen plans, on its default")
+assert(servicePlans(real.find((s) => s.id === 'deepseek')!) === null, 'the real DeepSeek: plans [] is a normal key row')
+const pinnedSvc = svc('glm2')
+assert(planPinned(pinnedSvc) && !planPinned(glm), 'a plan pinned in prometheus.yaml is read as such')
+assert(planWarnings(qwen).length === 1 && planWarnings(glm).length === 0, "the daemon's warnings come through, display only")
 
 if (checks !== EXPECTED) {
   console.log(`[smoke] FAIL — ran ${checks}/${EXPECTED} checks`)

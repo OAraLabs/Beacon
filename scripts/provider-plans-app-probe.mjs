@@ -1,6 +1,6 @@
 // Subscription plans in Config → Models, in the real app (.claude/private/handoff-provider-plans-contract.md): a scratch profile
 // connected to a stand-in daemon that serves the plans fixture and records every PUT. With the capability, Qwen's row says
-// "via Token Plan", its sheet offers the plans with their terms, and choosing another plan saves {plan} alone: no key, no URL.
+// "via Token Plan", its sheet offers the plans with their terms, and choosing another plan saves it with its key: no URL.
 // Without the capability the row is today's. No key is saved (no Keychain prompt); the user's own profile is never touched.
 //
 //   npm run build && npm run probe:provider-plans
@@ -94,11 +94,13 @@ try {
   const picker = await until(() => qwenRow(app, `row.querySelector('[data-testid="plan-picker"]')?.innerText ?? null`), 5000)
   check(!!picker && /Pay as you go/.test(picker) && /Coding Plan/.test(picker) && /interactive use in coding tools/.test(picker), 'its sheet offers the plans, with their terms as a label', picker)
   await qwenRow(app, `([...row.querySelectorAll('[data-testid="plan-picker"] label')].find((l) => l.innerText.startsWith('Coding Plan'))?.querySelector('input') || {}).click?.() ?? true`)
+  // A plan takes only its own key: type one (a stand-in key; nothing is saved anywhere but the stand-in).
+  await qwenRow(app, `(() => { const el = row.querySelector('input[type="password"]'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, 'sk-probe-plan-key'); el.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
   const before = puts.length
   await qwenRow(app, `(row.querySelector('[data-testid="key-save"]') || {}).click?.() ?? true`)
   await until(async () => puts.length > before, 5000)
   const sent = puts.at(-1)
-  check(sent?.url === '/api/providers/keys/qwen' && sent.body === JSON.stringify({ plan: 'coding-plan' }), 'choosing Coding Plan saves {plan} alone: no key, no URL', JSON.stringify(sent))
+  check(sent?.url === '/api/providers/keys/qwen' && sent.body === JSON.stringify({ values: { QWEN_API_KEY: 'sk-probe-plan-key' }, plan: 'coding-plan' }), 'choosing Coding Plan saves its key and the plan together, and no URL', JSON.stringify(sent))
   await app.quit()
   app = null
 

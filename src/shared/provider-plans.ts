@@ -16,10 +16,6 @@ export interface PlanDTO {
   default: boolean
   /** Built from an id the person gives (a workspace): needs `regions` to be offered. */
   custom: boolean
-  regions?: string[]
-  /** Keys for this plan are issued separately (a mainland-China endpoint): moving to or from it needs a newly typed key, never the
-   *  saved one, which belongs to another operator. */
-  separate_keys?: boolean
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,31}$/
@@ -45,20 +41,34 @@ export function servicePlans(svc: ProviderKeyServiceDTO): PlanDTO[] | null {
     const p = raw as Record<string, unknown> | null
     if (!p || typeof p.id !== 'string' || !SLUG.test(p.id) || typeof p.label !== 'string' || !p.label.trim()) continue
     if (plans.some((x) => x.id === p.id)) continue // a duplicate id: the first one stands
-    const regions = Array.isArray(p.regions) ? p.regions.filter((r): r is string => typeof r === 'string' && SLUG.test(r)) : undefined
     plans.push({
       id: p.id,
       label: p.label.trim(),
       subscription: p.subscription === true,
       terms: typeof p.terms === 'string' && p.terms.trim() ? p.terms.trim() : null,
       default: p.default === true,
-      custom: p.custom === true,
-      ...(regions ? { regions } : {}),
-      ...(p.separate_keys === true ? { separate_keys: true } : {})
+      custom: p.custom === true
     })
   }
   if (plans.length === 0 || plans.filter((p) => p.default).length !== 1) return null
   return plans
+}
+
+/** The regions a workspace plan can be in: the catalog's top-level `workspace_regions`, slugs only. */
+export function workspaceRegions(catalog: unknown): string[] {
+  const r = (catalog as { workspace_regions?: unknown } | null)?.workspace_regions
+  return Array.isArray(r) ? r.filter((x): x is string => typeof x === 'string' && SLUG.test(x)) : []
+}
+
+/** prometheus.yaml pins this provider's endpoint: the daemon refuses a plan change (409), so Beacon offers none. */
+export function planPinned(svc: ProviderKeyServiceDTO): boolean {
+  return (svc as { plan_pinned_in_config?: unknown }).plan_pinned_in_config === true
+}
+
+/** The daemon's notes about unattended routes running on a subscription plan: shown, never blocking. */
+export function planWarnings(svc: ProviderKeyServiceDTO): string[] {
+  const w = (svc as { warnings?: unknown }).warnings
+  return Array.isArray(w) ? w.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim()).slice(0, 5) : []
 }
 
 /** The plan a service is on: a listed id; 'custom' for an endpoint that matches none (or an id the list lacks, never guessed);
@@ -83,21 +93,24 @@ export function planChipText(svc: ProviderKeyServiceDTO): string | null {
   return keyed && plan?.subscription ? plan.label : null
 }
 
-export type PlanPayload = { values?: Record<string, string>; plan: string; workspace?: { id: string; region: string }; replace_custom?: true }
+export type PlanPayload = { values: Record<string, string>; plan: string; workspace?: { id: string; region: string }; replace_custom?: true }
 export type KeyOrPlanPayload = PlanPayload | { values: Record<string, string> }
 
 /**
- * The PUT body for a plan choice. Built ONLY from what the person picked and typed (the never-prefill rule of @shared/model-keys):
- * a plan id from the daemon's own list, the key if one was typed, a workspace's id and region if that plan needs them. Never a URL.
- * - nothing typed and the plan unchanged: nothing to save;
- * - a plan the daemon did not list, or a workspace id/region that doesn't check out: refused;
- * - moving off a custom endpoint needs the person's confirm (`replaceCustom`), which the daemon also insists on (409).
+ * The PUT body for the sheet. Built ONLY from what the person picked and typed (the never-prefill rule of @shared/model-keys).
+ * - Staying on the plan it is on (a custom endpoint included): a typed key alone is {values}, as today; nothing typed, nothing.
+ * - Any plan change (a workspace's id or region included) is saved WITH its key: a plan's host takes only that plan's key, and the
+ *   daemon refuses a plan alone (400). So a plan change with no key typed is 'needs-key', and the saved key is never moved.
+ * - A plan the daemon did not list: refused. A workspace id that isn't one hostname label, or a region not in the catalog's list:
+ *   refused. Moving off a custom endpoint needs the person's confirm (`replaceCustom`), which the daemon also insists on (409).
+ * Never a URL.
  */
 export function buildPlanPayload(input: {
   svc: ProviderKeyServiceDTO
   typed: Record<string, string>
   plan: string
   workspace?: { id: string; region: string }
+  regions?: string[]
   replaceCustom?: boolean
 }): { ok: true; payload: KeyOrPlanPayload } | { ok: false; reason: 'nothing' | 'unknown' | 'workspace' | 'custom' | 'needs-key' } {
   const plans = servicePlans(input.svc)
@@ -108,24 +121,23 @@ export function buildPlanPayload(input: {
   }
   const current = currentPlanId(input.svc)
   const typedKey = Object.keys(values).length > 0
-  // The plan it is on now (a custom endpoint and a workspace included): a typed key alone is saved as {values}, as today.
-  if (plans && input.plan === current) return typedKey ? { ok: true, payload: { values } } : { ok: false, reason: 'nothing' }
   const plan = plans?.find((p) => p.id === input.plan)
+  const workspaceGiven = !!plan?.custom && !!((input.workspace?.id ?? '').trim() || input.workspace?.region)
+  if (plans && input.plan === current && !workspaceGiven) return typedKey ? { ok: true, payload: { values } } : { ok: false, reason: 'nothing' }
   if (!plans || !plan) return { ok: false, reason: 'unknown' }
-  const was = plans.find((p) => p.id === current)
-  if ((plan.separate_keys || was?.separate_keys) && !typedKey) return { ok: false, reason: 'needs-key' }
   let workspace: { id: string; region: string } | undefined
   if (plan.custom) {
     const ws = input.workspace
     const id = ws?.id.trim().toLowerCase() ?? ''
-    if (!ws || !WORKSPACE_ID.test(id) || !(plan.regions ?? []).includes(ws.region)) return { ok: false, reason: 'workspace' }
+    if (!ws || !WORKSPACE_ID.test(id) || !(input.regions ?? []).includes(ws.region)) return { ok: false, reason: 'workspace' }
     workspace = { id, region: ws.region }
   }
+  if (!typedKey) return { ok: false, reason: 'needs-key' }
   if (current === 'custom' && !input.replaceCustom) return { ok: false, reason: 'custom' }
   return {
     ok: true,
     payload: {
-      ...(typedKey ? { values } : {}),
+      values,
       plan: plan.id,
       ...(workspace ? { workspace } : {}),
       ...(current === 'custom' ? { replace_custom: true as const } : {})

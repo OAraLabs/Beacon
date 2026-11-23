@@ -278,11 +278,13 @@ const b64 = (s: string): string => {
 export function scrubWriteError(message: string, body: unknown): string {
   if (!body || typeof body !== 'object') return message
   const values: string[] = []
-  // `values`: provider keys (PUT /api/providers/keys); `workspace`: an id that names the account (@shared/provider-plans).
+  // `values`: provider keys (PUT /api/providers/keys); `workspace.id`: it names the account (@shared/provider-plans). Not the
+  // region: a public slug, and blanking it would hide an error about the region itself.
   for (const key of ['headers', 'env', 'values', 'workspace']) {
     const map = (body as Record<string, unknown>)[key]
     if (!map || typeof map !== 'object') continue
-    for (const v of Object.values(map as Record<string, unknown>)) {
+    const entries = key === 'workspace' ? [(map as Record<string, unknown>).id] : Object.values(map as Record<string, unknown>)
+    for (const v of entries) {
       if (typeof v !== 'string') continue
       values.push(v.trim())
       const rest = SCHEME_RE.exec(v.trim())?.[2]
