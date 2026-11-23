@@ -64,6 +64,8 @@ export interface GymControlDeps {
   confirm: (c: { title: string; button: string; detail: string }) => Promise<boolean>
   /** A non-release build only: a loopback address is allowed too, so the fake service can stand in for the gym. */
   allowLoopback?: boolean
+  /** How long after a confirmation window closes the next ask is refused (a moment; tests say 0). */
+  cooldownMs?: number
   resolve?: ControlResolve
   send?: ControlSend
   now?: () => number
@@ -133,19 +135,41 @@ const originOf = (url: string): string => {
 }
 
 export class GymControl {
-  private kept: string | null | undefined = undefined
+  /** The write token, and the origin it was made for (sealed together: the token is never used anywhere else, whatever the
+   *  address row says by the time it is used). `undefined`: not read yet. */
+  private kept: { origin: string; token: string } | null | undefined = undefined
   /** Counts settings changes: a plan that was asked for before one is never applied after it. */
   private epoch = 0
   /** One Promote or Roll back at a time, from the plan to the answer: a second ask while the first waits for a person is refused. */
   private busy = false
-  /** The operation most recently started from here (its name comes from the service's own answer, never the page). */
-  private current: { opId: string; action: GymControlAction } | null = null
+  /** The operation most recently started from here (its name comes from the service's own answer, never the page), and where. */
+  private current: { opId: string; action: GymControlAction; origin: string } | null = null
+  /** When the last confirmation window closed: a page that asks again at once is made to wait a moment. */
+  private closedAt = 0
 
   constructor(private readonly deps: GymControlDeps) {}
 
-  private token(): string | null {
-    if (this.kept === undefined) this.kept = gymToken(this.deps.readToken())
+  /** The sealed pair, read once. What is sealed is `<origin>\n<token>`; anything else is no token. */
+  private sealed(): { origin: string; token: string } | null {
+    if (this.kept === undefined) {
+      const raw = this.deps.readToken()
+      const at = raw === null ? -1 : raw.indexOf('\n')
+      const token = raw !== null && at > 0 ? gymToken(raw.slice(at + 1)) : null
+      this.kept = token !== null && raw !== null ? { origin: raw.slice(0, at), token } : null
+    }
     return this.kept
+  }
+  /** The token, only for the origin of the address saved NOW. A token made for another place is none. */
+  private token(): string | null {
+    const k = this.sealed()
+    const saved = this.deps.address()
+    return k !== null && saved !== null && originOf(saved) !== '' && originOf(saved) === k.origin ? k.token : null
+  }
+  /** Forget the sealed token. */
+  private forgetToken(): boolean {
+    if (!this.deps.saveToken('')) return false
+    this.kept = null
+    return true
   }
 
   settings(): GymControlSettings {
@@ -169,11 +193,9 @@ export class GymControl {
   async setAddress(raw: unknown): Promise<GymControlAddress | { ok: true; url: ''; host: '' }> {
     if (typeof raw !== 'string' || raw.length > 300) return { ok: false, reason: GYM_CONTROL_COPY.notUrl }
     if (raw.trim() === '') {
-      if (this.token() !== null) {
-        if (!this.deps.saveToken('')) return { ok: false, reason: GYM_CONTROL_COPY.noKeychain }
-        this.kept = null
-      }
+      if (this.sealed() !== null && !this.forgetToken()) return { ok: false, reason: GYM_CONTROL_COPY.noKeychain }
       this.epoch++
+      this.current = null
       this.deps.saveAddress('')
       return { ok: true, url: '', host: '' }
     }
@@ -181,13 +203,14 @@ export class GymControl {
     if (!parsed.ok) return parsed
     const where = await this.where(parsed.host)
     if (!where.ok) return where
-    const before = this.deps.address()
-    const same = !!before && originOf(before) !== '' && originOf(before) === originOf(parsed.url)
-    if (!same && this.token() !== null) {
-      if (!this.deps.saveToken('')) return { ok: false, reason: GYM_CONTROL_COPY.noKeychain }
-      this.kept = null
+    // A token belongs to the computer it was made for: another origin forgets it, whether or not it could be read just now.
+    const k = this.sealed()
+    // (A token that could not be read is bound to its origin all the same, and is no use at any other.)
+    if (k !== null && k.origin !== originOf(parsed.url)) {
+      if (!this.forgetToken()) return { ok: false, reason: GYM_CONTROL_COPY.noKeychain }
     }
     this.epoch++
+    this.current = null
     this.deps.saveAddress(parsed.url)
     return parsed
   }
@@ -196,14 +219,20 @@ export class GymControl {
     const forget = typeof raw === 'string' && raw.trim() === ''
     const token = forget ? null : gymToken(raw)
     if (!forget && token === null) return { ok: false, reason: GYM_CONTROL_COPY.badToken }
-    if (!this.deps.saveToken(token ?? '')) return { ok: false, reason: GYM_CONTROL_COPY.noKeychain }
-    this.kept = token
+    // The token is sealed with the origin it is for, which is the address saved now: with none saved, there is nowhere for it to belong.
+    const saved = this.deps.address()
+    const origin = saved ? originOf(saved) : ''
+    if (token !== null && origin === '') return { ok: false, reason: GYM_CONTROL_COPY.noAddressYet }
+    if (!this.deps.saveToken(token === null ? '' : `${origin}\n${token}`)) return { ok: false, reason: GYM_CONTROL_COPY.noKeychain }
+    this.kept = token === null ? null : { origin, token }
     this.epoch++
+    this.current = null
     return { ok: true }
   }
 
   /** Where to send, and with what: or why not. */
   private async ready(): Promise<{ ok: true; base: string; address: string; headers: Record<string, string>; began: number } | { ok: false; result: GymRunResult }> {
+    const began = this.epoch // before any wait: a setting changed while the host is being resolved is a change after this
     const saved = this.deps.address()
     if (!saved) return { ok: false, result: { kind: 'unset' } }
     const parsed = gymControlAddress(saved)
@@ -212,7 +241,7 @@ export class GymControl {
     if (token === null) return { ok: false, result: { kind: 'no-token' } }
     const where = await this.where(parsed.host)
     if (!where.ok) return { ok: false, result: { kind: 'refused', reason: where.reason } }
-    return { ok: true, base: parsed.url, address: where.address, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, began: this.epoch }
+    return { ok: true, base: parsed.url, address: where.address, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, began }
   }
 
   private async call(to: { base: string; address: string; headers: Record<string, string> }, method: 'GET' | 'POST', path: string, body?: unknown): Promise<ControlReply | 'unreachable' | 'too-big'> {
@@ -243,12 +272,13 @@ export class GymControl {
     const wanted = action === 'promote' ? slug(candidate) : null
     if (action === 'promote' && wanted === null) return { kind: 'not-offered' }
     if (!this.deps.isOwner()) return { kind: 'not-owner' }
-    if (this.busy) return { kind: 'busy' }
+    if (this.busy || Date.now() - this.closedAt < (this.deps.cooldownMs ?? 1_500)) return { kind: 'busy' }
     this.busy = true
     try {
       return await this.runOnce(action, wanted)
     } finally {
       this.busy = false
+      this.closedAt = Date.now()
     }
   }
 
@@ -280,13 +310,25 @@ export class GymControl {
     if (plan.expiresAt - now() > GYM_PLAN_MAX_AGE_MS) return { kind: 'unreadable' }
     // The person decides, from this plan's own content.
     const clock = this.deps.clock ?? ((at: number) => new Date(at).toLocaleTimeString())
-    const go = await this.deps.confirm(confirmationText(plan, clock))
+    const shown = confirmationText(plan, clock)
+    if (!shown.fits) return { kind: 'unreadable' } // too long to be shown whole: not shown, so not applied
+    // A window the person walked away from (or one the OS never answers) must not hold Promote and Roll back for good: it is
+    // a no when the plan runs out.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timedOut = new Promise<'timeout'>((ok) => {
+      timer = setTimeout(() => ok('timeout'), Math.max(0, plan.expiresAt - now()))
+    })
+    const answered = await Promise.race([this.deps.confirm({ title: shown.title, button: shown.button, detail: shown.detail }), timedOut]).finally(() => clearTimeout(timer))
+    if (answered === 'timeout') return { kind: 'expired' }
+    const go = answered
     if (!go) return { kind: 'cancelled' }
     // Nothing is sent if what it was made for has changed meanwhile: the settings (another computer, another token), the
     // owner (the connection moved), or the clock.
-    if (to.began !== this.epoch || !this.deps.isOwner()) return { kind: 'cancelled' }
+    if (to.began !== this.epoch || !this.deps.isOwner()) return { kind: 'settings-changed' }
     if (plan.expiresAt <= now()) return { kind: 'expired' }
-    // APPLY: this plan, by the name and hash the service gave it. Once, whatever comes back.
+    // APPLY: this plan, by the name and hash the service gave it. Once, whatever comes back. The operation shown from here on is
+    // this one's: an older one is not left standing in case this one's outcome is not known.
+    this.current = null
     const applied = await this.call(to, 'POST', GYM_CONTROL_PATHS.apply, { plan_id: plan.planId, plan_hash: plan.planHash })
     if (applied === 'unreachable' || applied === 'too-big') return { kind: 'unknown', action }
     if (applied.status === 409) return { kind: 'changed' }
@@ -297,7 +339,7 @@ export class GymControl {
     if (applied.status !== 200 && applied.status !== 202) return { kind: 'unknown', action }
     const opId = parseApplied(GymControl.json(applied))
     if (opId === null) return { kind: 'unknown', action }
-    this.current = { opId, action }
+    this.current = { opId, action, origin: originOf(to.base) }
     return { kind: 'started', action }
   }
 
@@ -307,6 +349,7 @@ export class GymControl {
     if (!cur) return { kind: 'none' }
     const to = await this.ready()
     if (!to.ok) return to.result.kind === 'denied' ? to.result : { kind: 'unreachable' }
+    if (originOf(to.base) !== cur.origin) return { kind: 'none' } // another computer now: its operations are not this one's
     const r = await this.call(to, 'GET', GYM_CONTROL_PATHS.op(cur.opId))
     if (r === 'unreachable') return { kind: 'unreachable' }
     if (r === 'too-big') return { kind: 'unreadable' }

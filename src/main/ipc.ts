@@ -328,8 +328,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   )
 
   handleFromShell(IPC.SETTINGS_GET, async (_e, key: string) => deps.repo.getSetting(key))
+  // The gym's settings (an address that a token is sent to) are written only by the gym's own handlers, which check them. A page
+  // that could write the row directly could point a kept token at another computer without those checks.
   handleFromShell(IPC.SETTINGS_SET, async (_e, payload: { key: string; value: string }) =>
-    deps.repo.setSetting(payload.key, payload.value)
+    typeof payload?.key === 'string' && payload.key.startsWith('gym:') ? undefined : deps.repo.setSetting(payload.key, payload.value)
   )
   handleFromShell(IPC.GATEWAY_PROFILES, async () => deps.repo.listGatewayProfiles())
 

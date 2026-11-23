@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { codeWords, isStale, type GymPromotion, type GymStatus, type GymTone } from '@shared/gym'
 import {
   GYM_BUTTON_COPY,
@@ -22,6 +22,27 @@ import { useDeviceRole } from './OwnerOnlyNote'
 // confirm for the person. The state shown is the gym's own record (the status's `promotion` section), read-only.
 
 const NOT = 'Not reported'
+
+// WHAT THE PERSON WAS TOLD, kept outside the component. The Now view unmounts when the person switches section or saves the
+// connection form, and an answer that arrives after that (above all "sent, and not known whether it started") must not be lost
+// with it: the card is drawn again from this when it comes back.
+interface Told {
+  said: string | null
+  op: { action: GymControlAction; op: GymOp } | null
+  waiting: boolean
+}
+let told: Told = { said: null, op: null, waiting: false }
+const listeners = new Set<() => void>()
+function tell(p: Partial<Told>): void {
+  told = { ...told, ...p }
+  for (const l of listeners) l()
+}
+const subscribe = (cb: () => void): (() => void) => {
+  listeners.add(cb)
+  return () => listeners.delete(cb)
+}
+/** How many reads of a running operation in a row may fail before the card stops saying it is running. */
+const OP_FAILS_MAX = 5
 const mark = (tone: GymTone): string => (tone === 'ok' ? '✓' : tone === 'err' ? '✕' : tone === 'warn' ? '!' : '·')
 
 const STATE_WORDS: Record<string, { tone: GymTone; text: string }> = {
@@ -109,9 +130,7 @@ export function GymControlCard({ s, now }: { s: GymStatus; now: number }) {
   const role = useDeviceRole()
   const [settings, setSettings] = useState<GymControlSettings>({ address: '', hasToken: false })
   const [editing, setEditing] = useState(false)
-  const [waiting, setWaiting] = useState(false)
-  const [said, setSaid] = useState<string | null>(null)
-  const [op, setOp] = useState<{ action: GymControlAction; op: GymOp } | null>(null)
+  const { said, op, waiting } = useSyncExternalStore(subscribe, () => told)
   const [pick, setPick] = useState<string | null>(null)
   const alive = useRef(true)
   useEffect(() => {
@@ -132,17 +151,26 @@ export function GymControlCard({ s, now }: { s: GymStatus; now: number }) {
   }, [owner, reload])
 
   // An operation started from here is read, not waited for, until it is over. (A gym that was already running one says so in its
-  // own record, which the status shows.)
-  const running = op !== null && !opFinished(op.op.status)
+  // own record, which the status shows.) A read that keeps failing ends the waiting: the card says it cannot tell, and does not
+  // sit on "running" for good with both buttons off.
+  const running = op !== null && op.op.status === 'running'
   useEffect(() => {
     if (!running) return
     let gone = false
+    let fails = 0
     const poll = (): void => {
       void window.beacon?.gymControl.op().then(
         (r) => {
-          if (gone || !alive.current) return
-          if (r.kind === 'shown') setOp({ action: r.action, op: r.op })
-          else if (r.kind === 'none') setOp(null)
+          if (gone) return
+          if (r.kind === 'shown') {
+            fails = 0
+            const done = opFinished(r.op.status)
+            tell({ op: { action: r.action, op: r.op }, ...(done ? { said: null } : {}) })
+          } else if (r.kind === 'none') tell({ op: null })
+          else if (++fails >= OP_FAILS_MAX) {
+            gone = true
+            tell({ op: told.op && { action: told.op.action, op: { ...told.op.op, status: 'unknown' } }, said: 'Beacon can’t read how it is going. Look at the gym’s status in the Now view.' })
+          }
         },
         () => undefined
       )
@@ -155,27 +183,25 @@ export function GymControlCard({ s, now }: { s: GymStatus; now: number }) {
   }, [running])
 
   const p: GymPromotion | null = s.promotion
-  const view = controlView({ role: role ?? null, configured: settings.address !== '' && settings.hasToken, promotion: p, stale: isStale(s, now), opRunning: running, waiting })
+  const view = controlView({ role: role ?? null, configured: settings.address !== '' && settings.hasToken, promotion: p, stale: isStale(s, now), opRunning: running, opUnknown: op !== null && op.op.status === 'unknown', waiting })
   const candidate = pick !== null && view.candidates.includes(pick) ? pick : (view.candidates[0] ?? null)
 
   const ask = async (action: GymControlAction): Promise<void> => {
     const b = window.beacon
     if (!b) return
-    setWaiting(true)
-    setSaid(null)
+    tell({ waiting: true, said: null, op: null }) // the last operation's words are about that one, not this
     try {
       const r = await b.gymControl.run(action, action === 'promote' ? (candidate ?? undefined) : undefined)
-      if (!alive.current) return
-      setSaid(runWords(r))
-      // Started, or sent with no clear answer: look at the operation (a started one is found; an unknown one has none).
       if (r.kind === 'started') {
+        // Running from the moment it was sent, whether or not the first read of it succeeds.
+        tell({ said: runWords(r), op: { action: r.action, op: { status: 'running', step: null, at: Date.now(), outcome: null, beforeMatch: null, realUntouched: null } } })
         const o = await b.gymControl.op()
-        if (alive.current && o.kind === 'shown') setOp({ action: o.action, op: o.op })
-      }
+        if (o.kind === 'shown') tell({ op: { action: o.action, op: o.op } })
+      } else tell({ said: runWords(r) })
     } catch {
-      if (alive.current) setSaid('Beacon couldn’t ask the control service. Nothing was changed.')
+      tell({ said: 'Beacon couldn’t ask the control service. Nothing was changed.' })
     } finally {
-      if (alive.current) setWaiting(false)
+      tell({ waiting: false })
     }
   }
 
@@ -226,7 +252,7 @@ export function GymControlCard({ s, now }: { s: GymStatus; now: number }) {
           {p.rollbackAvailable === false ? (
             <div className="gym-kv">
               <span className="gym-k">Rolling back</span>
-              <span className="gym-v">Nothing to roll back</span>
+              <span className="gym-v">The gym says it isn’t available</span>
             </div>
           ) : null}
         </>

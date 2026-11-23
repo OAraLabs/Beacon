@@ -17,7 +17,7 @@
 // says; anything the gym says about what was left alone is shown only after the fact, from the operation's answer.
 //
 // No Node/Electron imports (same rule as the rest of src/shared).
-import { codeWords, gymTime as time, slug, type GymPromotion } from './gym'
+import { codeWords, gymTime as time, safeId, slug, type GymPromotion } from './gym'
 import type { DeviceRole } from './device-role'
 
 /** Where main keeps the control service's address (a settings row: this Beacon's, whichever Prometheus is open). The write
@@ -34,8 +34,8 @@ export const GYM_CONTROL_PATHS = {
 export const GYM_CONTROL_MAX_BYTES = 262_144
 /** How far ahead a plan's expiry may be. A service that says "valid for a day" is not the one this was written against. */
 export const GYM_PLAN_MAX_AGE_MS = 15 * 60_000
-/** The most settings a plan may list. A confirmation shows every one, so a plan with more is refused rather than cut short. */
-export const GYM_PLAN_MAX_CHANGES = 60
+/** The most settings a plan may list. A confirmation shows every one (and must fit: GYM_CONFIRM_MAX_CHARS), so a plan with more is refused rather than cut short. */
+export const GYM_PLAN_MAX_CHANGES = 24
 /** How often the open panel reads a running operation. */
 export const GYM_OP_POLL_MS = 2_000
 
@@ -50,7 +50,8 @@ export const GYM_CONTROL_COPY = {
   notTailscale: 'Beacon only controls the gym over Tailscale. Use the computer’s Tailscale name or its Tailscale address.',
   noResolve: 'Beacon couldn’t find that computer. Check the name, and that Tailscale is running on this computer.',
   badToken: 'That doesn’t look like a token: it should be one run of letters, digits and symbols with no spaces.',
-  noKeychain: 'Beacon couldn’t reach this computer’s keychain, so the token was not kept.'
+  noKeychain: 'Beacon couldn’t reach this computer’s keychain, so the token was not kept.',
+  noAddressYet: 'Save the control service’s address first: a token is kept for the computer it was made for.'
 } as const
 
 export type GymControlAddress = { ok: true; url: string; host: string } | { ok: false; reason: string }
@@ -112,32 +113,41 @@ export interface GymPlan {
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const HEX64 = /^[0-9a-f]{64}$/
-/** A value that names a computer or an address, however it was spelled: never shown, so never accepted. */
-export function addressLike(s: string): boolean {
-  return /^\d{1,3}(\.\d{1,3}){3}$/.test(s) || /(^|\.)(local|lan|internal|localhost|home|ts\.net)$/.test(s) || /^[0-9a-f:]*:[0-9a-f:]*$/.test(s) && s.includes('::')
-}
+/** An object that has exactly these keys and no others. A plan is what the person confirms, and the service hashes all of it:
+ *  a key Beacon does not know is something it cannot show, so it is no plan (unlike the status, which grows by new keys). */
+const only = (o: Record<string, unknown>, keys: readonly string[]): boolean => Object.keys(o).every((k) => keys.includes(k))
+/** The most characters, and lines, a confirmation may have. The OS clips a message that is taller than the screen, and the last
+ *  lines (the computers, the restarts, the gate, whether it can be rolled back) are the ones it would clip. A plan whose
+ *  confirmation would be longer than this is not shown, and not applied. */
+export const GYM_CONFIRM_MAX_CHARS = 2400
+export const GYM_CONFIRM_MAX_LINES = 40
+/** The longest a number may be and still be shown as it was sent. */
+const SAFE = Number.MAX_SAFE_INTEGER
 function value(v: unknown): { ok: true; v: GymChangeValue } | { ok: false } {
   if (v === null) return { ok: true, v: null }
   if (typeof v === 'boolean') return { ok: true, v }
-  if (typeof v === 'number') return Number.isFinite(v) ? { ok: true, v } : { ok: false }
-  const s = slug(v)
-  return s !== null && !addressLike(s) ? { ok: true, v: s } : { ok: false }
+  // A number that prints as something else (-0, or one past what a double holds exactly) is refused, not shown wrongly.
+  if (typeof v === 'number') return Number.isFinite(v) && !Object.is(v, -0) && Math.abs(v) <= SAFE ? { ok: true, v } : { ok: false }
+  const s = safeId(v)
+  return s !== null ? { ok: true, v: s } : { ok: false }
 }
 function modelRef(v: unknown): GymModelRef | null {
-  if (!isObj(v)) return null
-  const model = slug(v.model)
-  if (model === null || addressLike(model)) return null
-  const recipe = v.recipe === null || v.recipe === undefined ? null : slug(v.recipe)
-  const round = v.round === null || v.round === undefined ? null : slug(v.round)
+  if (!isObj(v) || !only(v, ['model', 'recipe', 'round'])) return null
+  const model = safeId(v.model)
+  if (model === null) return null
+  const recipe = v.recipe === null || v.recipe === undefined ? null : safeId(v.recipe)
+  const round = v.round === null || v.round === undefined ? null : safeId(v.round)
   if ((v.recipe != null && recipe === null) || (v.round != null && round === null)) return null
   return { model, recipe, round }
 }
+
 /** A plan as the service sent it, or null when it is not one Beacon can show IN FULL. A confirmation must never leave something
  *  out, so unlike the status (which draws what it can) a plan is all or nothing: one setting that is not read cleanly, one
- *  computer that is not one of the two, and Beacon has no plan. Whether the plan is the one that was asked for is checked
- *  where it was asked (main), and whether it has expired where it is used. */
+ *  computer that is not one of the two, one key Beacon does not know, a setting listed twice, a "change" from a value to the
+ *  same value, and Beacon has no plan. Whether the plan is the one that was asked for is checked where it was asked (main), and
+ *  whether it has expired where it is used. */
 export function parseGymPlan(json: unknown): GymPlan | null {
-  if (!isObj(json)) return null
+  if (!isObj(json) || !only(json, ['plan_id', 'plan_hash', 'expires_at', 'action', 'from', 'to', 'changes', 'touches', 'restarts', 'gate', 'rollback_available', 'candidate', 'candidate_sha256', 'refusal'])) return null
   const planId = slug(json.plan_id)
   const planHash = typeof json.plan_hash === 'string' && HEX64.test(json.plan_hash) ? json.plan_hash : null
   const expiresAt = time(json.expires_at)
@@ -147,43 +157,52 @@ export function parseGymPlan(json: unknown): GymPlan | null {
   if (planId === null || planHash === null || expiresAt === null || action === null || from === null || to === null) return null
   if (!Array.isArray(json.changes) || json.changes.length > GYM_PLAN_MAX_CHANGES) return null
   const changes: GymChange[] = []
+  const seen: string[] = []
   for (const raw of json.changes) {
-    if (!isObj(raw) || !Array.isArray(raw.path) || raw.path.length < 1 || raw.path.length > 8) return null
+    if (!isObj(raw) || !only(raw, ['path', 'from', 'to']) || !Array.isArray(raw.path) || raw.path.length < 1 || raw.path.length > 8) return null
     const path: string[] = []
     for (const seg of raw.path) {
-      const s = slug(seg)
-      if (s === null || addressLike(s)) return null
+      const s = safeId(seg)
+      if (s === null) return null
       path.push(s)
     }
     const a = value(raw.from)
     const b = value(raw.to)
-    if (!a.ok || !b.ok) return null
+    if (!a.ok || !b.ok || a.v === b.v) return null // a change from a value to the same value is not a change
+    // One setting, one row: a setting listed twice, or one inside another, is not something a person can read as one change.
+    const key = path.join('\u0000')
+    if (seen.some((k) => k === key || k.startsWith(`${key}\u0000`) || key.startsWith(`${k}\u0000`))) return null
+    seen.push(key)
     changes.push({ path, from: a.v, to: b.v })
   }
   if (!Array.isArray(json.touches) || json.touches.length > 16) return null
   const touches: GymPlan['touches'] = []
   for (const raw of json.touches) {
-    const what = isObj(raw) ? slug(raw.what) : null
-    if (!isObj(raw) || (raw.host !== 'train_host' && raw.host !== 'serve_host') || what === null || addressLike(what)) return null
+    const what = isObj(raw) ? safeId(raw.what) : null
+    if (!isObj(raw) || !only(raw, ['host', 'what']) || (raw.host !== 'train_host' && raw.host !== 'serve_host') || what === null || what === 'none') return null
     touches.push({ host: raw.host, what })
   }
   if (!Array.isArray(json.restarts) || json.restarts.length > 16) return null
   const restarts: string[] = []
   for (const raw of json.restarts) {
-    const s = slug(raw)
-    if (s === null || addressLike(s)) return null
+    const s = safeId(raw)
+    if (s === null || s === 'none') return null // "Restarts: none" would read as the opposite of "Nothing restarts"
     restarts.push(s)
   }
   const g = json.gate
-  if (!isObj(g) || (g.verdict !== 'pass' && g.verdict !== 'fail' && g.verdict !== null) || typeof g.held !== 'boolean') return null
+  if (!isObj(g) || !only(g, ['verdict', 'held']) || (g.verdict !== 'pass' && g.verdict !== 'fail' && g.verdict !== null) || typeof g.held !== 'boolean') return null
   if (typeof json.rollback_available !== 'boolean') return null
-  const candidate = json.candidate === null || json.candidate === undefined ? null : slug(json.candidate)
+  const candidate = json.candidate === null || json.candidate === undefined ? null : safeId(json.candidate)
   const sha = json.candidate_sha256 === null || json.candidate_sha256 === undefined ? null : typeof json.candidate_sha256 === 'string' && HEX64.test(json.candidate_sha256) ? json.candidate_sha256 : 'bad'
   if ((json.candidate != null && candidate === null) || sha === 'bad') return null
-  // A promote is for a named, verified candidate; a roll back is for the recorded "before" and names none.
-  if (action === 'promote' && json.refusal == null && (candidate === null || sha === null)) return null
-  const refusal = json.refusal === null || json.refusal === undefined ? null : slug(json.refusal)
+  const refusal = json.refusal === null || json.refusal === undefined ? null : safeId(json.refusal)
   if (json.refusal != null && refusal === null) return null
+  // A promote that is not refused is for a named, verified model, and that model is the one the plan says will serve: the
+  // confirmation shows it, so the name Beacon checked and the name the person reads cannot differ. A roll back names none.
+  if (refusal === null) {
+    if (action === 'promote' && (candidate === null || sha === null || to.model !== candidate)) return null
+    if (action === 'rollback' && (candidate !== null || sha !== null)) return null
+  }
   return { planId, planHash, expiresAt, action, from, to, changes, touches, restarts, gate: { verdict: g.verdict, held: g.held }, rollbackAvailable: json.rollback_available, candidate, candidateSha256: sha, refusal }
 }
 
@@ -198,8 +217,8 @@ export function parseGymCapabilities(json: unknown): GymCapabilities | null {
   if (!isObj(json) || typeof json.promote !== 'boolean' || typeof json.rollback !== 'boolean' || !Array.isArray(json.candidates) || json.candidates.length > 32) return null
   const candidates: string[] = []
   for (const raw of json.candidates) {
-    const s = slug(raw)
-    if (s === null || addressLike(s)) return null
+    const s = safeId(raw)
+    if (s === null) return null
     candidates.push(s)
   }
   return { promote: json.promote, rollback: json.rollback, candidates }
@@ -222,7 +241,7 @@ export function parseGymOp(json: unknown): GymOp | null {
   const status = GYM_OP_STATUSES.find((s) => s === json.status)
   const at = time(json.at)
   if (status === undefined || at === null) return null
-  const id = (v: unknown): string | null | undefined => (v === null || v === undefined ? null : slug(v) ?? undefined)
+  const id = (v: unknown): string | null | undefined => (v === null || v === undefined ? null : safeId(v) ?? undefined)
   const step = id(json.step)
   const outcome = id(json.outcome)
   if (step === undefined || outcome === undefined) return null
@@ -254,6 +273,8 @@ export type GymRunResult =
   /** The candidate asked for is not one the service offers. */
   | { kind: 'not-offered' }
   | { kind: 'cancelled' }
+  /** The person said yes, but the settings or the owner changed while the window was up: nothing was sent. */
+  | { kind: 'settings-changed' }
   /** The plan ran out while it was on screen. Nothing was done. */
   | { kind: 'expired' }
   /** The service says the state is not what the plan was made from (409). Nothing was done. */
@@ -279,6 +300,7 @@ export const GYM_CONTROL_WORDS = {
   cancel: 'Cancel',
   nowServing: 'Serving now',
   willServe: 'Will serve',
+  candidate: 'The model, checked',
   noChanges: 'No settings change.',
   settings: 'Settings that change',
   computers: 'Computers touched',
@@ -320,18 +342,19 @@ const OP_STATUS_WORDS: Record<GymOpStatus, { tone: 'ok' | 'warn' | 'err' | 'idle
 export function opWords(op: GymOp, action: GymControlAction): { tone: 'ok' | 'warn' | 'err' | 'idle'; text: string } {
   const w = OP_STATUS_WORDS[op.status]
   const what = action === 'promote' ? 'Promote' : 'Roll back'
-  return { tone: w.tone, text: `${what}: ${w.text.toLowerCase()}${op.step ? ` · ${codeWords(op.step)}` : ''}${op.outcome ? ` · ${codeWords(op.outcome)}` : ''}` }
+  // The gym's identifiers as they are sent (a step or an outcome is not renamed into other words).
+  return { tone: w.tone, text: `${what}: ${w.text.toLowerCase()}${op.step ? ` · ${op.step}` : ''}${op.outcome ? ` · ${op.outcome}` : ''}` }
 }
 /** What the gym says afterwards about the files it did not change, in Beacon's words, only when it said so. */
 export function opAfterFacts(op: GymOp): string[] {
   const out: string[] = []
-  if (op.beforeMatch !== null) out.push(op.beforeMatch ? 'The rehearsal instance’s files match what was recorded before.' : 'The rehearsal instance’s files do NOT match what was recorded before.')
+  if (op.beforeMatch !== null) out.push(op.beforeMatch ? 'The gym reports the rehearsal instance’s files match what was recorded before.' : 'The gym reports the rehearsal instance’s files do NOT match what was recorded before.')
   if (op.realUntouched !== null) out.push(op.realUntouched ? 'The gym reports the real daemon was left untouched.' : 'The gym does NOT report the real daemon as untouched.')
   return out
 }
 
 export const GYM_RUN_COPY = {
-  busy: 'Another Promote or Roll back is already waiting for you.',
+  busy: 'Another Promote or Roll back is waiting for an answer, or has only just closed. Wait a moment and try again.',
   notOwner: 'Only the owner of this Prometheus can promote or roll back.',
   unset: 'Beacon doesn’t know where the gym’s control service is yet.',
   noToken: 'Promote and Roll back need a write token for this computer. Make one on the gym’s computer and paste it below.',
@@ -342,6 +365,7 @@ export const GYM_RUN_COPY = {
   unreadable: 'The control service answered, but not with a plan Beacon can show in full, so nothing was done.',
   notOffered: 'The gym doesn’t offer that model to promote.',
   cancelled: 'Cancelled. Nothing was changed.',
+  settingsChanged: 'The connection settings changed while the plan was on screen, so it was not sent. Nothing was changed. Ask again.',
   expired: 'The plan ran out before it was confirmed. Nothing was changed. Ask again for a fresh one.',
   changed: 'The gym changed while the plan was on screen, so it was not applied. Nothing was changed. Look at the gym and ask again.',
   started: 'Sent. The gym is doing it now.',
@@ -373,6 +397,8 @@ export function runWords(r: GymRunResult): string {
       return GYM_RUN_COPY.notOffered
     case 'cancelled':
       return GYM_RUN_COPY.cancelled
+    case 'settings-changed':
+      return GYM_RUN_COPY.settingsChanged
     case 'expired':
       return GYM_RUN_COPY.expired
     case 'changed':
@@ -385,17 +411,20 @@ export function runWords(r: GymRunResult): string {
 }
 
 // ── the confirmation ────────────────────────────────────────────────────────────────────────────────────────────────────────
-const showValue = (v: GymChangeValue): string => (v === null ? GYM_CONTROL_WORDS.none : typeof v === 'boolean' ? (v ? 'yes' : 'no') : String(v))
+// A value is shown so that two different values never read the same: an identifier is in quotes, a yes or no and a number
+// are not, and "nothing" (null) is a word of Beacon's, so `"1"` and `1`, `"yes"` and yes, `"none"` and none are each apart.
+const showValue = (v: GymChangeValue): string => (v === null ? GYM_CONTROL_WORDS.none : typeof v === 'boolean' ? (v ? 'yes' : 'no') : typeof v === 'number' ? String(v) : `"${v}"`)
 const modelLine = (m: GymModelRef): string => `${m.model}${m.recipe || m.round ? ` (${[m.recipe ? `recipe ${m.recipe}` : '', m.round ? `round ${m.round}` : ''].filter(Boolean).join(', ')})` : ''}`
 const GATE_WORDS = { pass: 'passed', fail: 'failed', none: 'no verdict' } as const
 
 /** The words of the confirmation, built from the plan MAIN received and nothing else. It lists what the plan lists, in full,
  *  and no more: no reassurance about what is not touched (the gym's own statement of that is shown only afterwards). */
-export function confirmationText(plan: GymPlan, clock: (at: number) => string): { title: string; button: string; detail: string } {
+export function confirmationText(plan: GymPlan, clock: (at: number) => string): { title: string; button: string; detail: string; fits: boolean } {
   const W = GYM_CONTROL_WORDS
   const lines: string[] = []
   lines.push(`${W.nowServing}: ${modelLine(plan.from)}`)
   lines.push(`${W.willServe}: ${modelLine(plan.to)}`)
+  if (plan.candidate !== null && plan.candidateSha256 !== null) lines.push(`${W.candidate}: ${plan.candidate}, sha256 ${plan.candidateSha256.slice(0, 12)}…`)
   lines.push('')
   if (plan.changes.length === 0) lines.push(W.noChanges)
   else {
@@ -403,15 +432,18 @@ export function confirmationText(plan: GymPlan, clock: (at: number) => string): 
     for (const c of plan.changes) lines.push(`  ${c.path.join(' › ')}: ${showValue(c.from)} → ${showValue(c.to)}`)
   }
   lines.push('')
-  lines.push(`${W.computers}: ${plan.touches.length === 0 ? W.nothing : plan.touches.map((t) => `${codeWords(t.host)} (${codeWords(t.what)})`).join(', ')}`)
-  lines.push(plan.restarts.length === 0 ? W.nothingRestarts : `${W.restarts}: ${plan.restarts.map(codeWords).join(', ')}`)
+  lines.push(`${W.computers}: ${plan.touches.length === 0 ? W.nothing : plan.touches.map((t) => `${codeWords(t.host)} (${t.what})`).join(', ')}`)
+  lines.push(plan.restarts.length === 0 ? W.nothingRestarts : `${W.restarts}: ${plan.restarts.join(', ')}`)
   const verdict = plan.gate.verdict === 'pass' ? GATE_WORDS.pass : plan.gate.verdict === 'fail' ? GATE_WORDS.fail : GATE_WORDS.none
-  lines.push(`${W.gate}: ${verdict}${plan.gate.held ? ' (held)' : ''}`)
+  lines.push(`${W.gate}: ${verdict}${plan.gate.held ? '; held: yes' : ''}`)
   lines.push(plan.rollbackAvailable ? W.rollbackYes : W.rollbackNo)
   lines.push('')
   lines.push(`${W.expires} ${clock(plan.expiresAt)}.`)
   const promote = plan.action === 'promote'
-  return { title: promote ? W.promoteTitle : W.rollbackTitle, button: promote ? W.promoteButton : W.rollbackButton, detail: lines.join('\n') }
+  const detail = lines.join('\n')
+  // `fits`: the whole of it can be shown. A plan that would not fit is not shown, because the OS clips what is too tall, and the
+  // clipped part is the end (the computers, the restarts, the gate, whether it can be rolled back).
+  return { title: promote ? W.promoteTitle : W.rollbackTitle, button: promote ? W.promoteButton : W.rollbackButton, detail, fits: detail.length <= GYM_CONFIRM_MAX_CHARS && lines.length <= GYM_CONFIRM_MAX_LINES }
 }
 
 // ── which buttons are drawn, and which can be pressed ──────────────────────────────────────────────────────────────────────
@@ -436,6 +468,7 @@ export const GYM_BUTTON_COPY = {
   noStatus: 'There is no status to go on yet.',
   noCandidates: 'The gym offers no model to promote.',
   running: 'An operation is running.',
+  unknown: 'It is not known how the last operation ended. Look at the gym’s status first.',
   waiting: 'Waiting for your answer.'
 } as const
 const RUNNING_STATES = new Set(['promoting', 'rolling_back'])
@@ -444,13 +477,15 @@ const RUNNING_STATES = new Set(['promoting', 'rolling_back'])
  *  on what is serving now), at least one model on offer, and nothing running. ROLL BACK does not need a fresh status: when a
  *  host is down is when it may be needed, and its own plan re-reads the gym and refuses if there is nothing to roll back.
  *  Neither is ever drawn for a device that is not the owner. */
-export function controlView(i: { role: DeviceRole | null; configured: boolean; promotion: GymPromotion | null; stale: boolean; opRunning: boolean; waiting: boolean }): GymControlView {
+export function controlView(i: { role: DeviceRole | null; configured: boolean; promotion: GymPromotion | null; stale: boolean; opRunning: boolean; opUnknown?: boolean; waiting: boolean }): GymControlView {
   const off = (setup: string): GymControlView => ({ shown: false, setup, promote: { enabled: false, why: setup }, rollback: { enabled: false, why: setup }, candidates: [] })
   if (i.role !== 'owner') return off(GYM_BUTTON_COPY.notOwner)
   if (!i.configured) return off(GYM_BUTTON_COPY.setUp)
   const candidates = i.promotion?.candidates ?? []
-  const running = i.opRunning || (i.promotion !== null && RUNNING_STATES.has(i.promotion.state))
+  // A state that says an operation is running counts only while the status is fresh: a status that stopped coming mid-promote
+  // would otherwise keep Roll back off for good, which is exactly when it may be needed.
+  const running = i.opRunning || (i.promotion !== null && !i.stale && RUNNING_STATES.has(i.promotion.state))
   const block = running ? GYM_BUTTON_COPY.running : i.waiting ? GYM_BUTTON_COPY.waiting : ''
-  const promoteWhy = block || (i.promotion === null ? GYM_BUTTON_COPY.noStatus : i.stale ? GYM_BUTTON_COPY.stale : candidates.length === 0 ? GYM_BUTTON_COPY.noCandidates : '')
+  const promoteWhy = block || (i.opUnknown ? GYM_BUTTON_COPY.unknown : i.promotion === null ? GYM_BUTTON_COPY.noStatus : i.stale ? GYM_BUTTON_COPY.stale : candidates.length === 0 ? GYM_BUTTON_COPY.noCandidates : '')
   return { shown: true, setup: '', promote: { enabled: promoteWhy === '', why: promoteWhy }, rollback: { enabled: block === '', why: block }, candidates }
 }

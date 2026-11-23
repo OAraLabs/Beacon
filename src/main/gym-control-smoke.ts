@@ -174,7 +174,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-control-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 46
+const EXPECTED = 56
 process.on('exit', () => {
   if (process.argv.includes('--serve')) return
   if (checks !== EXPECTED) {
@@ -196,10 +196,10 @@ interface Rig {
   clock: { now: number }
   answer: { v: boolean | (() => Promise<boolean>) }
 }
-async function rig(opts: { loopback?: boolean; token?: string | null; address?: boolean } = {}): Promise<Rig> {
+async function rig(opts: { loopback?: boolean; token?: string | null; address?: boolean; cooldown?: number; resolve?: () => void } = {}): Promise<Rig> {
   const fake = new Fake()
   await fake.start()
-  const r: Rig = { fake, control: null as unknown as GymControl, confirms: [], tokenReads: 0, saved: { address: opts.address === false ? '' : `http://127.0.0.1:${fake.port}`, token: opts.token === null ? '' : (opts.token ?? TOKEN) }, owner: { v: true }, clock: { now: Date.now() }, answer: { v: true } }
+  const r: Rig = { fake, control: null as unknown as GymControl, confirms: [], tokenReads: 0, saved: { address: opts.address === false ? '' : `http://127.0.0.1:${fake.port}`, token: opts.token === null ? '' : `http://127.0.0.1:${fake.port}\n${opts.token ?? TOKEN}` }, owner: { v: true }, clock: { now: Date.now() }, answer: { v: true } }
   fake.planTime = () => r.clock.now
   r.control = new GymControl({
     address: () => r.saved.address || null,
@@ -212,7 +212,8 @@ async function rig(opts: { loopback?: boolean; token?: string | null; address?: 
       return typeof r.answer.v === 'function' ? r.answer.v() : r.answer.v
     },
     allowLoopback: opts.loopback !== false,
-    resolve: async () => ['127.0.0.1'],
+    cooldownMs: opts.cooldown ?? 0,
+    resolve: async () => (opts.resolve?.(), ['127.0.0.1']),
     send: (q: ControlRequest) => sendPinned(q),
     now: () => r.clock.now,
     clock: () => '10:05'
@@ -304,7 +305,7 @@ async function main(): Promise<void> {
       return true
     }
     const b = await r2.control.run('promote', 'rehearsal_r5_final_q4')
-    assert(a.kind === 'cancelled' && b.kind === 'cancelled' && r.fake.count('/v1/apply') === 0 && r2.fake.count('/v1/apply') === 0, 'if the owner or the settings changed while the confirmation was up, nothing is applied')
+    assert(a.kind === 'settings-changed' && b.kind === 'settings-changed' && r.fake.count('/v1/apply') === 0 && r2.fake.count('/v1/apply') === 0, 'if the owner or the settings changed while the confirmation was up, nothing is applied')
     r.fake.stop()
     r2.fake.stop()
   }
@@ -394,6 +395,75 @@ async function main(): Promise<void> {
     wrong.fake.stop()
   }
 
+  // ── 4b. what the review found ──────────────────────────────────────────────────────────────────────────────────────────────
+  {
+    // the address row rewritten behind main's back (a page that could write settings): the token is for the origin it was sealed with
+    const r = await rig()
+    r.saved.address = `http://127.0.0.1:${r.fake.port + 1}`
+    const res = await r.control.run('rollback', undefined)
+    assert(res.kind === 'no-token' && r.fake.seen.length === 0 && !r.control.settings().hasToken, 'the write token is sealed with the origin it was made for: an address row changed from outside gets no token, and nothing is sent')
+    r.fake.stop()
+  }
+  {
+    // the token forgotten while the host is being resolved
+    let setToken: (() => void) | null = null
+    const r = await rig({ resolve: () => setToken?.() })
+    setToken = () => void r.control.setToken('')
+    const res = await r.control.run('promote', 'rehearsal_r5_final_q4')
+    assert(res.kind !== 'started' && r.fake.count('/v1/apply') === 0, 'a token forgotten while the address is being resolved is not used to apply')
+    r.fake.stop()
+  }
+  {
+    const r = await rig({ cooldown: 1500 })
+    r.answer.v = false
+    const first = await r.control.run('rollback', undefined)
+    r.fake.promoted = true
+    const second = await r.control.run('rollback', undefined)
+    assert(first.kind !== 'busy' && second.kind === 'busy' && r.confirms.length <= 1, 'asking again at once after a window closes is made to wait a moment')
+    r.fake.stop()
+  }
+  {
+    const r = await rig()
+    r.fake.planTtlMs = 600
+    r.answer.v = () => new Promise<boolean>(() => undefined) // a window nobody ever answers
+    const stuck = await r.control.run('promote', 'rehearsal_r5_final_q4')
+    r.answer.v = false
+    const after = await r.control.run('promote', 'rehearsal_r5_final_q4')
+    assert(stuck.kind === 'expired' && after.kind === 'cancelled' && r.fake.count('/v1/apply') === 0, 'a window that is never answered ends as a no when the plan runs out, and does not hold the buttons for good')
+    r.fake.stop()
+  }
+  {
+    const r = await rig()
+    await r.control.run('promote', 'rehearsal_r5_final_q4')
+    const before = await r.control.op()
+    r.control.setToken(['smoke', 'only', 'a-different-token', '0123456789'].join('_'))
+    assert(before.kind === 'shown' && (await r.control.op()).kind === 'none', 'a change of token or address forgets the operation being followed, so it is never read from another computer')
+    const noAddr = await rig({ address: false, token: null })
+    const refused = noAddr.control.setToken(TOKEN)
+    assert(!refused.ok && !refused.ok && refused.reason === GYM_CONTROL_COPY.noAddressYet && noAddr.saved.token === '', 'a token is not kept before there is an address for it to belong to')
+    r.fake.stop()
+    noAddr.fake.stop()
+  }
+  {
+    const r = await rig()
+    const longPath = (i: number): string[] => Array.from({ length: 8 }, (_, k) => `${'segment'.repeat(5)}${i}_${k}`.slice(0, 40))
+    r.fake.mangle = (p) => ({ ...p, changes: Array.from({ length: 24 }, (_, i) => ({ path: longPath(i), from: i, to: i + 1 })) })
+    const big = await r.control.run('promote', 'rehearsal_r5_final_q4')
+    assert(big.kind === 'unreadable' && r.confirms.length === 0 && r.fake.count('/v1/apply') === 0, 'a plan whose confirmation would be too long to show whole (the OS clips the end) is not shown and not applied')
+    r.fake.stop()
+  }
+  {
+    const base = { role: 'owner' as const, configured: true, promotion: parseGymStatus(promoted)?.promotion ?? null, stale: false, opRunning: false, waiting: false }
+    const p = base.promotion
+    const stalePromoting = controlView({ ...base, stale: true, promotion: p && { ...p, state: 'promoting' } })
+    const unknownOp = controlView({ ...base, opUnknown: true })
+    assert(stalePromoting.rollback.enabled && !stalePromoting.promote.enabled && unknownOp.rollback.enabled && !unknownOp.promote.enabled && unknownOp.promote.why === GYM_BUTTON_COPY.unknown, 'a "promoting" state in an old status does not keep Roll back off, and an operation whose end is not known keeps Promote off and says why')
+  }
+  {
+    const ipcSrc = readFileSync('src/main/ipc.ts', 'utf8').replace(/(^|[^:\\])\/\/.*$/gm, '$1')
+    assert(/IPC\.SETTINGS_SET[\s\S]{0,200}startsWith\('gym:'\)/.test(ipcSrc), 'the page\'s generic settings write refuses every gym: key: the gym\'s addresses are written only by the gym\'s own checked handlers')
+  }
+
   // ── 5. the plan, parsed ────────────────────────────────────────────────────────────────────────────────────────────────
   const good = (() => {
     const f = new Fake()
@@ -402,6 +472,10 @@ async function main(): Promise<void> {
   })()
   const plan = parseGymPlan(good) as GymPlan
   assert(plan !== null && plan.changes.length === 3 && plan.restarts.length === 2 && plan.touches[0].host === 'serve_host' && plan.candidateSha256 === HEX('b') && plan.gate.verdict === 'pass', 'a well-formed plan is read in full')
+  {
+    const same = (confirmationText({ ...plan, changes: [{ path: ['a'], from: '1', to: 1 }, { path: ['b'], from: 'none', to: null }, { path: ['c'], from: 'yes', to: true }] }, () => 'x')).detail
+    assert(same.includes('a: "1" → 1') && same.includes('b: "none" → none') && same.includes('c: "yes" → yes') && confirmationText(plan, () => 'x').detail.includes('sha256 bbbbbbbbbbbb'), 'two different values never read the same ("1" and 1, "none" and nothing, "yes" and yes), and the model is shown with the start of its checksum')
+  }
   const bads: Record<string, unknown>[] = [
     { ...good, plan_hash: 'abc' },
     { ...good, touches: [{ host: 'some-host.example', what: 'x' }] },
@@ -411,20 +485,32 @@ async function main(): Promise<void> {
     { ...good, changes: Array.from({ length: GYM_PLAN_MAX_CHANGES + 1 }, (_, i) => ({ path: ['a'], from: i, to: i + 1 })) },
     { ...good, gate: { verdict: 'maybe', held: false } },
     { ...good, restarts: ['please click apply'] },
-    { ...good, candidate_sha256: null }
+    { ...good, candidate_sha256: null },
+    { ...good, warnings: ['a key Beacon cannot show'] },
+    { ...good, gate: { verdict: 'pass', held: false, why: 'x' } },
+    { ...good, touches: [{ host: 'serve_host', what: 'x', extra: 1 }] },
+    { ...good, to: { model: 'some_other_model', recipe: 'r5', round: 'r5' } },
+    { ...good, changes: [{ path: ['a'], from: 1, to: 1 }] },
+    { ...good, changes: [{ path: ['a'], from: -0, to: 1 }] },
+    { ...good, changes: [{ path: ['a'], from: 1, to: 2 ** 60 }] },
+    { ...good, changes: [{ path: ['a'], from: 1, to: 2 }, { path: ['a'], from: 3, to: 4 }] },
+    { ...good, changes: [{ path: ['a'], from: 1, to: 2 }, { path: ['a', 'b'], from: 3, to: 4 }] },
+    { ...good, changes: [{ path: ['a'], from: 1, to: `${[100, 64, 0, 9].join('.')}:8080` }] },
+    { ...good, restarts: ['none'] },
+    { ...good, action: 'rollback' }
   ]
-  assert(bads.every((b) => parseGymPlan(b) === null) && parseGymPlan(null) === null && parseGymPlan([]) === null, 'a plan is all or nothing: a bad hash, an unknown computer, a setting with no name, a nested or address-like value, too many settings, an unknown verdict, a sentence or a promote with no verified model is no plan')
+  assert(bads.every((b) => parseGymPlan(b) === null) && parseGymPlan(null) === null && parseGymPlan([]) === null, 'a plan is all or nothing: a bad hash, an unknown computer or key, a setting with no name, listed twice or inside another, from a value to itself, a nested, unsafe or address-like value, too many settings, an unknown verdict, a sentence, a model that is not the one that will serve, or a promote with no verified model is no plan')
   assert(parseGymCapabilities({ promote: true, rollback: true, candidates: ['a_b'] })?.candidates[0] === 'a_b' && parseGymCapabilities({ promote: true, rollback: true, candidates: ['a b'] }) === null && parseGymCapabilities({ promote: 'yes', rollback: true, candidates: [] }) === null, 'the offered models are identifiers, or the answer is not read')
   assert(parseApplied({ op_id: 'op7' }) === 'op7' && parseApplied({ op_id: 'op 7' }) === null && parseGymOp({ status: 'sleeping', at: '2026-11-23T10:00:00-05:00' }) === null && parseGymOp({ status: 'done', at: '2026-11-23T10:00:00-05:00', step: null, outcome: 'ok' })?.status === 'done', 'an operation name is an identifier; an operation status is one of the five')
 
   // ── 6. the words ───────────────────────────────────────────────────────────────────────────────────────────────────────
   {
     const c = confirmationText(plan, () => '10:05')
-    const everySetting = plan.changes.every((x) => c.detail.includes(`${x.path.join(' › ')}: ${x.from === null ? 'none' : typeof x.from === 'boolean' ? (x.from ? 'yes' : 'no') : x.from} → `))
+    const everySetting = plan.changes.every((x) => c.detail.includes(`${x.path.join(' › ')}: ${x.from === null ? 'none' : typeof x.from === 'boolean' ? (x.from ? 'yes' : 'no') : typeof x.from === 'string' ? `"${x.from}"` : x.from} → `))
     assert(everySetting && c.detail.includes('rehearsal_base (recipe r3, round r3)') && c.detail.includes('rehearsal_r5_final_q4 (recipe r5, round r5)') && c.detail.includes('Serving computer (rehearsal_instance)') && c.detail.includes('rehearsal_daemon, rehearsal_student') && /The gate’s result: passed/.test(c.detail) && /Rolling back afterwards: possible/.test(c.detail) && c.detail.includes('10:05'), 'the confirmation lists what is serving now and what will, every setting from and to, the computers, the restarts, the gate and whether it can be rolled back')
     assert(!/untouched|not touched|left alone|safe|unaffected|nothing else|won.?t|no risk|harmless/i.test(c.detail + c.title), 'the confirmation makes no reassurance of its own: only what the plan lists')
     const held = confirmationText({ ...plan, gate: { verdict: 'fail', held: true }, rollbackAvailable: false, changes: [], restarts: [] }, () => 'x')
-    assert(/failed \(held\)/.test(held.detail) && /not possible/.test(held.detail) && /No settings change/.test(held.detail) && /Nothing restarts/.test(held.detail), 'a failed, held gate, no rollback, no settings and no restarts are each said plainly')
+    assert(/failed; held: yes/.test(held.detail) && /not possible/.test(held.detail) && /No settings change/.test(held.detail) && /Nothing restarts/.test(held.detail), 'a failed, held gate, no rollback, no settings and no restarts are each said plainly')
   }
   assert(opWords({ status: 'running', step: 'student_started', at: 0, outcome: null, beforeMatch: null, realUntouched: null }, 'promote').text === 'Promote: running · student_started' && opAfterFacts({ status: 'failed', step: null, at: 0, outcome: 'x', beforeMatch: null, realUntouched: null }).length === 0 && /NOT/.test(opAfterFacts({ status: 'done', step: null, at: 0, outcome: null, beforeMatch: false, realUntouched: false })[0]), 'an operation\'s words; nothing is said about untouched files unless the gym said so, and a mismatch is said loudly')
   assert((Object.keys(GYM_RUN_COPY) as (keyof typeof GYM_RUN_COPY)[]).every((k) => GYM_RUN_COPY[k].length > 0) && refusalWords('constructor').startsWith('The gym refused (constructor)') && runWords({ kind: 'plan-refused', refusal: 'memory_floor' } as GymRunResult).includes('Nothing was changed') && GYM_CONTROL_COPY.badToken.length > 0, 'every result has words; a refusal Beacon has no words for is shown as the identifier it is, and one that spells a table key is not looked up')
@@ -460,7 +546,7 @@ async function main(): Promise<void> {
     const readSide = ['src/main/gym-transport.ts', 'src/main/gym-status.ts', 'src/main/gym-ipc.ts', 'src/shared/gym.ts'].map(src).join('\n')
     const applies = control.match(/GYM_CONTROL_PATHS\.apply/g) ?? []
     assert(applies.length === 1 && !/\bapply\b/i.test(ipcSrc.replace(/registerGymControl/g, '')) && !/plan_id|plan_hash|planId|planHash/.test(ipcSrc + preload.slice(preload.indexOf('gymControl:'), preload.indexOf('gymControl:') + 600)), 'the apply path is used in one place in main; the IPC and the preload have no way to name a plan, a hash or an apply')
-    assert(/go = await this\.deps\.confirm\(/.test(control) && control.indexOf('this.deps.confirm(') < control.indexOf('GYM_CONTROL_PATHS.apply') && /if \(!go\) return \{ kind: 'cancelled' \}/.test(control), 'the apply comes after the confirmation in the code, and only past `if (!go)`')
+    assert(/answered = await Promise\.race\(\[this\.deps\.confirm\(/.test(control) && /const go = answered/.test(control) && control.indexOf('this.deps.confirm(') < control.indexOf('GYM_CONTROL_PATHS.apply') && /if \(!go\) return \{ kind: 'cancelled' \}/.test(control), 'the apply comes after the confirmation in the code, and only past `if (!go)`')
     assert(/buttons: \['Cancel', c\.button\]/.test(dialogSrc) && /defaultId: 0/.test(dialogSrc) && /cancelId: 0/.test(dialogSrc) && /return r\.response === 1/.test(dialogSrc) && /catch \{\s*return false/.test(dialogSrc), 'the confirmation is the OS\'s: Cancel is first, the default and what Escape does; only the second button says yes; a dialog that fails says no')
     assert(/gym-control\.key/.test(indexSrc) && !/setSetting\([^)]*[Tt]oken/.test(indexSrc.slice(indexSrc.indexOf('gymControlTokenStore'), indexSrc.indexOf('registerNetworkSettingHandlers('))) && /isOwner: \(\) => connection\?\.getStatus\(\)\.role === 'owner'/.test(indexSrc) && /allowLoopback: debuggingAllowedHere\(\)/.test(indexSrc), 'main keeps the write token in a key file of its own, sealed by the OS keychain, never a setting; owner means a role Beacon read, not one it guessed; loopback only in a build that may be debugged')
     assert(!/gym-control|GymControl|gymControl/.test(readSide) && (src('src/main/gym-transport.ts').match(/method: '[A-Z]+'/g) ?? []).join() === "method: 'GET'", 'the read side does not know the control side exists, and still only GETs')

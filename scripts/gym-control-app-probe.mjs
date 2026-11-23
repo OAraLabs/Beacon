@@ -120,12 +120,13 @@ try {
   await waitFor(`!!document.querySelector('[data-testid="gym-said"]')`)
   let c = await calls()
   const first = c[0] ?? {}
-  check(c.length === 1 && first.buttons?.join() === 'Cancel,Promote' && first.defaultId === 0 && first.cancelId === 0 && /Serving now: rehearsal_base/.test(first.detail ?? '') && /Will serve: rehearsal_r5_final_q4/.test(first.detail ?? '') && /models › primary: rehearsal_base → rehearsal_r5_final_q4/.test(first.detail ?? '') && /pins › sampling › temperature: 0\.7 → 0\.2/.test(first.detail ?? '') && /Serving computer \(rehearsal_instance\)/.test(first.detail ?? '') && /rehearsal_daemon, rehearsal_student/.test(first.detail ?? ''), 'the confirmation (the OS\'s) has Cancel first and as the default, and lists the models, every setting from and to, the computer and the restarts', JSON.stringify(first))
+  check(c.length === 1 && first.buttons?.join() === 'Cancel,Promote' && first.defaultId === 0 && first.cancelId === 0 && /Serving now: rehearsal_base/.test(first.detail ?? '') && /Will serve: rehearsal_r5_final_q4/.test(first.detail ?? '') && /models › primary: "rehearsal_base" → "rehearsal_r5_final_q4"/.test(first.detail ?? '') && /pins › sampling › temperature: 0\.7 → 0\.2/.test(first.detail ?? '') && /Serving computer \(rehearsal_instance\)/.test(first.detail ?? '') && /rehearsal_daemon, rehearsal_student/.test(first.detail ?? ''), 'the confirmation (the OS\'s) has Cancel first and as the default, and lists the models, every setting from and to, the computer and the restarts', JSON.stringify(first))
   check(!/untouched|not touched|safe/i.test(first.detail ?? ''), 'and makes no reassurance of its own')
   check(/Cancelled\. Nothing was changed\./.test(String(await ev(`document.querySelector('[data-testid="gym-said"]').innerText`))) && (await knob({})).applies === 0, 'Cancel: the page says nothing was changed, and the service never received an apply')
   await shot('gym-rehearsal-cancelled.png')
 
   // Promote, confirmed
+  await sleep(1800) // main makes a page that asks again at once wait a moment
   await answer(1)
   await click('gym-promote')
   check(await waitFor(`/Sent\\./.test(document.querySelector('[data-testid="gym-said"]')?.innerText ?? '')`), 'Promote, confirmed: the page says it was sent')
@@ -136,12 +137,14 @@ try {
   await shot('gym-rehearsal-done.png')
 
   // Promote again: the service refuses in its plan; no confirmation is drawn
+  await sleep(1800) // main makes a page that asks again at once wait a moment
   const before = (await calls()).length
   await click('gym-promote')
   await waitFor(`/already promoted/i.test(document.querySelector('[data-testid="gym-said"]')?.innerText ?? '')`)
   check((await calls()).length === before && (await knob({})).applies === 1, 'Promote when it is already promoted: the refusal is said in Beacon\'s words, no confirmation is shown, nothing is sent')
 
   // Roll back whose outcome is not known: the connection dies after the apply
+  await sleep(1800) // main makes a page that asks again at once wait a moment
   await knob({ drop: true })
   await click('gym-rollback')
   await waitFor(`/didn.t get a clear answer/.test(document.querySelector('[data-testid="gym-said"]')?.innerText ?? '')`)

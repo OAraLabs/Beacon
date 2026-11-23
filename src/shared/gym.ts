@@ -385,6 +385,18 @@ const SLUG = /^[a-z0-9][a-z0-9_.:-]{0,39}$/
 export function slug(v: unknown): string | null {
   return typeof v === 'string' && SLUG.test(v) ? v : null
 }
+/** A string that is plainly an address or a computer's name on a network (a dotted quad, with or without a port; an IPv6 literal;
+ *  a name ending .local, .lan, .internal, .home, .localhost or .ts.net). NOT a promise that nothing else names a computer: a
+ *  bare name such as `my-laptop` is a valid identifier and cannot be told apart by its shape. The rule the plan and the
+ *  promotion record keep is "identifier shapes only, and the obvious addresses refused". */
+export function addressLike(s: string): boolean {
+  return /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(s) || (s.match(/:/g) ?? []).length >= 2 || /(^|\.)(local|lan|internal|localhost|home|ts\.net)$/.test(s)
+}
+/** An identifier that is also not plainly an address. */
+export function safeId(v: unknown): string | null {
+  const s = slug(v)
+  return s !== null && !addressLike(s) ? s : null
+}
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 const bool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null)
 const obj = (v: unknown): Record<string, unknown> | null => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null)
@@ -481,23 +493,23 @@ function parsePromotion(v: unknown): GymPromotion | null {
   const steps: GymPromotion['steps'] = []
   for (const raw of list(p.steps, 40)) {
     const s = obj(raw)
-    const id = slug(s?.id)
-    if (s && id !== null) steps.push({ id, status: slug(s.status) ?? 'unknown' })
+    const id = safeId(s?.id)
+    if (s && id !== null) steps.push({ id, status: safeId(s.status) ?? 'unknown' })
   }
   const candidates: string[] = []
   for (const raw of list(p.candidates, 32)) {
-    const c = slug(raw)
+    const c = safeId(raw)
     if (c !== null) candidates.push(c)
   }
   return {
-    state: slug(p.state) ?? 'unknown',
-    target: slug(p.target),
-    candidate: slug(p.candidate),
+    state: safeId(p.state) ?? 'unknown',
+    target: safeId(p.target),
+    candidate: safeId(p.candidate),
     since: time(p.since),
     steps,
     beforeMatch: bool(p.before_match),
     realUntouched: bool(p.real_untouched),
-    studentHealth: slug(p.student_health),
+    studentHealth: safeId(p.student_health),
     shadow: counts(p.shadow, 20),
     candidates,
     rollbackAvailable: bool(p.rollback_available)
