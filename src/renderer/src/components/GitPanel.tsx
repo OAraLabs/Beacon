@@ -3,6 +3,7 @@ import { diffLineTone } from '@shared/coding'
 import type { GitDetail, GitDiff, GitDiffMode } from '@shared/git-state'
 import { gitEmptyWords, gitGroups, gitMoreWords, prStateWords } from '@shared/git-view'
 import type { GitPr } from '@shared/git-pr'
+import { GIT_ACTIONS_NOTE, type GitAction } from '@shared/git-actions'
 import { diffLineShown, gitText } from '@shared/git-state'
 
 /**
@@ -10,7 +11,7 @@ import { diffLineShown, gitText } from '@shared/git-state'
  * the commits this branch has that its upstream lacks. Read-only. Everything shown is text git
  * printed about the conversation's own folder; nothing here runs, stages or commits anything.
  */
-export function GitPanel({ sessionId, words, refreshKey, place, pr }: { sessionId: string; words: string; refreshKey?: unknown; place: { left: number; width: number; maxHeight: number }; pr: GitPr | null }) {
+export function GitPanel({ sessionId, words, refreshKey, place, pr, actions, onAsk }: { sessionId: string; words: string; refreshKey?: unknown; place: { left: number; width: number; maxHeight: number }; pr: GitPr | null; actions: GitAction[]; onAsk?: (prompt: string) => void }) {
   const [detail, setDetail] = useState<GitDetail | null>(null)
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [diffs, setDiffs] = useState<Record<string, GitDiff>>({})
@@ -92,6 +93,20 @@ export function GitPanel({ sessionId, words, refreshKey, place, pr }: { sessionI
           {`Pull request #${pr.number}`}
           <span className="git-pr-link-what">{prStateWords(pr)}</span>
         </a>
+      ) : null}
+      {onAsk && actions.length > 0 ? (
+        // These do no git. Each puts a prepared request in the message box (@shared/git-actions).
+        <section className="git-actions" aria-label="Ask your assistant">
+          <h3 className="git-group-title">Ask your assistant to</h3>
+          <div className="git-action-row">
+            {actions.map((a) => (
+              <button key={a.id} className="git-action" onClick={() => onAsk(a.prompt)} title={a.hint} data-testid="git-action" data-action={a.id}>
+                {a.label}
+              </button>
+            ))}
+          </div>
+          <div className="git-panel-note">{GIT_ACTIONS_NOTE}</div>
+        </section>
       ) : null}
       {detail === null ? <div className="git-panel-note">Reading…</div> : null}
       {empty ? (

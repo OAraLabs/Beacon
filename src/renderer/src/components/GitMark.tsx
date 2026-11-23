@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { gitChip, gitMark, type GitMarkKind } from '@shared/git-view'
 import { useGit, usePr } from '../git-store'
+import { gitActions } from '@shared/git-actions'
 import { GitPanel } from './GitPanel'
 import { Icon, type IconName } from './Icon'
 
@@ -42,9 +43,11 @@ export function GitMark({ sessionId }: { sessionId: string }) {
  * how far it is from its upstream. Read more often than a row, and again when a turn ends. Click
  * it for the Git panel (the changed files, their diffs, the commits not yet upstream).
  */
-export function GitChip({ sessionId, refreshKey }: { sessionId: string; refreshKey?: unknown }) {
+export function GitChip({ sessionId, refreshKey, onAsk }: { sessionId: string; refreshKey?: unknown; onAsk?: (prompt: string) => void }) {
   const pr = usePr(sessionId)
-  const chip = gitChip(useGit(sessionId, { watch: true, open: true, refreshKey }), pr)
+  const read = useGit(sessionId, { watch: true, open: true, refreshKey })
+  const chip = gitChip(read, pr)
+  const actions = gitActions(read, pr)
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement | null>(null)
   const button = useRef<HTMLButtonElement | null>(null)
@@ -112,7 +115,10 @@ export function GitChip({ sessionId, refreshKey }: { sessionId: string; refreshK
         {chip.behind > 0 ? <span className="git-chip-move">↓{chip.behind}</span> : null}
         {chip.pr ? <span className="git-chip-pr">{chip.pr}</span> : null}
       </button>
-      {open && place ? <GitPanel sessionId={sessionId} words={chip.words} refreshKey={`${String(refreshKey)}:${chip.words}`} place={place} pr={pr?.kind === 'pr' ? pr.pr : null} /> : null}
+      {open && place ? <GitPanel sessionId={sessionId} words={chip.words} refreshKey={`${String(refreshKey)}:${chip.words}`} place={place} pr={pr?.kind === 'pr' ? pr.pr : null} actions={actions} onAsk={onAsk ? (text) => {
+        setOpen(false)
+        onAsk(text)
+      } : undefined} /> : null}
     </div>
   )
 }

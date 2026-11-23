@@ -86,7 +86,9 @@ const SESSIONS = [
 ]
 
 // ── the stand-in Prometheus: it shares this disk, so it accepts a folder that exists ─────────
-const daemon = { gets: {}, markers: 0 }
+// `sent`: anything that is not a read of what the probe set up (the proof's own folder writes aside) and
+// every socket frame but the subscription: a message sent to the assistant would be one of these.
+const daemon = { gets: {}, markers: 0, sent: [] }
 const rest = createServer((req, res) => {
   let body = ''
   req.on('data', (c) => (body += c))
@@ -97,6 +99,7 @@ const rest = createServer((req, res) => {
     if (url === '/api/devices') return json(res, 200, [])
     const now = Math.floor(Date.now() / 1000)
     if (url === '/api/sessions' && req.method === 'GET') return json(res, 200, SESSIONS.map((s, i) => ({ session_id: s.id, title: s.title, gateway: 'beacon', message_count: 2, last_active: now - i * 600, created_at: now - 86400 })))
+    if (req.method !== 'GET' && !/\/workspace$/.test(url)) daemon.sent.push(`${req.method} ${url}`)
     const m = /^\/api\/sessions\/(.+)\/workspace$/.exec(url)
     if (m) {
       const known = SESSIONS.find((s) => s.id === m[1])
@@ -130,6 +133,7 @@ new WebSocketServer({ server: wsHttp }).on('connection', (ws) => {
     } catch {
       return
     }
+    if (f?.type !== 'subscribe') daemon.sent.push(`ws ${String(f?.type)}`)
     if (f?.type === 'subscribe') ws.send(JSON.stringify({ type: 'subscribed', timestamp: Date.now() / 1000, payload: { sessions: [], capabilities: f.payload?.capabilities ?? [], server_capabilities: [], channels: [] } }))
   })
   ws.send(JSON.stringify({ type: 'connected' }))
@@ -225,10 +229,54 @@ try {
   await ev(`(() => { [...document.querySelectorAll('[data-testid="git-file"]')].find((f) => f.dataset.path === 'new.txt').click(); return true })()`)
   const diff2 = await until(() => ev(`document.querySelector('[data-testid="git-diff"]')?.innerText ?? ''`), (v) => /\+new/.test(v), 8000)
   check(/^\+new$/m.test(diff2), "a new file's diff is its content, added")
+  // ── the action buttons: each only fills the message box ───────────────────────────────────
+  /** Open the panel if it is not open: a click on the chip toggles it. */
+  const openPanel = async () => {
+    if ((await panel()) === null) await ev(`(() => { document.querySelector('[data-testid="git-chip"]').click(); return true })()`)
+    await until(acts, (v) => v.length > 0, 5000)
+  }
+  const acts = () => ev(`[...document.querySelectorAll('[data-testid="git-action"]')].map((b) => b.dataset.action).join()`)
+  check((await acts()) === 'commit,branch,push', 'a branch with changed files and no upstream offers: commit, start a branch, push', await acts())
+  check(/usual approvals/.test((await panel())?.text ?? '') && /you send it/.test((await panel())?.text ?? ''), 'and the panel says they only fill the message box, and that the usual approvals apply')
+  await shot('git-actions')
+  const draft = () => ev(`document.querySelector('.composer-shell textarea')?.value ?? null`)
+  check((await draft()) === '', 'the message box is empty to begin with')
+  // Chat mode has no tools: a request to commit would be useless there, so the button sets Agent.
+  const agentOn = () => ev(`[...document.querySelectorAll('.mode-toggle .mode-opt')].find((b) => /^Agent/.test(b.textContent.trim()))?.getAttribute('aria-pressed')`)
+  await ev(`(() => { [...document.querySelectorAll('.mode-toggle .mode-opt')].find((b) => /^Chat/.test(b.textContent.trim()))?.click(); return true })()`)
+  await openPanel()
+  check((await agentOn()) === 'false', 'with the conversation in Chat mode (no tools) to begin with')
+  const sentBefore = daemon.sent.length
+  await ev(`(() => { document.querySelector('[data-testid="git-action"][data-action="commit"]').click(); return true })()`)
+  await sleep(600)
+  const d1 = await draft()
+  check(/^Look at what has changed with git status and git diff\. Stage only the files that belong to this work, by name/.test(d1 ?? '') && /don’t push\.$/.test(d1 ?? ''), 'clicking "Commit these changes" puts the prepared request in the message box', d1)
+  check((await panel()) === null && (await ev(`document.activeElement?.tagName`)) === 'TEXTAREA', 'the panel closes and the message box has the keyboard, ready to send, change or clear')
+  check((await agentOn()) === 'true', 'and the conversation is in Agent mode, the mode with tools')
+  check(daemon.sent.length === sentBefore, 'nothing was sent to Prometheus: no message, no frame', daemon.sent.slice(sentBefore).join(' | '))
+  check((await ev(`window.beacon.approvals.list().then((l) => l.length)`)) === 0, 'and nothing is waiting for approval: the buttons start nothing')
+  // Reopen, and ask for another: it goes after what is there, in its own paragraph.
+  await openPanel()
+  await ev(`(() => { document.querySelector('[data-testid="git-action"][data-action="push"]').click(); return true })()`)
+  await sleep(600)
+  const d2 = await draft()
+  check((d2 ?? '').startsWith(d1 ?? '#') && /\n\nPush the current branch to a remote branch of the same name \(git push -u origin HEAD\)\. .*Don’t force-push\. Tell me what was pushed\.$/.test(d2 ?? ''), 'a second button adds its request after the first, in its own paragraph', d2)
+  check(daemon.sent.length === sentBefore, 'still nothing sent')
+  // Typing in the box is the person's: clear it before the rest.
+  await ev(`(() => { const t = document.querySelector('.composer-shell textarea'); const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; set.call(t, ''); t.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
+  await openPanel()
   await app.page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
   check((await until(panel, (v) => v === null, 3000)) === null && (await ev(`document.activeElement?.dataset.testid`)) === 'git-chip', 'Esc closes the panel and gives the focus back to the chip')
 
+  // A clean repository on main: a new branch is the only thing to offer; commit, push and a pull request are not.
+  await ev(`(() => { const b = [...document.querySelectorAll('button.session-row')].find((x) => x.title.includes('beacon:git-clean')); b?.click(); return !!b })()`)
+  await until(() => chip(), (v) => v?.kind === 'branch', 10000)
+  await openPanel()
+  check((await acts()) === 'branch', 'on a clean main: only "Start a new branch"; no commit (nothing changed), no push or pull request (the default branch)', await acts())
+  await app.page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await app.page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  await until(panel, (v) => v === null, 3000)
   // A conversation with no repository has no chip.
   await ev(`(() => { const b = [...document.querySelectorAll('button.session-row')].find((x) => x.title.includes('beacon:git-none')); b?.click(); return !!b })()`)
   await sleep(2500)

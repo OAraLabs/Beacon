@@ -7301,3 +7301,36 @@ button.git-file:focus-visible {
 .gym-runstate .gym-state {
   font-size: 15px;
 }
+
+/* ── The git action buttons in the Git panel: each only fills the message box ───────────────── */
+.git-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.git-action {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--line3);
+  color: var(--c-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.git-action:hover {
+  border-color: var(--c-line-bright);
+}
+.git-action:focus-visible {
+  outline: 2px solid var(--c-arc);
+  outline-offset: 2px;
+}
+.git-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.git-actions .git-group-title {
+  margin: 0;
+}

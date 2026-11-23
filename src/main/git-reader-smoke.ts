@@ -856,7 +856,7 @@ void (async () => {
     check(/if \(known && known\.branch !== branch\) \{\s*prs\.delete\(sessionId\)\s*notify\(sessionId\)/.test(store) && /if \(pr\.kind === 'unknown'\) \{[\s\S]{0,220}retry: true/.test(store), "a pull request learned for one branch is dropped the moment the branch changes; 'not known just now' keeps what was known and asks again soon")
     const markSrc = read('src/renderer/src/components/GitMark.tsx')
     check(/new IntersectionObserver\(/.test(markSrc) && /useGit\(sessionId, \{ watch: seen \}\)/.test(markSrc) && /useGit\(sessionId, \{ watch: true, open: true, refreshKey \}\)/.test(markSrc), 'a row reads only while it is on screen; the open conversation reads more often and when a turn ends')
-    check(/<GitMark sessionId=\{s\.id\} \/>/.test(read('src/renderer/src/components/Sidebar.tsx')) && /<GitChip sessionId=\{sessionId\} refreshKey=\{turnsEnded\} \/>/.test(read('src/renderer/src/components/ChatShell.tsx')), 'the mark is on every session row and the chip in the conversation header')
+    check(/<GitMark sessionId=\{s\.id\} \/>/.test(read('src/renderer/src/components/Sidebar.tsx')) && /<GitChip sessionId=\{sessionId\} refreshKey=\{turnsEnded\} onAsk=\{askAssistant\} \/>/.test(read('src/renderer/src/components/ChatShell.tsx')), 'the mark is on every session row and the chip in the conversation header')
     check(!/from 'electron'|from 'node:fs'|from 'fs'/.test(reader) && !/from 'node:|from 'electron'/.test(read('src/shared/git-state.ts')), 'the reader touches the folder only through those commands; the rules are pure')
   }
 })().catch((e) => {

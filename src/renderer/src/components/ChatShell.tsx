@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ArtifactEntry, ChatStreamFrame, ConnectionStatus, HistoryMessage } from '@shared/ipc'
 import { partsFromContentJson, type ContentPart } from '@shared/parts'
 import {
@@ -559,6 +559,17 @@ export function ChatShell({
     // The message box is NOT given the keyboard: these files came from outside Beacon, and what
     // the person types next should go where they were typing, not here with Enter one key away.
   }, [fileInsert, onFileInsertConsumed, onModeChange, sessionId])
+  // A git action button (@shared/git-actions) asks for something in words: the prepared request goes
+  // into the message box, in Agent mode (the mode with tools), and the person sends it. This is not
+  // a send, and it touches nothing but the draft.
+  const askAssistant = useCallback(
+    (text: string) => {
+      onModeChange?.('agent')
+      setDraft((d) => insertPrompt(d, text))
+      setTimeout(() => draftRef.current?.focus(), 0)
+    },
+    [onModeChange]
+  )
   const lastInsertRef = useRef(0)
   useEffect(() => {
     if (!insert || insert.n === lastInsertRef.current) return
@@ -1881,7 +1892,7 @@ export function ChatShell({
               which this is: the workspace routes are the owner's, and nothing is asked that
               would be refused. */}
           {limited || !roleHeard ? null : <WorkFolderChip sessionId={sessionId} where={otherComputerName(hostDisplayName(status.gateway))} refreshKey={turnsEnded} />}
-          {limited || !roleHeard ? null : <GitChip sessionId={sessionId} refreshKey={turnsEnded} />}
+          {limited || !roleHeard ? null : <GitChip sessionId={sessionId} refreshKey={turnsEnded} onAsk={askAssistant} />}
           {/* One chip for state, host and distance — shared with Mission's banner. */}
           <HostChip />
           <button
