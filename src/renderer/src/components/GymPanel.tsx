@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
+  GYM_FORM_COPY,
   GYM_POLL_MS,
   GYM_READ_COPY,
   GYM_REFERENCE,
@@ -17,6 +18,7 @@ import {
   fmtPts,
   fmtShare,
   groupScorecards,
+  gymFormProblem,
   isReferenceCard,
   roundsOptions,
   gapStarts,
@@ -857,7 +859,7 @@ function HostCard({ h, now }: { h: GymHost; now: number }) {
 }
 
 // ── where the gym is, and this computer's token for it ──────────────────────────────────────────────────────────────────────
-function SettingsForm({ settings, onSaved }: { settings: GymSettings; onSaved: () => void }) {
+function SettingsForm({ settings, notice, onSaved }: { settings: GymSettings; notice: string | null; onSaved: (notice?: string) => void }) {
   const [address, setAddress] = useState(settings.address)
   const [token, setToken] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -866,6 +868,9 @@ function SettingsForm({ settings, onSaved }: { settings: GymSettings; onSaved: (
   const save = async (): Promise<void> => {
     const b = window.beacon
     if (!b) return
+    // A missing field is said by name, and nothing is saved: Save never clears the address (gymFormProblem).
+    const missing = gymFormProblem({ address, savedAddress: settings.address })
+    if (missing) return setError(missing)
     setBusy(true)
     try {
       const a = await b.gym.setAddress(address)
@@ -875,9 +880,14 @@ function SettingsForm({ settings, onSaved }: { settings: GymSettings; onSaved: (
         const t = await b.gym.setToken(token)
         if (!t.ok) return setError(t.reason)
         setToken('')
+        setError(null)
+        return onSaved()
       }
+      // A kept token belongs to the computer it was given for, so saving an address somewhere else forgets it (main does
+      // that, on purpose). It must not vanish without a word: say that it went, and why.
+      const now = await b.gym.settings()
       setError(null)
-      onSaved()
+      onSaved(settings.hasToken && !now.hasToken ? GYM_FORM_COPY.tokenForgotten : undefined)
     } finally {
       setBusy(false)
     }
@@ -888,6 +898,15 @@ function SettingsForm({ settings, onSaved }: { settings: GymSettings; onSaved: (
     await b.gym.setToken('')
     onSaved()
   }
+  /** Stop using this gym: the address goes, and its token with it. The one way the address is cleared. */
+  const forgetGym = async (): Promise<void> => {
+    const b = window.beacon
+    if (!b) return
+    const r = await b.gym.setAddress('')
+    if (!r.ok) return setError(r.reason)
+    setError(null)
+    onSaved()
+  }
   return (
     <form
       className="gym-address"
@@ -896,8 +915,13 @@ function SettingsForm({ settings, onSaved }: { settings: GymSettings; onSaved: (
         void save()
       }}
     >
+      {notice ? (
+        <p className="gym-address-error" role="status" data-testid="gym-form-notice">
+          {notice}
+        </p>
+      ) : null}
       <label htmlFor="gym-address">Where the gym’s status is</label>
-      <input id="gym-address" data-testid="gym-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="http://name-of-the-computer:18097" spellCheck={false} autoComplete="off" />
+      <input id="gym-address" data-testid="gym-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="for example http://name-of-the-computer:18097" spellCheck={false} autoComplete="off" aria-invalid={error !== null && address.trim() === '' ? true : undefined} />
       <label htmlFor="gym-token">This computer’s token for the gym</label>
       <input
         id="gym-token"
@@ -916,6 +940,11 @@ function SettingsForm({ settings, onSaved }: { settings: GymSettings; onSaved: (
         {settings.hasToken ? (
           <button type="button" className="gym-link" onClick={() => void forget()}>
             Forget the token
+          </button>
+        ) : null}
+        {settings.address !== '' ? (
+          <button type="button" className="gym-link" data-testid="gym-forget" onClick={() => void forgetGym()}>
+            Forget this gym
           </button>
         ) : null}
       </div>
@@ -961,6 +990,8 @@ export function GymPanel() {
   // The last status that was read. A poll that fails for a passing reason (the gym not answering, asked too often) keeps it on
   // screen under the reason, marked as old by its own age, instead of blanking a dashboard that was right a moment ago.
   const [lastShown, setLastShown] = useState<GymStatus | null>(null)
+  /** Something the form has to say after a save (a kept token was forgotten). It outlives the form's own remount. */
+  const [formNotice, setFormNotice] = useState<string | null>(null)
 
   useEffect(() => {
     const b = window.beacon
@@ -971,7 +1002,10 @@ export function GymPanel() {
         (r) => {
           if (!alive) return
           setRead(r)
-          if (r.kind === 'shown') setLastShown(r.status)
+          if (r.kind === 'shown') {
+            setLastShown(r.status)
+            setFormNotice(null)
+          }
           setNow(Date.now())
         },
         () => {
@@ -994,6 +1028,8 @@ export function GymPanel() {
   const passing = read !== null && (read.kind === 'unreachable' || (read.kind === 'denied' && read.why === 'rate'))
   const status = read?.kind === 'shown' ? read.status : passing ? lastShown : null
   const problem = read ? problemOf(read) : null
+  /** Read, and nothing to draw: the connection has to be set up (or fixed) before any section means anything. */
+  const noStatus = read !== null && status === null
   const showForm = editing || (read !== null && read.kind !== 'shown' && !(passing && lastShown !== null) && !(read.kind === 'denied' && read.why === 'rate'))
 
   return (
@@ -1001,12 +1037,15 @@ export function GymPanel() {
       <div className="gym-head">
         <nav className="gym-tabs" aria-label="Gym sections">
           {SECTIONS.map((t) => (
-            <button key={t.id} className={`pill${section === t.id ? ' is-active' : ''}`} aria-current={section === t.id ? 'page' : undefined} onClick={() => setSection(t.id)} data-testid={`gym-tab-${t.id}`}>
+            // With no status to show, the four sections would all draw the same form: they are switched off, and the line
+            // beside them says what to do first, so they do not look like buttons that do nothing.
+            <button key={t.id} className={`pill${section === t.id && !noStatus ? ' is-active' : ''}`} aria-current={section === t.id && !noStatus ? 'page' : undefined} disabled={noStatus} onClick={() => setSection(t.id)} data-testid={`gym-tab-${t.id}`}>
               {t.label}
             </button>
           ))}
         </nav>
         <div className="gym-fresh" data-testid="gym-fresh">
+          {noStatus ? <span data-testid="gym-setup-hint">{GYM_FORM_COPY.setUpFirst}</span> : null}
           {status && read && (read.kind === 'shown' || passing) ? (
             <>
               {read.kind === 'shown' && read.sample ? <State tone="warn">{GYM_READ_COPY.sample}</State> : null}
@@ -1029,7 +1068,9 @@ export function GymPanel() {
         {showForm ? (
           <SettingsForm
             settings={settings}
-            onSaved={() => {
+            notice={formNotice}
+            onSaved={(notice) => {
+              setFormNotice(notice ?? null)
               setEditing(false)
               setLastShown(null)
               setRead(null)
