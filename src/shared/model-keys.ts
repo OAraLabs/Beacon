@@ -20,6 +20,10 @@ export interface ProviderKeyServiceDTO {
   env_vars: ProviderKeyVarDTO[]
   docs_url?: string
   default_model?: string
+  /** Subscription plans (@shared/provider-plans), when the daemon serves them: unchecked here, checked there. */
+  plans?: unknown
+  plan?: unknown
+  endpoint_set?: unknown
 }
 
 export interface ProviderKeysCatalogDTO {

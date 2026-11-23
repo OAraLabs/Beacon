@@ -1,0 +1,223 @@
+{
+  "_note": "Scenario fixture in the confirmed shape (Prometheus feat/subscription-plans a3b505c): cases the recorded one lacks (a keyed Token Plan, a custom endpoint, a pinned plan, warnings). The recorded answer is provider_plans_recorded.json.",
+  "capabilities": {
+    "plans": 1
+  },
+  "services": [
+    {
+      "id": "glm",
+      "label": "GLM",
+      "kind": "llm",
+      "env_vars": [
+        {
+          "name": "ZAI_API_KEY",
+          "set": true
+        }
+      ],
+      "default_model": "glm-5.3",
+      "plans": [
+        {
+          "id": "payg",
+          "label": "Pay as you go",
+          "subscription": false,
+          "terms": null,
+          "default": true,
+          "custom": false,
+          "models": []
+        },
+        {
+          "id": "coding-plan",
+          "label": "Coding Plan",
+          "subscription": true,
+          "terms": "For coding tools and agents.",
+          "default": false,
+          "custom": false,
+          "models": []
+        },
+        {
+          "id": "cn",
+          "label": "Mainland China",
+          "subscription": false,
+          "terms": null,
+          "default": false,
+          "custom": false,
+          "models": []
+        }
+      ],
+      "plan": "coding-plan",
+      "endpoint_set": true,
+      "plan_pinned_in_config": false
+    },
+    {
+      "id": "qwen",
+      "label": "Qwen",
+      "kind": "llm",
+      "env_vars": [
+        {
+          "name": "QWEN_API_KEY",
+          "set": true
+        }
+      ],
+      "default_model": "qwen3.8-max",
+      "plans": [
+        {
+          "id": "payg",
+          "label": "Pay as you go",
+          "subscription": false,
+          "terms": null,
+          "default": true,
+          "custom": false,
+          "models": []
+        },
+        {
+          "id": "token-plan",
+          "label": "Token Plan",
+          "subscription": true,
+          "terms": "Alibaba: for interactive use in coding tools and agents.",
+          "default": false,
+          "custom": false,
+          "models": []
+        },
+        {
+          "id": "coding-plan",
+          "label": "Coding Plan",
+          "subscription": true,
+          "terms": "Alibaba: for interactive use in coding tools and agents.",
+          "default": false,
+          "custom": false,
+          "models": []
+        },
+        {
+          "id": "workspace",
+          "label": "Workspace",
+          "subscription": false,
+          "terms": null,
+          "default": false,
+          "custom": true,
+          "models": []
+        }
+      ],
+      "plan": "token-plan",
+      "endpoint_set": true,
+      "warnings": [
+        "Smart routing sends unattended turns to Qwen on Token Plan."
+      ],
+      "plan_pinned_in_config": false
+    },
+    {
+      "id": "kimi",
+      "label": "Kimi",
+      "kind": "llm",
+      "env_vars": [
+        {
+          "name": "MOONSHOT_API_KEY",
+          "set": false
+        }
+      ],
+      "default_model": "kimi-k2.6",
+      "plans": [
+        {
+          "id": "payg",
+          "label": "Pay as you go",
+          "subscription": false,
+          "terms": null,
+          "default": true,
+          "custom": false,
+          "models": []
+        },
+        {
+          "id": "kimi-code",
+          "label": "Kimi Code",
+          "subscription": true,
+          "terms": null,
+          "default": false,
+          "custom": false,
+          "models": []
+        }
+      ],
+      "plan": "payg",
+      "endpoint_set": false,
+      "plan_pinned_in_config": false
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "kind": "llm",
+      "env_vars": [
+        {
+          "name": "DEEPSEEK_API_KEY",
+          "set": false
+        }
+      ],
+      "default_model": "deepseek-flash",
+      "plan_pinned_in_config": false,
+      "plans": [],
+      "plan": null
+    },
+    {
+      "id": "mimo",
+      "label": "MiMo",
+      "kind": "llm",
+      "env_vars": [
+        {
+          "name": "MIMO_API_KEY",
+          "set": true
+        }
+      ],
+      "default_model": "mimo-v2.6-pro",
+      "plans": [
+        {
+          "id": "payg",
+          "label": "Pay as you go",
+          "subscription": false,
+          "terms": null,
+          "default": true,
+          "custom": false,
+          "models": []
+        }
+      ],
+      "plan": "custom",
+      "endpoint_set": true,
+      "plan_pinned_in_config": false
+    },
+    {
+      "id": "glm2",
+      "label": "GLM pinned",
+      "kind": "llm",
+      "env_vars": [
+        {
+          "name": "ZAI2_API_KEY",
+          "set": true
+        }
+      ],
+      "default_model": "glm-5.3",
+      "plans": [
+        {
+          "id": "payg",
+          "label": "Pay as you go",
+          "subscription": false,
+          "terms": null,
+          "default": true,
+          "custom": false,
+          "models": []
+        },
+        {
+          "id": "coding-plan",
+          "label": "Coding Plan",
+          "subscription": true,
+          "terms": null,
+          "default": false,
+          "custom": false,
+          "models": []
+        }
+      ],
+      "plan": "coding-plan",
+      "endpoint_set": true,
+      "plan_pinned_in_config": true
+    }
+  ],
+  "workspace_regions": [
+    "ap-southeast-1",
+    "us-east-1"
+  ]
+}
