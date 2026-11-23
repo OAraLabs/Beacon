@@ -19,43 +19,110 @@ export interface PlanDTO {
   regions?: string[]
 }
 
+const SLUG = /^[a-z0-9][a-z0-9-]{0,31}$/
+/** A workspace id: what the daemon builds a host from, so a plain slug only (no dots, no slashes). */
+const WORKSPACE_ID = /^[a-z0-9-]{1,64}$/
+
+/** Whether the daemon serves plans: `capabilities.plans` is a number >= 1. Anything else is today's key-only rows. */
+export function plansSupported(catalog: unknown): boolean {
+  const caps = (catalog as { capabilities?: unknown } | null)?.capabilities
+  const n = caps && typeof caps === 'object' ? (caps as Record<string, unknown>).plans : undefined
+  return typeof n === 'number' && n >= 1
+}
+
 /**
- * Whether the daemon serves plans.
- * TODAY: never. smoke:provider-plans is red against this on purpose.
+ * A service's plans, checked, or null. A plan whose id isn't a plain slug, or whose fields are the wrong type, is dropped; a list
+ * without exactly one default is not trusted at all (null), and neither is an empty one: the row then stays key-only, as today.
  */
-export function plansSupported(_catalog: unknown): boolean {
-  return false
+export function servicePlans(svc: ProviderKeyServiceDTO): PlanDTO[] | null {
+  if (!Array.isArray(svc.plans)) return null
+  const plans: PlanDTO[] = []
+  for (const raw of svc.plans as unknown[]) {
+    const p = raw as Record<string, unknown> | null
+    if (!p || typeof p.id !== 'string' || !SLUG.test(p.id) || typeof p.label !== 'string' || !p.label.trim()) continue
+    const regions = Array.isArray(p.regions) ? p.regions.filter((r): r is string => typeof r === 'string' && SLUG.test(r)) : undefined
+    plans.push({
+      id: p.id,
+      label: p.label.trim(),
+      subscription: p.subscription === true,
+      terms: typeof p.terms === 'string' && p.terms.trim() ? p.terms.trim() : null,
+      default: p.default === true,
+      custom: p.custom === true,
+      ...(regions ? { regions } : {})
+    })
+  }
+  if (plans.length === 0 || plans.filter((p) => p.default).length !== 1) return null
+  return plans
 }
 
-/** A service's plans, checked, or null (none, or a list Beacon can't trust: then the row is key-only, as today). TODAY: null. */
-export function servicePlans(_svc: ProviderKeyServiceDTO): PlanDTO[] | null {
-  return null
+/** The plan a service is on: a listed id; 'custom' for an endpoint that matches none (or an id the list lacks, never guessed);
+ *  the default's id when the daemon says nothing; null with no trusted list. */
+export function currentPlanId(svc: ProviderKeyServiceDTO): string | null {
+  const plans = servicePlans(svc)
+  if (!plans) return null
+  if (typeof svc.plan !== 'string') return plans.find((p) => p.default)!.id
+  if (svc.plan === 'custom') return 'custom'
+  return plans.some((p) => p.id === svc.plan) ? svc.plan : 'custom'
 }
 
-/** The plan a service is on: a listed id, 'custom', or null. TODAY: null. */
-export function currentPlanId(_svc: ProviderKeyServiceDTO): string | null {
-  return null
-}
-
-/** The row's "via …" words for a plan, or null to keep today's. TODAY: null. */
-export function planChipText(_svc: ProviderKeyServiceDTO): string | null {
-  return null
+/** The row's "via …" words: the subscription plan's name once its key is saved ("Token Plan"), "a custom endpoint" for one, else
+ *  null (today's chip: "configured" / "via API key"). */
+export function planChipText(svc: ProviderKeyServiceDTO): string | null {
+  const current = currentPlanId(svc)
+  if (current === null) return null
+  if (current === 'custom') return 'a custom endpoint'
+  const keyed = svc.env_vars.every((v) => v.set)
+  const plan = servicePlans(svc)!.find((p) => p.id === current)
+  return keyed && plan?.subscription ? plan.label : null
 }
 
 export type PlanPayload = { values?: Record<string, string>; plan: string; workspace?: { id: string; region: string }; replace_custom?: true }
 
-/** The PUT body for a plan choice. TODAY: nothing is ever saved. */
-export function buildPlanPayload(_input: {
+/**
+ * The PUT body for a plan choice. Built ONLY from what the person picked and typed (the never-prefill rule of @shared/model-keys):
+ * a plan id from the daemon's own list, the key if one was typed, a workspace's id and region if that plan needs them. Never a URL.
+ * - nothing typed and the plan unchanged: nothing to save;
+ * - a plan the daemon did not list, or a workspace id/region that doesn't check out: refused;
+ * - moving off a custom endpoint needs the person's confirm (`replaceCustom`), which the daemon also insists on (409).
+ */
+export function buildPlanPayload(input: {
   svc: ProviderKeyServiceDTO
   typed: Record<string, string>
   plan: string
   workspace?: { id: string; region: string }
   replaceCustom?: boolean
 }): { ok: true; payload: PlanPayload } | { ok: false; reason: 'nothing' | 'unknown' | 'workspace' | 'custom' } {
-  return { ok: false, reason: 'nothing' }
+  const plans = servicePlans(input.svc)
+  const plan = plans?.find((p) => p.id === input.plan)
+  if (!plans || !plan) return { ok: false, reason: 'unknown' }
+  const values: Record<string, string> = {}
+  for (const v of input.svc.env_vars) {
+    const t = (input.typed[v.name] ?? '').trim()
+    if (t) values[v.name] = t
+  }
+  const current = currentPlanId(input.svc)
+  const typedKey = Object.keys(values).length > 0
+  if (!typedKey && current === plan.id && !plan.custom) return { ok: false, reason: 'nothing' }
+  let workspace: { id: string; region: string } | undefined
+  if (plan.custom) {
+    const ws = input.workspace
+    const id = ws?.id.trim().toLowerCase() ?? ''
+    if (!ws || !WORKSPACE_ID.test(id) || !(plan.regions ?? []).includes(ws.region)) return { ok: false, reason: 'workspace' }
+    workspace = { id, region: ws.region }
+  }
+  if (current === 'custom' && !input.replaceCustom) return { ok: false, reason: 'custom' }
+  return {
+    ok: true,
+    payload: {
+      ...(typedKey ? { values } : {}),
+      plan: plan.id,
+      ...(workspace ? { workspace } : {}),
+      ...(current === 'custom' ? { replace_custom: true as const } : {})
+    }
+  }
 }
 
-/** Whether a failed PUT is the daemon asking to confirm replacing a custom endpoint (409). TODAY: never. */
-export function isCustomConflict(_message: string): boolean {
-  return false
+/** Whether a failed PUT is the daemon asking to confirm replacing a custom endpoint (its 409). */
+export function isCustomConflict(message: string): boolean {
+  return /^HTTP 409\b/.test(message)
 }

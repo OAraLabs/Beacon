@@ -11,6 +11,7 @@ import {
   type ProviderKeyServiceDTO
 } from '@shared/model-keys'
 import { catalogAuthBadges, MODELS_CATALOG_PATH } from '@shared/model-auth'
+import { buildPlanPayload, currentPlanId, isCustomConflict, planChipText, plansSupported, servicePlans } from '@shared/provider-plans'
 import { MainModelSection } from './MainModelSection'
 import { backendReading, defaultRowLabel, isCloudPrimary } from '@shared/backend-health'
 import { useBackendRecheck } from '../backend-recheck'
@@ -355,6 +356,7 @@ function VersionPanel({
 function ServiceRow({
   svc,
   authBadge,
+  plansOn,
   versions,
   onCatalog,
   onAuthChanged
@@ -363,6 +365,8 @@ function ServiceRow({
   /** "SuperGrok subscription" / "API key" — how the provider is connected right
    * now per GET /api/models `auth` (Prometheus PR 102); null → no caption. */
   authBadge: string | null
+  /** The daemon serves subscription plans (@shared/provider-plans plansSupported): only then is a plan offered. */
+  plansOn: boolean
   /** Every selectable version for this provider, default first (Prometheus PR 542).
    * Empty / single → the row renders the plain model string exactly as before. */
   versions: ModelVersion[]
@@ -378,8 +382,17 @@ function ServiceRow({
   // An input that is always open is an input that always costs space: the field opens on demand.
   const [open, setOpen] = useState(false)
   const state = serviceKeyState(svc)
+  // Subscription plans: only when the daemon serves them and this provider has a list Beacon trusts; otherwise the row is as before.
+  const plans = plansOn ? servicePlans(svc) : null
+  const current = plans ? currentPlanId(svc) : null
+  const [pick, setPick] = useState<string | null>(null)
+  const chosen = pick ?? (current && current !== 'custom' ? current : null)
+  const [wsId, setWsId] = useState('')
+  const [wsRegion, setWsRegion] = useState('')
+  const [replaceCustom, setReplaceCustom] = useState(false)
+  const planText = plans ? planChipText(svc) : null
 
-  const put = async (payload: { values: Record<string, string> }): Promise<void> => {
+  const put = async (payload: object): Promise<void> => {
     const b = window.beacon
     if (!b) return
     setBusy(true)
@@ -387,12 +400,18 @@ function ServiceRow({
     try {
       const catalog = await b.daemon.write(keysPutPath(svc.id), payload, 'PUT')
       setTyped({}) // inputs go blank again — values are never re-shown
+      setPick(null)
+      setReplaceCustom(false)
       onCatalog(catalog) // refresh every chip from the PUT response
       setSaved(true)
       setOpen(false)
       setTimeout(() => setSaved(false), 1800)
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
+      if (isCustomConflict(m)) {
+        setErr(`This Prometheus uses a custom endpoint for ${svc.label}. Confirm below to replace it.`)
+        return
+      }
       const match = m.match(/\{"error":"([^"]+)"\}/)
       setErr(match ? match[1] : m)
     } finally {
@@ -400,7 +419,12 @@ function ServiceRow({
     }
   }
 
-  const payload = buildSavePayload(svc, typed)
+  const planResult =
+    plans && chosen
+      ? buildPlanPayload({ svc, typed, plan: chosen, workspace: { id: wsId, region: wsRegion }, replaceCustom })
+      : null
+  const payload: object | null = plans ? (planResult?.ok ? planResult.payload : null) : buildSavePayload(svc, typed)
+  const chosenPlan = plans?.find((p) => p.id === chosen) ?? null
   const tone: 'ok' | 'idle' | 'none' = state === 'set' ? 'ok' : state === 'partial' ? 'idle' : 'none'
 
   return (
@@ -414,7 +438,11 @@ function ServiceRow({
             {svc.default_model ?? ''}
           </span>
         )}
-        {authBadge ? (
+        {planText ? (
+          <span style={stateChip('ok')} title="The plan this provider's key is saved for">
+            <span style={dot('ok')} />via {planText}
+          </span>
+        ) : authBadge ? (
           <span style={stateChip('ok')} title="Which credential this provider uses right now — a subscription is preferred over an API key when both are present">
             <span style={dot('ok')} />via {authBadge}
           </span>
@@ -426,7 +454,7 @@ function ServiceRow({
         )}
         {saved ? <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--online-text)' }}>saved</span> : null}
         <button style={linkBtn} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-          {open ? 'Cancel' : state === 'unset' ? 'Add key' : 'Replace key'}
+          {open ? 'Cancel' : state === 'unset' ? 'Add key' : plans ? 'Change' : 'Replace key'}
         </button>
         {state !== 'unset' ? (
           <button style={removeBtn(busy)} disabled={busy} onClick={() => void put(buildClearPayload(svc))} title="Forget this key on the daemon (clears it from the env file)">
@@ -439,6 +467,46 @@ function ServiceRow({
       ) : null}
       {open ? (
         <div style={{ ...card, margin: '0 0 8px' }}>
+          {plans ? (
+            <div role="radiogroup" aria-label={`${svc.label} plan`} data-testid="plan-picker" style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+              {current === 'custom' ? (
+                <div style={{ fontSize: 11, color: 'var(--c-text-dim)' }}>Now: a custom endpoint, set by hand. Choosing a plan replaces it.</div>
+              ) : null}
+              {plans.map((p) => {
+                const offered = !p.custom || (p.regions ?? []).length > 0
+                return (
+                  <label key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: offered ? 'var(--ink)' : 'var(--ink4)', cursor: offered ? 'pointer' : 'default' }}>
+                    <input type="radio" name={`plan-${svc.id}`} disabled={!offered || busy} checked={chosen === p.id} onChange={() => setPick(p.id)} />
+                    <span>
+                      {p.label}
+                      {p.subscription ? <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--ink4)', marginLeft: 6 }}>subscription</span> : null}
+                      {p.terms ? <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-dim)' }}>{p.terms}</span> : null}
+                      {!offered ? <span style={{ display: 'block', fontSize: 11, color: 'var(--c-text-dim)' }}>Set this one up on the Prometheus computer.</span> : null}
+                    </span>
+                  </label>
+                )
+              })}
+              {chosenPlan?.custom ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 22 }}>
+                  <input style={{ ...keyInput, width: 180 }} spellCheck={false} placeholder="Workspace id" value={wsId} onChange={(e) => setWsId(e.target.value)} />
+                  <select value={wsRegion} onChange={(e) => setWsRegion(e.target.value)} style={{ fontSize: 12 }}>
+                    <option value="">Region…</option>
+                    {(chosenPlan.regions ?? []).map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {planResult && !planResult.ok && planResult.reason === 'custom' ? (
+                <label style={{ display: 'flex', gap: 6, fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>
+                  <input type="checkbox" checked={replaceCustom} onChange={(e) => setReplaceCustom(e.target.checked)} />
+                  Replace the custom endpoint
+                </label>
+              ) : null}
+            </div>
+          ) : null}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {svc.env_vars.map((v) => (
               <div key={v.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -453,7 +521,7 @@ function ServiceRow({
                   spellCheck={false}
                   autoFocus={v === svc.env_vars[0]}
                   style={keyInput}
-                  placeholder={PLACEHOLDER}
+                  placeholder={plans && state !== 'unset' ? 'leave blank to keep the saved key' : PLACEHOLDER}
                   value={typed[v.name] ?? ''}
                   onChange={(e) => setTyped((t) => ({ ...t, [v.name]: e.target.value }))}
                 />
@@ -465,6 +533,7 @@ function ServiceRow({
               style={saveBtn(!payload || busy, saved)}
               disabled={!payload || busy}
               onClick={() => payload && void put(payload)}
+              data-testid="key-save"
               title="Save to the daemon's protected env file — live immediately"
             >
               {busy ? 'Saving…' : 'Save'}
@@ -763,6 +832,7 @@ export function ModelKeysTab({ data }: { data: unknown }) {
                 key={svc.id}
                 svc={svc}
                 authBadge={authBadges[svc.id] ?? null}
+                plansOn={plansSupported(catalog)}
                 versions={versionsFor(catalogVersionIndex, svc.id)}
                 onCatalog={setCatalog}
                 onAuthChanged={() => setAuthEpoch((e) => e + 1)}
