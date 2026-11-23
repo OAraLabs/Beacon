@@ -7,7 +7,7 @@ import {
   barAt,
   activePhase,
   barWords,
-  candidateWords,
+  postTrainFacts,
   codeWords,
   defaultRoundsFilter,
   deltaDomain,
@@ -286,10 +286,11 @@ function PostTrainCard({ p, now, live }: { p: GymPostTrain | null; now: number; 
   return (
     <Card title="After-training checks" wide={live}>
       <RunState status={status} />
-      {p.currentStep ? <KV label="Now on">{p.currentStep}</KV> : null}
-      {p.currentStep || live ? <KV label="Working on">{candidateWords(p.currentCandidate)}</KV> : null}
-      {live || p.updatedAt !== null ? <KV label="Last heard from">{p.updatedAt !== null ? fmtAgo(p.updatedAt, now) : NOT}</KV> : null}
-      {p.outcome && p.status === 'done' ? <KV label="Outcome">{codeWords(p.outcome)}</KV> : null}
+      {postTrainFacts(p, now).map((f) => (
+        <KV key={f.label} label={f.label}>
+          {f.text}
+        </KV>
+      ))}
       {p.candidates.map((c) => (
         <KV key={c.id} label={`Candidate ${c.id}`}>
           {c.valLoss !== null ? `validation loss ${c.valLoss.toFixed(3)}${c.step !== null ? ` at step ${fmtCount(c.step)}` : ''}` : NOT}

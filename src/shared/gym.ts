@@ -914,12 +914,33 @@ export function runStatus(status: string, outcome: string | null): { tone: GymTo
   }
 }
 
-/** The candidate a step is for, in words. null is a step both candidates share, or the same-recipe base. */
-export function candidateWords(candidate: string | null): string {
-  if (candidate === null) return 'a step shared by both, or the base model'
+/** True once a pipeline has ended, one way or another. A finished run is working on nothing and is not waiting to be heard from. */
+export function runFinished(status: string): boolean {
+  return status === 'done' || status === 'stopped' || status === 'failed'
+}
+
+/** The candidate a step is for, in words. (null, a step both share or the same-recipe base, is not worded: there is nothing to
+ *  say about which candidate, so no row is drawn for it.) */
+export function candidateWords(candidate: string): string {
   if (candidate === 'final') return 'the final candidate'
   if (candidate === 'epoch1') return 'the epoch 1 candidate'
   return candidate
+}
+
+/** The rows an after-training card shows besides its run status. Running or waiting: what it is on, which candidate, and when it was
+ *  last heard from. Finished (done, stopped, failed): none of those, which are about work in flight, and read as something stuck;
+ *  instead when it finished (the newest of its state and its log, which for a finished run is when it ended) and how. */
+export function postTrainFacts(p: GymPostTrain, now: number): { label: string; text: string }[] {
+  const rows: { label: string; text: string }[] = []
+  if (!runFinished(p.status)) {
+    if (p.currentStep !== null) rows.push({ label: 'Now on', text: p.currentStep })
+    if (p.currentCandidate !== null) rows.push({ label: 'Working on', text: candidateWords(p.currentCandidate) })
+    rows.push({ label: 'Last heard from', text: p.updatedAt !== null ? fmtAgo(p.updatedAt, now) : 'Not reported' })
+  } else {
+    if (p.updatedAt !== null) rows.push({ label: 'Finished', text: fmtAgo(p.updatedAt, now) })
+    if (p.outcome !== null) rows.push({ label: 'Outcome', text: codeWords(p.outcome) })
+  }
+  return rows
 }
 
 /** One line for a Training card that is finished: how it ended, how many steps, and where validation loss stands. It carries no

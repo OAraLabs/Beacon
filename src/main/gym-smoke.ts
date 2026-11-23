@@ -46,6 +46,8 @@ import {
   activePhase,
   candidateWords,
   parseGymStatus,
+  postTrainFacts,
+  runFinished,
   runStatus,
   trainingSummary,
   roundsOptions,
@@ -71,7 +73,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 81
+const EXPECTED = 83
 process.on('exit', () => {
   if (checks !== EXPECTED) {
     console.error(`[gym-smoke] FAIL — ran ${checks} checks, expected exactly ${EXPECTED}`)
@@ -425,13 +427,36 @@ async function main(): Promise<void> {
   const run: { tone: string; mark: string; text: string } = runStatus('running', null)
   const stop: { tone: string; mark: string; text: string } = runStatus('stopped', 'stopped')
   assert(
-    post.postTrain?.status === 'running' && post.postTrain.currentStep === 'score-d' && post.postTrain.currentCandidate === 'final' && post.postTrain.updatedAt === Date.parse('2026-11-22T08:03:00-05:00') && candidateWords('final') === 'the final candidate' && candidateWords('epoch1') === 'the epoch 1 candidate' && candidateWords(null) === 'a step shared by both, or the base model' && s.postTrain?.currentCandidate === null && withPhase('post_train', { ...(samplePost as { post_train: object }).post_train, current_candidate: 'epoch1' })?.postTrain?.currentCandidate === 'epoch1' && withPhase('post_train', { ...(samplePost as { post_train: object }).post_train, current_candidate: 'Summarise the client contract' })?.postTrain?.currentCandidate === null,
+    post.postTrain?.status === 'running' && post.postTrain.currentStep === 'score-d' && post.postTrain.currentCandidate === 'final' && post.postTrain.updatedAt === Date.parse('2026-11-22T08:03:00-05:00') && candidateWords('final') === 'the final candidate' && candidateWords('epoch1') === 'the epoch 1 candidate' && s.postTrain?.currentCandidate === null && withPhase('post_train', { ...(samplePost as { post_train: object }).post_train, current_candidate: 'epoch1' })?.postTrain?.currentCandidate === 'epoch1' && withPhase('post_train', { ...(samplePost as { post_train: object }).post_train, current_candidate: 'Summarise the client contract' })?.postTrain?.currentCandidate === null,
     'Now: running on a candidate: the step, the candidate (final, epoch 1, or neither) and the last time it was heard from are read; a candidate that is not an identifier is dropped'
   )
   assert(
     run.text === 'Running' && stop.text === 'Stopped' && run.mark !== stop.mark && runStatus('failed', null).text === 'Stopped · failed' && runStatus('stopped', 'failed').text === 'Stopped · failed' && runStatus('failed', 'failed').text === 'Stopped · failed' && runStatus('waiting', null).text === 'Waiting' && runStatus('done', 'completed').text === 'Done' && runStatus('paused', null).text === 'Paused between windows' && runStatus('not_armed', null).text === 'Not armed' && runStatus('running', null).tone === 'ok' && runStatus('stopped', null).tone === 'err' && runStatus('waiting', null).tone === 'idle',
     'Now: Running, Stopped (failed and stopped both, with the pipeline\'s word for why when it adds one), Waiting and Done are told apart in words and in their mark, not by colour alone'
   )
+  {
+    const base = (samplePost as { post_train: Record<string, unknown> }).post_train
+    const decided = (post_train: Record<string, unknown>): NonNullable<GymStatus['postTrain']> => parseGymStatus({ ...samplePost, round: { ...samplePost.round, phase: 'decided', decision: 'fail' }, post_train: { ...base, ...post_train } })?.postTrain as NonNullable<GymStatus['postTrain']>
+    const at = Date.parse('2026-11-22T08:05:00-05:00')
+    const rows = (p: NonNullable<GymStatus['postTrain']>): string => postTrainFacts(p, at).map((f) => `${f.label}: ${f.text}`).join(' | ')
+    // The live document's shape today: finished, nothing in flight, round decided, last heard 14 hours ago.
+    const doneLive = decided({ status: 'done', outcome: 'completed', current_step: null, current_candidate: null, updated_at: '2026-11-21T18:05:00-05:00' })
+    const stopped = decided({ status: 'stopped', outcome: 'stopped', current_step: 'score-d', current_candidate: 'final', updated_at: '2026-11-22T06:05:00-05:00' })
+    const failed = decided({ status: 'failed', outcome: 'failed', current_step: 'score-d', current_candidate: 'epoch1', updated_at: '2026-11-22T07:35:00-05:00' })
+    const running = decided({ status: 'running', outcome: null, current_step: 'score-d', current_candidate: 'final', updated_at: '2026-11-22T08:03:00-05:00' })
+    const runningShared = decided({ status: 'running', outcome: null, current_step: 'phase6', current_candidate: null, updated_at: '2026-11-22T08:04:00-05:00' })
+    const waiting = decided({ status: 'waiting', outcome: null, current_step: null, current_candidate: null, updated_at: '2026-11-22T07:55:00-05:00' })
+    assert(
+      rows(doneLive) === 'Finished: 14 h ago | Outcome: Completed' && rows(stopped) === 'Finished: 2 h ago | Outcome: Stopped' && rows(failed) === 'Finished: 30 min ago | Outcome: Failed' && [doneLive, stopped, failed].every((x) => !/Working on|Now on|Last heard/.test(rows(x))) && runFinished('done') && runFinished('stopped') && runFinished('failed') && !runFinished('running') && !runFinished('waiting'),
+      'Now: a finished after-training run (done, stopped or failed) shows when it finished and its outcome, never "Working on", "Now on" or "Last heard from", even when the service still names a step and candidate',
+      [rows(doneLive), rows(stopped), rows(failed)].join(' // ')
+    )
+    assert(
+      rows(running) === 'Now on: score-d | Working on: the final candidate | Last heard from: 2 min ago' && rows(runningShared) === 'Now on: phase6 | Last heard from: 1 min ago' && rows(waiting) === 'Last heard from: 10 min ago' && !/Finished/.test(rows(running)) && runStatus(waiting.status, waiting.outcome).text === 'Waiting' && postTrainFacts({ ...running, updatedAt: null }, at).map((f) => f.text).includes('Not reported') && activePhase({ round: { ...(s.round as NonNullable<GymStatus['round']>), phase: 'decided' }, postTrain: doneLive }) === 'post_train',
+      'Now: running and waiting keep their live rows (the step, the candidate when there is one, last heard from); a step shared by both candidates draws no candidate row; a decided round with a finished run still leads with the after-training card',
+      [rows(running), rows(runningShared), rows(waiting)].join(' // ')
+    )
+  }
   const summary = trainingSummary(post.training as NonNullable<GymStatus['training']>, post.postTrain)
   assert(
     summary === 'Training done · 2,333 steps · val 0.656 / ep1 0.650' && !/heard|ago/i.test(summary) && trainingSummary(post.training as NonNullable<GymStatus['training']>, null).startsWith('Training done · 2,333 steps · val ') && trainingSummary({ ...(post.training as NonNullable<GymStatus['training']>), status: 'failed' }, post.postTrain).startsWith('Training stopped · 2,333 steps') && trainingSummary({ ...(post.training as NonNullable<GymStatus['training']>), valLoss: [], step: null, total: null }, null) === 'Training done',
@@ -442,7 +467,7 @@ async function main(): Promise<void> {
     const postCard = panel.slice(panel.indexOf('function PostTrainCard'), panel.indexOf('function NowSection'))
     const now = panel.slice(panel.indexOf('function NowSection'), panel.indexOf('// ── Rounds'))
     assert(
-      /<button type="button" className="gym-collapse" aria-expanded=\{open\} aria-controls="gym-training-detail" onClick=/.test(training) && /useState\(false\)/.test(training) && /\{open \? \(\s*<div id="gym-training-detail"/.test(training) && /trainingSummary\(t, p\)/.test(training) && !/heard/i.test(training.slice(training.indexOf('<button'), training.indexOf('{open ? ('))) && now.indexOf('<PostTrainCard p={p} now={now} live />') < now.indexOf('<Card title="Where it stands">') && !/<Meter|stepsTotal/.test(postCard) && /<RunState status=\{status\} \/>/.test(training) && /<RunState status=\{status\} \/>/.test(postCard),
+      /<button type="button" className="gym-collapse" aria-expanded=\{open\} aria-controls="gym-training-detail" onClick=/.test(training) && /useState\(false\)/.test(training) && /\{open \? \(\s*<div id="gym-training-detail"/.test(training) && /trainingSummary\(t, p\)/.test(training) && !/heard/i.test(training.slice(training.indexOf('<button'), training.indexOf('{open ? ('))) && now.indexOf('<PostTrainCard p={p} now={now} live />') < now.indexOf('<Card title="Where it stands">') && !/<Meter|stepsTotal/.test(postCard) && /postTrainFacts\(p, now\)/.test(postCard) && !/Working on|Now on|Last heard/.test(postCard) && /<RunState status=\{status\} \/>/.test(training) && /<RunState status=\{status\} \/>/.test(postCard),
       'Now: the finished Training line is a real button (aria-expanded, aria-controls, collapsed until opened) with no "last heard from" in it; the live after-training card is first on the page and draws no "N of M" bar; both cards say Running or Stopped in words'
     )
   }

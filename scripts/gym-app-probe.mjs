@@ -171,5 +171,29 @@ try {
 } finally {
   await app2.quit()
 }
+
+// ── and on today's live shape: the round decided, the after-training run finished, nothing in flight ─────────────────────────────
+process.env.BEACON_GYM_STATUS_FILE = resolve('src/main/fixtures/gym_status_decided.json')
+const app3 = await launchApp({ profile })
+const ev3 = app3.page.evaluate
+try {
+  await ev3(`[...document.querySelectorAll('nav[aria-label="Views"] > button')].find((x) => x.title === 'Activity')?.click()`)
+  await sleep(600)
+  await ev3(`[...document.querySelectorAll('.subnav-pills .pill')].find((p) => p.childNodes[0].textContent.trim() === 'Gym')?.click()`)
+  for (let t = 0; t < 60; t++) {
+    if ((await ev3(`!!document.querySelector('[data-testid="gym-panel"] .gym-card')`)) === true) break
+    await sleep(100)
+  }
+  const first = String(await ev3(`document.querySelector('[data-testid="gym-panel"] .gym-grid > section').innerText`))
+  check(/After-training checks/i.test(first) && /Done/.test(first) && /Finished\s*\d+ (h|min|day)/.test(first) && /Outcome\s*Completed/.test(first) && !/Working on|Now on|Last heard from/.test(first), 'finished run: the card says Done, when it finished and the outcome, and shows no "Working on", "Now on" or "Last heard from"', first)
+  const line = String(await ev3(`document.querySelector('[data-testid="gym-training-toggle"] .gym-collapse-line').textContent`))
+  check(line === 'Training done · 2,333 steps · val 0.656 / ep1 0.650', 'finished run: Training is still the one collapsed line', line)
+  if (SHOTS) {
+    const r = await app3.page.send('Page.captureScreenshot', { format: 'png' })
+    if (r.result?.data) writeFileSync(join(SHOTS, 'gym-decided.png'), Buffer.from(r.result.data, 'base64'))
+  }
+} finally {
+  await app3.quit()
+}
 console.log(`[probe] ${failures === 0 ? 'OK' : 'FAIL'} — ${checks - failures}/${checks} checks passed`)
 process.exit(failures === 0 ? 0 : 1)
