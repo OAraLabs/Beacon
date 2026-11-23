@@ -62,7 +62,7 @@ const WS = wsHttp.address().port
 const fresh = () => {
   const profile = mkdtempSync(join(tmpdir(), 'beacon-plans-probe-'))
   execFileSync('sqlite3', [join(profile, 'beacon.db'), `CREATE TABLE gateway_profiles (name TEXT PRIMARY KEY, api_base TEXT NOT NULL, ws_url TEXT NOT NULL, is_default INTEGER DEFAULT 0, pin TEXT);
-    INSERT INTO gateway_profiles VALUES ('mini', 'http://127.0.0.1:${API}', 'ws://127.0.0.1:${WS}', 1, NULL);`])
+    INSERT INTO gateway_profiles VALUES ('standin', 'http://127.0.0.1:${API}', 'ws://127.0.0.1:${WS}', 1, NULL);`])
   return profile
 }
 const until = async (fn, ms) => {
