@@ -10,10 +10,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { coerceKeyServices, type ProviderKeyServiceDTO } from '@shared/model-keys'
 import { buildPlanPayload, currentPlanId, isCustomConflict, planChipText, plansSupported, servicePlans } from '@shared/provider-plans'
+import { scrubWriteError } from '@shared/connectors'
 
 let failures = 0
 let checks = 0
-const EXPECTED = 26
+const EXPECTED = 35
 function assert(cond: boolean, label: string): void {
   checks++
   console.log(`[smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}`)
@@ -73,6 +74,24 @@ assert(!offCustom.ok && offCustom.reason === 'custom' && offCustomOk.ok && (offC
 const all = [both, planOnly, ws, offCustomOk].map((r) => (r.ok ? JSON.stringify(r.payload) : ''))
 assert(all.every((p) => !/https?:|base_url|url/i.test(p)), 'no payload ever carries a URL')
 assert(isCustomConflict('HTTP 409: PUT /api/providers/keys/mimo — {"error":"custom endpoint"}') && !isCustomConflict('HTTP 400: PUT x'), 'the daemon\'s 409 is read as "confirm replacing a custom endpoint"')
+
+console.log('\n[smoke] === what the reviews found ===')
+assert(isCustomConflict("Error invoking remote method 'daemon:write': Error: HTTP 409: PUT /api/providers/keys/mimo — {\"error\":\"custom\"}"), 'the 409 is recognised as the renderer really gets it, inside Electron\'s wrapper')
+const keyOnlyCustom = buildPlanPayload({ svc: mimo, typed: { MIMO_API_KEY: 'sk-new' }, plan: 'custom' })
+assert(keyOnlyCustom.ok && keys(keyOnlyCustom.payload) === 'values', 'on a custom endpoint, a new key alone is saved as {values}, endpoint untouched')
+const qwenWs = { ...qwen, plan: 'workspace' } as ProviderKeyServiceDTO
+const keyOnlyWs = buildPlanPayload({ svc: qwenWs, typed: { QWEN_API_KEY: 'sk-new' }, plan: 'workspace' })
+assert(keyOnlyWs.ok && keys(keyOnlyWs.payload) === 'values', 'on a workspace, a new key alone needs no workspace id again')
+assert(planChipText({ ...mimo, env_vars: [{ name: 'MIMO_API_KEY', set: false }] } as ProviderKeyServiceDTO) === null, 'a custom endpoint with no key saved keeps today\'s "no key" chip')
+assert(currentPlanId({ ...glm, plan: undefined, endpoint_set: true } as ProviderKeyServiceDTO) === 'custom', 'no plan from the daemon but an endpoint set: custom, so nothing clears it unconfirmed')
+const glmCn = { ...glm, plans: (glm.plans as Record<string, unknown>[]).map((p) => (p.id === 'cn' ? { ...p, separate_keys: true } : p)) } as ProviderKeyServiceDTO
+const toCn = buildPlanPayload({ svc: glmCn, typed: {}, plan: 'cn' })
+assert(!toCn.ok && toCn.reason === 'needs-key' && buildPlanPayload({ svc: glmCn, typed: { ZAI_API_KEY: 'cn-key' }, plan: 'cn' }).ok, 'moving to a separate-keys plan needs a newly typed key, never the saved one')
+assert(!buildPlanPayload({ svc: qwen, typed: {}, plan: 'workspace', workspace: { id: '-bad', region: 'ap-southeast-1' } }).ok && !buildPlanPayload({ svc: qwen, typed: {}, plan: 'workspace', workspace: { id: 'a'.repeat(61), region: 'ap-southeast-1' } }).ok, 'a workspace id that could not be a hostname label is refused')
+const dup = [...(glm.plans as Record<string, unknown>[]), { id: 'payg', label: 'Again', subscription: false, terms: null, default: false, custom: false }]
+assert(servicePlans({ ...glm, plans: dup } as ProviderKeyServiceDTO)?.filter((p) => p.id === 'payg').length === 1, 'a duplicate plan id: the first one stands')
+const scrubbed = scrubWriteError('HTTP 400: PUT /api/providers/keys/qwen — {"error":"bad key sk-very-secret-value"}', { values: { QWEN_API_KEY: 'sk-very-secret-value' } })
+assert(!scrubbed.includes('sk-very-secret-value'), 'a daemon error that quotes the key never shows it')
 
 if (checks !== EXPECTED) {
   console.log(`[smoke] FAIL — ran ${checks}/${EXPECTED} checks`)

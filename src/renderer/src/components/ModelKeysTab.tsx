@@ -6,6 +6,7 @@ import {
   coerceKeyServices,
   envVarFieldLabel,
   groupKeyServices,
+  KEYS_CATALOG_PATH,
   keysPutPath,
   serviceKeyState,
   type ProviderKeyServiceDTO
@@ -386,7 +387,8 @@ function ServiceRow({
   const plans = plansOn ? servicePlans(svc) : null
   const current = plans ? currentPlanId(svc) : null
   const [pick, setPick] = useState<string | null>(null)
-  const chosen = pick ?? (current && current !== 'custom' ? current : null)
+  // The plan the sheet saves for: the one picked, else the one it is on (a custom endpoint included, so a typed key alone saves).
+  const chosen = pick ?? current
   const [wsId, setWsId] = useState('')
   const [wsRegion, setWsRegion] = useState('')
   const [replaceCustom, setReplaceCustom] = useState(false)
@@ -409,7 +411,10 @@ function ServiceRow({
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
       if (isCustomConflict(m)) {
-        setErr(`This Prometheus uses a custom endpoint for ${svc.label}. Confirm below to replace it.`)
+        // Beacon's copy was stale: the daemon has a custom endpoint. Read the catalog again so the sheet offers the confirm.
+        const fresh = await b.daemon.get(KEYS_CATALOG_PATH).catch(() => null)
+        if (fresh) onCatalog(fresh)
+        setErr(`This Prometheus uses a custom endpoint for ${svc.label}. Tick "Replace the custom endpoint" to replace it.`)
         return
       }
       const match = m.match(/\{"error":"([^"]+)"\}/)
@@ -453,7 +458,22 @@ function ServiceRow({
           </span>
         )}
         {saved ? <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--online-text)' }}>saved</span> : null}
-        <button style={linkBtn} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <button
+          style={linkBtn}
+          onClick={() => {
+            // Closing the sheet forgets everything in it, the confirm included: reopening starts from the saved state.
+            if (open) {
+              setTyped({})
+              setPick(null)
+              setReplaceCustom(false)
+              setWsId('')
+              setWsRegion('')
+              setErr(null)
+            }
+            setOpen((o) => !o)
+          }}
+          aria-expanded={open}
+        >
           {open ? 'Cancel' : state === 'unset' ? 'Add key' : plans ? 'Change' : 'Replace key'}
         </button>
         {state !== 'unset' ? (
@@ -499,11 +519,14 @@ function ServiceRow({
                   </select>
                 </div>
               ) : null}
-              {planResult && !planResult.ok && planResult.reason === 'custom' ? (
+              {current === 'custom' && chosen && chosen !== 'custom' ? (
                 <label style={{ display: 'flex', gap: 6, fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>
                   <input type="checkbox" checked={replaceCustom} onChange={(e) => setReplaceCustom(e.target.checked)} />
                   Replace the custom endpoint
                 </label>
+              ) : null}
+              {planResult && !planResult.ok && planResult.reason === 'needs-key' ? (
+                <div style={{ fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 22 }}>This plan uses its own keys: type its key below.</div>
               ) : null}
             </div>
           ) : null}

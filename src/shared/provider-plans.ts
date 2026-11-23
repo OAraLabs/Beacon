@@ -17,11 +17,15 @@ export interface PlanDTO {
   /** Built from an id the person gives (a workspace): needs `regions` to be offered. */
   custom: boolean
   regions?: string[]
+  /** Keys for this plan are issued separately (a mainland-China endpoint): moving to or from it needs a newly typed key, never the
+   *  saved one, which belongs to another operator. */
+  separate_keys?: boolean
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,31}$/
-/** A workspace id: what the daemon builds a host from, so a plain slug only (no dots, no slashes). */
-const WORKSPACE_ID = /^[a-z0-9-]{1,64}$/
+/** A workspace id: the daemon builds `ws-<id>.<region>…` from it, so one valid hostname label once prefixed: no dots or slashes,
+ *  no leading/trailing hyphen, at most 60 characters (the daemon checks again, more strictly if it likes). */
+const WORKSPACE_ID = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/
 
 /** Whether the daemon serves plans: `capabilities.plans` is a number >= 1. Anything else is today's key-only rows. */
 export function plansSupported(catalog: unknown): boolean {
@@ -40,6 +44,7 @@ export function servicePlans(svc: ProviderKeyServiceDTO): PlanDTO[] | null {
   for (const raw of svc.plans as unknown[]) {
     const p = raw as Record<string, unknown> | null
     if (!p || typeof p.id !== 'string' || !SLUG.test(p.id) || typeof p.label !== 'string' || !p.label.trim()) continue
+    if (plans.some((x) => x.id === p.id)) continue // a duplicate id: the first one stands
     const regions = Array.isArray(p.regions) ? p.regions.filter((r): r is string => typeof r === 'string' && SLUG.test(r)) : undefined
     plans.push({
       id: p.id,
@@ -48,7 +53,8 @@ export function servicePlans(svc: ProviderKeyServiceDTO): PlanDTO[] | null {
       terms: typeof p.terms === 'string' && p.terms.trim() ? p.terms.trim() : null,
       default: p.default === true,
       custom: p.custom === true,
-      ...(regions ? { regions } : {})
+      ...(regions ? { regions } : {}),
+      ...(p.separate_keys === true ? { separate_keys: true } : {})
     })
   }
   if (plans.length === 0 || plans.filter((p) => p.default).length !== 1) return null
@@ -60,7 +66,8 @@ export function servicePlans(svc: ProviderKeyServiceDTO): PlanDTO[] | null {
 export function currentPlanId(svc: ProviderKeyServiceDTO): string | null {
   const plans = servicePlans(svc)
   if (!plans) return null
-  if (typeof svc.plan !== 'string') return plans.find((p) => p.default)!.id
+  // No `plan` from a daemon that set an endpoint: treat it as custom, so nothing clears a hand-set endpoint without the confirm.
+  if (typeof svc.plan !== 'string') return svc.endpoint_set === true ? 'custom' : plans.find((p) => p.default)!.id
   if (svc.plan === 'custom') return 'custom'
   return plans.some((p) => p.id === svc.plan) ? svc.plan : 'custom'
 }
@@ -70,13 +77,14 @@ export function currentPlanId(svc: ProviderKeyServiceDTO): string | null {
 export function planChipText(svc: ProviderKeyServiceDTO): string | null {
   const current = currentPlanId(svc)
   if (current === null) return null
-  if (current === 'custom') return 'a custom endpoint'
   const keyed = svc.env_vars.every((v) => v.set)
+  if (current === 'custom') return keyed ? 'a custom endpoint' : null // no key: today's "no key" chip says what matters
   const plan = servicePlans(svc)!.find((p) => p.id === current)
   return keyed && plan?.subscription ? plan.label : null
 }
 
 export type PlanPayload = { values?: Record<string, string>; plan: string; workspace?: { id: string; region: string }; replace_custom?: true }
+export type KeyOrPlanPayload = PlanPayload | { values: Record<string, string> }
 
 /**
  * The PUT body for a plan choice. Built ONLY from what the person picked and typed (the never-prefill rule of @shared/model-keys):
@@ -91,10 +99,8 @@ export function buildPlanPayload(input: {
   plan: string
   workspace?: { id: string; region: string }
   replaceCustom?: boolean
-}): { ok: true; payload: PlanPayload } | { ok: false; reason: 'nothing' | 'unknown' | 'workspace' | 'custom' } {
+}): { ok: true; payload: KeyOrPlanPayload } | { ok: false; reason: 'nothing' | 'unknown' | 'workspace' | 'custom' | 'needs-key' } {
   const plans = servicePlans(input.svc)
-  const plan = plans?.find((p) => p.id === input.plan)
-  if (!plans || !plan) return { ok: false, reason: 'unknown' }
   const values: Record<string, string> = {}
   for (const v of input.svc.env_vars) {
     const t = (input.typed[v.name] ?? '').trim()
@@ -102,7 +108,12 @@ export function buildPlanPayload(input: {
   }
   const current = currentPlanId(input.svc)
   const typedKey = Object.keys(values).length > 0
-  if (!typedKey && current === plan.id && !plan.custom) return { ok: false, reason: 'nothing' }
+  // The plan it is on now (a custom endpoint and a workspace included): a typed key alone is saved as {values}, as today.
+  if (plans && input.plan === current) return typedKey ? { ok: true, payload: { values } } : { ok: false, reason: 'nothing' }
+  const plan = plans?.find((p) => p.id === input.plan)
+  if (!plans || !plan) return { ok: false, reason: 'unknown' }
+  const was = plans.find((p) => p.id === current)
+  if ((plan.separate_keys || was?.separate_keys) && !typedKey) return { ok: false, reason: 'needs-key' }
   let workspace: { id: string; region: string } | undefined
   if (plan.custom) {
     const ws = input.workspace
@@ -122,7 +133,9 @@ export function buildPlanPayload(input: {
   }
 }
 
-/** Whether a failed PUT is the daemon asking to confirm replacing a custom endpoint (its 409). */
+/** Whether a failed PUT is the daemon asking to confirm replacing a custom endpoint (its 409). The renderer gets Electron's wrapper
+ *  ("Error invoking remote method 'daemon:write': Error: HTTP 409: …"), stripped first, the way the other readers do. */
 export function isCustomConflict(message: string): boolean {
-  return /^HTTP 409\b/.test(message)
+  const bare = message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
+  return /^HTTP 409\b/.test(bare)
 }

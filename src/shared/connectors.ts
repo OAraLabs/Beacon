@@ -278,7 +278,8 @@ const b64 = (s: string): string => {
 export function scrubWriteError(message: string, body: unknown): string {
   if (!body || typeof body !== 'object') return message
   const values: string[] = []
-  for (const key of ['headers', 'env']) {
+  // `values`: provider keys (PUT /api/providers/keys); `workspace`: an id that names the account (@shared/provider-plans).
+  for (const key of ['headers', 'env', 'values', 'workspace']) {
     const map = (body as Record<string, unknown>)[key]
     if (!map || typeof map !== 'object') continue
     for (const v of Object.values(map as Record<string, unknown>)) {
