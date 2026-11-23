@@ -133,6 +133,10 @@ export interface GymPostTrain {
   status: string
   outcome: string | null
   currentStep: string | null
+  /** The candidate the current step is for: `final` or `epoch1`; null is a step both share, or the same-recipe base. */
+  currentCandidate: string | null
+  /** The newest of the pipeline's state and its log: the last time it was heard from. */
+  updatedAt: number | null
   stepsDone: number | null
   stepsTotal: number | null
   steps: { id: string; status: string }[]
@@ -449,7 +453,7 @@ function parsePostTrain(v: unknown): GymPostTrain | null {
     const id = slug(c?.id)
     if (c && id !== null) candidates.push({ id, step: num(c.step), valLoss: num(c.val_loss), probeLoss: num(c.probe_loss) })
   }
-  return { status: slug(p.status) ?? 'unknown', outcome: slug(p.outcome), currentStep: slug(p.current_step), stepsDone: num(p.steps_done), stepsTotal: num(p.steps_total), steps, candidates }
+  return { status: slug(p.status) ?? 'unknown', outcome: slug(p.outcome), currentStep: slug(p.current_step), currentCandidate: slug(p.current_candidate), updatedAt: time(p.updated_at), stepsDone: num(p.steps_done), stepsTotal: num(p.steps_total), steps, candidates }
 }
 
 function parseScorecards(v: unknown): GymScorecard[] {
@@ -889,6 +893,84 @@ export function codeWords(code: string): string {
 const MOUNT_WORDS: Record<string, string> = { home: 'home', data: 'data', wd_archive: 'archive' }
 export function mountWords(mount: string): string {
   return own(MOUNT_WORDS, mount) ?? mount
+}
+
+// ── Now: which phase is the live one ────────────────────────────────────────────────────────────────────────────────────────
+/** The round phases after training. From one of these on, the live card is the after-training checks, not Training. */
+const AFTER_TRAINING = new Set(['post_train', 'gating', 'decided', 'closed'])
+export type GymActive = 'training' | 'post_train'
+/** Which card leads Now: the after-training checks once the round is past training (and the gym reports them), else Training. */
+export function activePhase(s: Pick<GymStatus, 'round' | 'postTrain'>): GymActive {
+  return s.round !== null && AFTER_TRAINING.has(s.round.phase) && s.postTrain !== null ? 'post_train' : 'training'
+}
+
+/** Running or stopped, said in words with a mark that is not colour alone. `outcome` is the pipeline's own word, when it has one. */
+export function runStatus(status: string, outcome: string | null): { tone: GymTone; mark: string; text: string } {
+  switch (status) {
+    case 'running':
+      return { tone: 'ok', mark: '▸', text: 'Running' }
+    case 'done':
+      return { tone: 'ok', mark: '✓', text: 'Done' }
+    case 'waiting':
+      return { tone: 'idle', mark: '·', text: 'Waiting' }
+    case 'paused':
+      return { tone: 'idle', mark: '·', text: 'Paused between windows' }
+    case 'not_started':
+      return { tone: 'idle', mark: '·', text: 'Not started' }
+    case 'not_armed':
+      return { tone: 'idle', mark: '·', text: 'Not armed' }
+    case 'stopped':
+    case 'failed': {
+      // Failed and stopped both read "Stopped"; the pipeline's word for why follows when it adds something.
+      const why = outcome ?? (status === 'failed' ? 'failed' : null)
+      return { tone: 'err', mark: '■', text: why !== null && why !== 'stopped' ? `Stopped · ${codeWords(why).toLowerCase()}` : 'Stopped' }
+    }
+    default:
+      return { tone: 'idle', mark: '·', text: codeWords(status) }
+  }
+}
+
+/** True once a pipeline has ended, one way or another. A finished run is working on nothing and is not waiting to be heard from. */
+export function runFinished(status: string): boolean {
+  return status === 'done' || status === 'stopped' || status === 'failed'
+}
+
+/** The candidate a step is for, in words. (null, a step both share or the same-recipe base, is not worded: there is nothing to
+ *  say about which candidate, so no row is drawn for it.) */
+export function candidateWords(candidate: string): string {
+  if (candidate === 'final') return 'the final candidate'
+  if (candidate === 'epoch1') return 'the epoch 1 candidate'
+  return candidate
+}
+
+/** The rows an after-training card shows besides its run status. Running or waiting: what it is on, which candidate, and when it was
+ *  last heard from. Finished (done, stopped, failed): none of those, which are about work in flight, and read as something stuck;
+ *  instead when it finished (the newest of its state and its log, which for a finished run is when it ended) and how. */
+export function postTrainFacts(p: GymPostTrain, now: number): { label: string; text: string }[] {
+  const rows: { label: string; text: string }[] = []
+  if (!runFinished(p.status)) {
+    if (p.currentStep !== null) rows.push({ label: 'Now on', text: p.currentStep })
+    if (p.currentCandidate !== null) rows.push({ label: 'Working on', text: candidateWords(p.currentCandidate) })
+    rows.push({ label: 'Last heard from', text: p.updatedAt !== null ? fmtAgo(p.updatedAt, now) : 'Not reported' })
+  } else {
+    if (p.updatedAt !== null) rows.push({ label: 'Finished', text: fmtAgo(p.updatedAt, now) })
+    if (p.outcome !== null) rows.push({ label: 'Outcome', text: codeWords(p.outcome) })
+  }
+  return rows
+}
+
+/** One line for a Training card that is finished: how it ended, how many steps, and where validation loss stands. It carries no
+ *  "last heard from": a finished card is not waiting to be heard from. */
+export function trainingSummary(t: GymTraining, p: GymPostTrain | null): string {
+  const word = t.status === 'done' ? 'Training done' : t.status === 'stopped' || t.status === 'failed' ? 'Training stopped' : 'Training'
+  const steps = t.step ?? t.total
+  const short = (id: string): string => (id === 'final' ? 'val' : id === 'epoch1' ? 'ep1' : id)
+  const val = (p?.candidates ?? []).filter((c) => c.valLoss !== null)
+  const ordered = [...val.filter((c) => c.id === 'final'), ...val.filter((c) => c.id === 'epoch1'), ...val.filter((c) => c.id !== 'final' && c.id !== 'epoch1')]
+  const fromCandidates = ordered.map((c) => `${short(c.id)} ${(c.valLoss as number).toFixed(3)}`)
+  const last = t.valLoss.length > 0 ? t.valLoss[t.valLoss.length - 1][1] : null
+  const vals = fromCandidates.length > 0 ? fromCandidates.join(' / ') : last !== null ? `val ${last.toFixed(3)}` : null
+  return [word, steps !== null ? `${fmtCount(steps)} steps` : null, vals].filter(Boolean).join(' · ')
 }
 
 export const NIGHT_WORDS: Record<string, { tone: GymTone; text: string }> = {
