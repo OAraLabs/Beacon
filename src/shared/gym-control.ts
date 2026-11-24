@@ -353,6 +353,29 @@ export function opAfterFacts(op: GymOp): string[] {
   return out
 }
 
+// ── the gym's own record of the promotion, in Beacon's words ────────────────────────────────────────────────────────────────
+const UNIT_WORDS: Record<string, string> = { active: 'running', inactive: 'not running', absent: 'not installed', unknown: 'not reported' }
+const pairs = (label: string, k: number | null, n: number | null): string | null => (k !== null && n !== null ? `${label} in ${k} of ${n}` : null)
+/** What the gym's `promotion` section says beyond the state, as label and words. Only what it reported: a null is left out. */
+export function promotionFacts(p: GymPromotion, clock: (at: number) => string): { label: string; text: string }[] {
+  const out: { label: string; text: string }[] = []
+  const add = (label: string, text: string | null): void => void (text !== null && text !== '' && out.push({ label, text }))
+  if (p.since !== null && p.state !== 'none') add('Since', clock(p.since))
+  if (p.target !== null) add('Instance', p.target + (p.rehearsal === true ? ', the rehearsal instance' : p.rehearsal === false ? ', NOT marked as the rehearsal instance' : ''))
+  if (p.student !== null) add('Student model', `${UNIT_WORDS[p.student.unit] ?? 'not reported'}, ${p.student.live ? 'answering' : 'not answering'}`)
+  const sh = p.shadow
+  if (sh !== null) {
+    const parts = [pairs('agrees with the real one', sh.agreementK, sh.agreementN), pairs('same tool', sh.sameToolK, sh.sameToolN), pairs('same arguments', sh.argsEquivalentK, sh.argsEquivalentN), pairs('same answer', sh.answerEquivalentK, sh.answerEquivalentN)].filter((x): x is string => x !== null)
+    add('Shadow', [sh.rows !== null ? `${sh.rows} requests compared` : null, ...parts].filter((x) => x !== null).join('; '))
+  }
+  if (p.toolcheck?.advertised != null) add('Tools advertised', String(p.toolcheck.advertised))
+  if (p.probe !== null && p.probe.ok !== null) add('Probe', `${p.probe.ok ? 'passed' : 'failed'}${p.probe.why ? ` (${p.probe.why})` : ''}${p.probe.at !== null ? `, ${clock(p.probe.at)}` : ''}`)
+  if (p.memory?.availableMb != null) add('Memory free', `${p.memory.availableMb} MB${p.memory.swapUsedMb ? `, ${p.memory.swapUsedMb} MB of swap in use` : ''}`)
+  if (p.guard?.active != null) add('Memory guard', p.guard.active ? `watching${p.guard.everyS !== null ? ` every ${p.guard.everyS} s` : ''}${p.guard.belowMb !== null ? `, acts below ${p.guard.belowMb} MB` : ''}` : 'off')
+  for (const h of p.history.slice(0, 3)) add(h.action === 'promote' ? 'Promoted' : h.action === 'rollback' ? 'Rolled back' : 'Earlier', `${h.outcome}${h.at !== null ? `, ${clock(h.at)}` : ''}`)
+  return out
+}
+
 export const GYM_RUN_COPY = {
   busy: 'Another Promote or Roll back is waiting for an answer, or has only just closed. Wait a moment and try again.',
   notOwner: 'Only the owner of this Prometheus can promote or roll back.',

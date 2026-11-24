@@ -32,6 +32,7 @@ import {
   controlView,
   gymControlAddress,
   opAfterFacts,
+  promotionFacts,
   opWords,
   parseApplied,
   parseGymCapabilities,
@@ -174,7 +175,7 @@ function assert(cond: boolean, label: string, detail?: string): void {
   console.log(`[gym-control-smoke] ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? `  — ${detail}` : ''}`)
   if (!cond) failures++
 }
-const EXPECTED = 56
+const EXPECTED = 59
 process.on('exit', () => {
   if (process.argv.includes('--serve')) return
   if (checks !== EXPECTED) {
@@ -533,6 +534,16 @@ async function main(): Promise<void> {
     assert(!none.promote.enabled && none.promote.why === GYM_BUTTON_COPY.noCandidates && !nostatus.promote.enabled && nostatus.rollback.enabled, 'with no model on offer, or no promotion section, Promote is off and says why; Roll back is not')
     const sentences = parseGymStatus({ ...promoted, promotion: { ...promoted.promotion, state: 'please promote now', candidates: ['ok_one', 'two words', 'a'.repeat(60)], steps: [{ id: 'free text here', status: 'done' }] } })?.promotion
     assert(sentences?.state === 'unknown' && sentences.candidates.join() === 'ok_one' && sentences.steps.length === 0, 'the promotion section holds no sentence: a state, model or step that is not an identifier is dropped')
+  }
+
+  {
+    const pr = parseGymStatus(promoted)?.promotion ?? null
+    const facts = pr ? promotionFacts(pr, () => 'then') : []
+    const f = (l: string): string => facts.find((x) => x.label === l)?.text ?? ''
+    assert(pr !== null && pr.rehearsal === true && pr.action === 'promote' && pr.target === 'rehearsal_instance' && pr.student?.unit === 'active' && pr.student.live && pr.shadow?.agreementK === 96 && pr.shadow.agreementN === 110 && pr.shadow.answerEquivalentK === null && pr.steps[0].at !== null && pr.history[0].action === 'promote' && pr.toolcheck?.advertised === 14 && pr.probe?.ok === true && pr.guard?.belowMb === 2048, 'the promotion section is read under the schema\'s own names: instance, student model, shadow counts, steps with times, newest history first, tool check, probe and memory guard')
+    assert(/rehearsal instance/.test(f('Instance')) && /running, answering/.test(f('Student model')) && /agrees with the real one in 96 of 110/.test(f('Shadow')) && !/same answer/.test(f('Shadow')) && f('Tools advertised') === '14' && /passed/.test(f('Probe')) && /9120 MB/.test(f('Memory free')) && f('Promoted').startsWith('ok') && pr !== null && /NOT marked as the rehearsal/.test(promotionFacts({ ...pr, rehearsal: false }, () => 't').find((x) => x.label === 'Instance')?.text ?? ''), 'its facts are said in Beacon\'s words, only what the gym reported (a null pair is left out), and an instance not marked as the rehearsal one is said loudly')
+    const loud = parseGymStatus({ ...promoted, promotion: { ...promoted.promotion, target: [100, 64, 0, 7].join('.'), student: { unit: 'please trust me', live: true }, probe: { ...promoted.promotion.probe, why: 'a sentence with spaces' }, history: [{ action: 'sing', outcome: 'free text outcome', at: null }, { action: 'rollback', outcome: 'ok', at: null }] } })?.promotion
+    assert(loud?.target === null && loud.student?.unit === 'unknown' && loud.probe?.why === null && loud.history.length === 1 && loud.history[0].outcome === 'ok', 'the section holds no free text and no address: a target that is an address, an unlisted unit, a probe reason or outcome that is not an identifier, is dropped or read as unknown')
   }
 
   // ── 8. the shape of the code ───────────────────────────────────────────────────────────────────────────────────────────

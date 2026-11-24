@@ -3675,37 +3675,95 @@
   ],
   "promotion": {
     "state": "promoted",
-    "target": "rehearsal_instance",
-    "candidate": "rehearsal_r5_final_q4",
     "since": "2026-11-22T07:40:00-05:00",
-    "steps": [
-      {
-        "id": "student_started",
-        "status": "done"
-      },
-      {
-        "id": "config_edited",
-        "status": "done"
-      },
-      {
-        "id": "instance_restarted",
-        "status": "done"
-      },
-      {
-        "id": "ledger_written",
-        "status": "done"
-      }
-    ],
-    "before_match": true,
-    "real_untouched": true,
-    "student_health": "ok",
-    "shadow": {
-      "requests": 120,
-      "agree": 104
-    },
+    "action": "promote",
+    "candidate": "rehearsal_r5_final_q4",
+    "target": "rehearsal_instance",
+    "rehearsal": true,
     "candidates": [
       "rehearsal_r5_final_q4"
     ],
-    "rollback_available": true
+    "rollback_available": true,
+    "before_match": true,
+    "real_untouched": true,
+    "steps": [
+      {
+        "id": "student_started",
+        "status": "done",
+        "at": "2026-11-22T07:36:00-05:00",
+        "why": null
+      },
+      {
+        "id": "config_edited",
+        "status": "done",
+        "at": "2026-11-22T07:38:00-05:00",
+        "why": null
+      },
+      {
+        "id": "instance_restarted",
+        "status": "done",
+        "at": "2026-11-22T07:39:00-05:00",
+        "why": null
+      },
+      {
+        "id": "ledger_written",
+        "status": "done",
+        "at": "2026-11-22T07:40:00-05:00",
+        "why": null
+      }
+    ],
+    "student": {
+      "unit": "active",
+      "live": true
+    },
+    "guard": {
+      "active": true,
+      "every_s": 30,
+      "below_mb": 2048
+    },
+    "memory": {
+      "available_mb": 9120,
+      "swap_used_mb": 0
+    },
+    "memory_at": "2026-11-22T08:04:00-05:00",
+    "probe": {
+      "ok": true,
+      "why": null,
+      "at": "2026-11-22T07:41:00-05:00",
+      "offered": 12,
+      "student_prompt_tokens": 1450,
+      "round0_kind": "tool_call",
+      "round0_tool_calls": 1,
+      "expected_tool_called": true,
+      "memory_offered": true,
+      "seconds": 4.2
+    },
+    "shadow": {
+      "rows": 120,
+      "comparable": 110,
+      "agreement_k": 96,
+      "agreement_n": 110,
+      "same_tool_k": 101,
+      "same_tool_n": 110,
+      "args_equivalent_k": 88,
+      "args_equivalent_n": 101,
+      "answer_equivalent_k": null,
+      "answer_equivalent_n": null
+    },
+    "toolcheck": {
+      "advertised": 14
+    },
+    "history": [
+      {
+        "action": "promote",
+        "outcome": "ok",
+        "at": "2026-11-22T07:40:00-05:00"
+      },
+      {
+        "action": "rollback",
+        "outcome": "ok",
+        "at": "2026-11-21T19:10:00-05:00"
+      }
+    ]
   }
 }

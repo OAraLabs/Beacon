@@ -8,6 +8,7 @@ import {
   opAfterFacts,
   opFinished,
   opWords,
+  promotionFacts,
   runWords,
   type GymControlAction,
   type GymControlSettings,
@@ -249,6 +250,12 @@ export function GymControlCard({ s, now }: { s: GymStatus; now: number }) {
               <span className="gym-v">{after.realUntouched ? 'The gym reports it was left untouched' : 'The gym does NOT report it as untouched'}</span>
             </div>
           ) : null}
+          {promotionFacts(p, (at) => new Date(at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })).map((f) => (
+            <div className="gym-kv" key={`${f.label}:${f.text}`}>
+              <span className="gym-k">{f.label}</span>
+              <span className="gym-v">{f.text}</span>
+            </div>
+          ))}
           {p.rollbackAvailable === false ? (
             <div className="gym-kv">
               <span className="gym-k">Rolling back</span>

@@ -299,22 +299,32 @@ export interface GymEvent {
   value: number | null
   ok: boolean | null
 }
-/** The rehearsal model's promotion, as the gym's ledger says (the `promotion` section; null when the gym doesn't send one).
- *  PROVISIONAL: the field names follow the contract agreed with the gym's side; they are switched to its schema when it exists. */
+/** The rehearsal model's promotion, as the gym's ledger says (gym-status/2's `promotion` section; null when the gym sends none). */
 export interface GymPromotion {
-  /** none | promoted | rolling_back | rolled_back | failed (and promoting while a promote runs); another is shown as its name. */
+  /** none | promoting | promoted | failed | rolling_back | rolled_back | unknown (another is shown as its name). */
   state: string
-  target: string | null
-  candidate: string | null
   since: number | null
-  steps: { id: string; status: string }[]
-  beforeMatch: boolean | null
-  realUntouched: boolean | null
-  studentHealth: string | null
-  shadow: GymCount[]
+  action: 'promote' | 'rollback' | null
+  candidate: string | null
+  /** The instance the model was put on (an identifier, never an address). */
+  target: string | null
+  /** True when the target is the separate rehearsal instance: what this whole feature is for. */
+  rehearsal: boolean | null
   /** The archived models Promote may be asked for. Empty: no Promote is drawn. */
   candidates: string[]
   rollbackAvailable: boolean | null
+  beforeMatch: boolean | null
+  realUntouched: boolean | null
+  steps: { id: string; status: string; at: number | null; why: string | null }[]
+  student: { unit: string; live: boolean } | null
+  guard: { active: boolean | null; everyS: number | null; belowMb: number | null } | null
+  memory: { availableMb: number | null; swapUsedMb: number | null } | null
+  memoryAt: number | null
+  probe: { ok: boolean | null; why: string | null; at: number | null; offered: number | null; promptTokens: number | null; round0Kind: string | null; round0ToolCalls: number | null; expectedToolCalled: boolean | null; memoryOffered: boolean | null; seconds: number | null } | null
+  shadow: { rows: number | null; comparable: number | null; agreementK: number | null; agreementN: number | null; sameToolK: number | null; sameToolN: number | null; argsEquivalentK: number | null; argsEquivalentN: number | null; answerEquivalentK: number | null; answerEquivalentN: number | null } | null
+  toolcheck: { advertised: number | null } | null
+  /** Newest first. */
+  history: { action: string; outcome: string; at: number | null }[]
 }
 export interface GymStatus {
   generatedAt: number
@@ -491,28 +501,54 @@ function parsePromotion(v: unknown): GymPromotion | null {
   const p = obj(v)
   if (!p) return null
   const steps: GymPromotion['steps'] = []
-  for (const raw of list(p.steps, 40)) {
+  for (const raw of list(p.steps, 20)) {
     const s = obj(raw)
     const id = safeId(s?.id)
-    if (s && id !== null) steps.push({ id, status: safeId(s.status) ?? 'unknown' })
+    if (s && id !== null) steps.push({ id, status: oneOf(s.status, ['done', 'failed', 'skipped', 'unknown'], 'unknown'), at: time(s.at), why: safeId(s.why) })
   }
   const candidates: string[] = []
-  for (const raw of list(p.candidates, 32)) {
+  for (const raw of list(p.candidates, 20)) {
     const c = safeId(raw)
     if (c !== null) candidates.push(c)
   }
+  const student = obj(p.student)
+  const guard = obj(p.guard)
+  const mem = obj(p.memory)
+  const pr = obj(p.probe)
+  const sh = obj(p.shadow)
+  const history: GymPromotion['history'] = []
+  for (const raw of list(p.history, 10)) {
+    const h = obj(raw)
+    const outcome = safeId(h?.outcome)
+    if (h && outcome !== null) history.push({ action: oneOf(h.action, ['promote', 'rollback', 'unknown'], 'unknown'), outcome, at: time(h.at) })
+  }
+  history.sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+  const tc = obj(p.toolcheck)
   return {
+    // The schema's own words for the state; one it does not list (a newer gym) is shown as the identifier it is.
     state: safeId(p.state) ?? 'unknown',
-    target: safeId(p.target),
-    candidate: safeId(p.candidate),
     since: time(p.since),
-    steps,
+    action: p.action === 'promote' || p.action === 'rollback' ? p.action : null,
+    candidate: safeId(p.candidate),
+    target: safeId(p.target),
+    rehearsal: bool(p.rehearsal),
+    candidates,
+    rollbackAvailable: bool(p.rollback_available),
     beforeMatch: bool(p.before_match),
     realUntouched: bool(p.real_untouched),
-    studentHealth: safeId(p.student_health),
-    shadow: counts(p.shadow, 20),
-    candidates,
-    rollbackAvailable: bool(p.rollback_available)
+    steps,
+    student: student ? { unit: oneOf(student.unit, ['active', 'inactive', 'absent', 'unknown'], 'unknown'), live: student.live === true } : null,
+    guard: guard ? { active: bool(guard.active), everyS: num(guard.every_s), belowMb: num(guard.below_mb) } : null,
+    memory: mem ? { availableMb: num(mem.available_mb), swapUsedMb: num(mem.swap_used_mb) } : null,
+    memoryAt: time(p.memory_at),
+    probe: pr
+      ? { ok: bool(pr.ok), why: safeId(pr.why), at: time(pr.at), offered: num(pr.offered), promptTokens: num(pr.student_prompt_tokens), round0Kind: safeId(pr.round0_kind), round0ToolCalls: num(pr.round0_tool_calls), expectedToolCalled: bool(pr.expected_tool_called), memoryOffered: bool(pr.memory_offered), seconds: num(pr.seconds) }
+      : null,
+    shadow: sh
+      ? { rows: num(sh.rows), comparable: num(sh.comparable), agreementK: num(sh.agreement_k), agreementN: num(sh.agreement_n), sameToolK: num(sh.same_tool_k), sameToolN: num(sh.same_tool_n), argsEquivalentK: num(sh.args_equivalent_k), argsEquivalentN: num(sh.args_equivalent_n), answerEquivalentK: num(sh.answer_equivalent_k), answerEquivalentN: num(sh.answer_equivalent_n) }
+      : null,
+    toolcheck: tc ? { advertised: num(tc.advertised) } : null,
+    history
   }
 }
 
