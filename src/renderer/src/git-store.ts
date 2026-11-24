@@ -2,12 +2,15 @@ import { useEffect, useSyncExternalStore } from 'react'
 import type { GitRead } from '@shared/git-state'
 import { gitStale } from '@shared/git-view'
 import type { GitPrRead } from '@shared/git-pr'
+import { GIT_DAEMON_OPEN_FRESH_MS, GIT_DAEMON_ROW_FRESH_MS, changedFrameSession, gitDaemonPath, parseDaemonGit, type DaemonGit } from '@shared/git-daemon'
 
 // What git says about each conversation's work folder, for this window. A module singleton: the
 // session list, the header chip and the Git pane all read the same answers.
 //
-// - Nothing is asked unless Prometheus shares this computer's disk (main proves that). With a
-//   Prometheus elsewhere this store stays empty and costs nothing.
+// - A Prometheus that advertises git/1 reads git itself and says when it changed (a
+//   `workspace_git_changed` frame): this store asks it, whatever computer it is on. Otherwise
+//   nothing is asked unless Prometheus shares this computer's disk (main proves that, and reads git
+//   itself). With neither, this store stays empty and costs nothing.
 // - A row asks only while it is on screen and the window is showing; the open conversation asks
 //   more often, and at once when a turn ends or its folder changes.
 // - At most a few questions are with main at a time, the open conversation's first, so a full
@@ -42,6 +45,17 @@ let epoch = 0
 /** null: not known yet. */
 let here: boolean | null = null
 let hereAsking = false
+/** Whether this connection's Prometheus reads git for us (it advertised git/1, and this device is an owner).
+ *  null: not known yet. Kept when the connection drops; reset when the Prometheus changes. */
+let daemon: boolean | null = null
+/** It advertised git/1 and then refused this device: this connection reads git itself, or not at all. */
+let daemonDenied = false
+let daemonTimer: number | null = null
+/** A frame is acted on after a moment, once per conversation, however many arrive. */
+const frameTimers = new Map<string, number>()
+const FRAME_DELAY_MS = 500
+/** A Prometheus too old to send `subscribed` is treated as one without git/1 after this long. */
+const DAEMON_WAIT_MS = 6_000
 let hereTries = 0
 const hereSubs = new Set<() => void>()
 
@@ -91,6 +105,12 @@ function start(): void {
       epoch++
       here = null
       hereTries = 0
+      daemon = null
+      daemonDenied = false
+      if (daemonTimer !== null) window.clearTimeout(daemonTimer)
+      daemonTimer = null
+      frameTimers.forEach((t) => window.clearTimeout(t))
+      frameTimers.clear()
       entries.clear()
       prs.clear()
       prAsking.clear()
@@ -101,6 +121,31 @@ function start(): void {
     }
     gateway = s.gateway
     state = s.state
+    applyStatus(s)
+  })
+  // The status that came before this window listened.
+  void window.beacon.connection.status().then(
+    (s) => {
+      if (gateway === undefined) {
+        gateway = s.gateway
+        state = s.state
+      }
+      applyStatus(s)
+    },
+    () => undefined
+  )
+  // A change in a conversation's folder, said by the Prometheus that reads it.
+  window.beacon.events.onGateway((ev) => {
+    const id = changedFrameSession(ev)
+    // Only for a conversation being watched, and a hidden window reads when it is shown again.
+    if (!id || daemon !== true || !(entries.has(id) || openIds.has(id)) || (!showing() && !openIds.has(id)) || frameTimers.has(id)) return
+    frameTimers.set(
+      id,
+      window.setTimeout(() => {
+        frameTimers.delete(id)
+        if (daemon === true) requestGit(id, { force: true })
+      }, FRAME_DELAY_MS)
+    )
   })
   window.addEventListener(WORKSPACE_CHANGED, (e) => {
     const id = (e as CustomEvent<unknown>).detail
@@ -111,24 +156,82 @@ function start(): void {
   })
 }
 
+/** Learn from a connection status whether Prometheus reads git for us. */
+function applyStatus(s: { state: string; gitStatus?: boolean; role?: string }): void {
+  if (s.gitStatus === undefined) {
+    // Not said yet. A Prometheus that never says is an old one: after a while, it is "no".
+    if (daemon === null && s.state === 'connected' && daemonTimer === null) {
+      const asked = epoch
+      daemonTimer = window.setTimeout(() => {
+        daemonTimer = null
+        if (asked === epoch && daemon === null) setDaemon(false)
+      }, DAEMON_WAIT_MS)
+    }
+    return
+  }
+  if (daemonTimer !== null) {
+    window.clearTimeout(daemonTimer)
+    daemonTimer = null
+  }
+  // A device that may only chat is not asked: the route is the owner's.
+  setDaemon(s.gitStatus && s.role !== 'limited' && !daemonDenied)
+}
+
+function setDaemon(next: boolean): void {
+  if (daemon === next) return
+  daemon = next
+  // The other source's answers are not this one's.
+  epoch++
+  frameTimers.forEach((t) => window.clearTimeout(t))
+  frameTimers.clear()
+  entries.clear()
+  prs.clear()
+  prAsking.clear()
+  prQueue.length = 0
+  asking.clear()
+  queue.length = 0
+  notifyAll()
+}
+
+/** One conversation's git state from the Prometheus, with the pull request that came with it. Null: no usable answer now. */
+async function readDaemon(sessionId: string): Promise<DaemonGit | null> {
+  const b = window.beacon
+  const path = gitDaemonPath(sessionId)
+  if (!b || !path) return null
+  const asked = epoch
+  try {
+    return parseDaemonGit(await b.daemon.get(path))
+  } catch (e) {
+    // The route refuses this device (403): this connection stops asking. A 404 is one conversation the Prometheus does not know,
+    // and a failure that was asked on another connection says nothing about this one.
+    if (asked === epoch && /HTTP 403\b/.test(String((e as Error)?.message))) {
+      daemonDenied = true
+      setDaemon(false)
+    }
+    return null
+  }
+}
+
 function pump(): void {
   const b = window.beacon
-  if (!b || here !== true) return
+  if (!b || (daemon !== true && here !== true)) return
   while (asking.size < AT_ONCE && queue.length > 0) {
     // The open conversation first.
     const at = queue.findIndex((id) => openIds.has(id))
     const sessionId = queue.splice(at >= 0 ? at : 0, 1)[0]
     const asked = epoch
     asking.set(sessionId, { again: false })
-    void b.git
-      .read(sessionId)
+    const viaDaemon = daemon === true
+    void (viaDaemon ? readDaemon(sessionId) : b.git.read(sessionId).then((read): DaemonGit | null => ({ read, pr: { kind: 'unknown' } })))
       .then(
-        (read) => {
-          if (asked !== epoch) return
+        (got) => {
+          if (asked !== epoch || !got) return
+          const { read } = got
           const was = entries.get(sessionId)
           entries.set(sessionId, { read, at: Date.now() })
+          if (viaDaemon) setDaemonPr(sessionId, read, got.pr)
           if (!was || JSON.stringify(was.read) !== JSON.stringify(read)) notify(sessionId)
-          requestPr(sessionId, read, openIds.has(sessionId))
+          if (!viaDaemon) requestPr(sessionId, read, openIds.has(sessionId))
         },
         () => undefined
       )
@@ -139,6 +242,19 @@ function pump(): void {
         if (again) queue.push(sessionId)
         pump()
       })
+  }
+}
+
+/** The pull request that came with a daemon's answer: kept as the answer said, for that branch. */
+function setDaemonPr(sessionId: string, read: GitRead, pr: GitPrRead): void {
+  const was = prs.get(sessionId)
+  const branch = read.kind === 'state' && read.state.branch ? read.state.branch : ''
+  if (pr.kind === 'pr' && branch) {
+    prs.set(sessionId, { read: pr, at: Date.now(), branch, retry: false })
+    if (!was || JSON.stringify(was.read) !== JSON.stringify(pr)) notify(sessionId)
+  } else if (was) {
+    prs.delete(sessionId)
+    notify(sessionId)
   }
 }
 
@@ -193,12 +309,19 @@ function pumpPr(): void {
     })
 }
 
+/** With a Prometheus that says when things change, a reading is taken again only as a safety net between its frames. */
+const daemonStale = (age: number, open: boolean): boolean => !(age < (open ? GIT_DAEMON_OPEN_FRESH_MS : GIT_DAEMON_ROW_FRESH_MS))
+
 /** Ask for a conversation's git state if what is known is old (or `force`). */
 export function requestGit(sessionId: string, opts: { open?: boolean; force?: boolean } = {}): void {
   if (!window.beacon || !sessionId) return
   start()
-  if (here === null) return askHere() // watchers ask again once the answer is in
-  if (!here) return
+  if (daemon === null) return // watchers ask again once it is known
+  if (here === null) askHere() // asked either way: the Git pane needs it, and without a daemon it is the whole decision
+  if (daemon !== true) {
+    if (here === null) return // watchers ask again once the answer is in
+    if (!here) return
+  }
   const going = asking.get(sessionId)
   if (going) {
     if (opts.force) going.again = true // what is being read may already be out of date
@@ -206,8 +329,8 @@ export function requestGit(sessionId: string, opts: { open?: boolean; force?: bo
   }
   if (queue.includes(sessionId)) return
   const known = entries.get(sessionId)
-  if (known && !opts.force && !gitStale(Date.now() - known.at, opts.open === true)) {
-    requestPr(sessionId, known.read, opts.open === true) // the pull request has its own, slower clock
+  if (known && !opts.force && !(daemon === true ? daemonStale(Date.now() - known.at, opts.open === true) : gitStale(Date.now() - known.at, opts.open === true))) {
+    if (daemon !== true) requestPr(sessionId, known.read, opts.open === true) // the pull request has its own, slower clock
     return
   }
   queue.push(sessionId)
@@ -239,7 +362,7 @@ export function useGit(sessionId: string | null | undefined, opts: { watch: bool
       hereSubs.add(cb)
       return () => hereSubs.delete(cb)
     },
-    () => here
+    () => `${String(daemon)}:${String(here)}`
   )
   useEffect(() => {
     if (!id || !open) return
@@ -283,5 +406,20 @@ export function usePr(sessionId: string | null | undefined): GitPrRead | null {
       }
     },
     () => prs.get(id)?.read ?? null
+  )
+}
+
+/**
+ * Whether the Git pane can list files and diffs for this window: only when Prometheus is on this
+ * computer (main reads those itself). false: the counts come from Prometheus, the files do not.
+ * null: not known yet.
+ */
+export function useGitFilesHere(): boolean | null {
+  return useSyncExternalStore(
+    (cb) => {
+      hereSubs.add(cb)
+      return () => hereSubs.delete(cb)
+    },
+    () => here
   )
 }

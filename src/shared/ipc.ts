@@ -307,6 +307,9 @@ export interface ConnectionStatus {
    *  (@shared/approval-push). `false`: it said what it does and that is not among it (an older Prometheus). Absent: it has not
    *  said yet, which lasts a few seconds at most after connecting. */
   approvalCritical?: boolean
+  /** Whether this Prometheus said, in its latest `subscribed` reply, that it reads git for a conversation's work folder (`git/1`,
+   *  @shared/git-daemon). Absent until it has said; `false` for an older Prometheus. */
+  gitStatus?: boolean
   /** Owner of this Prometheus, or an approved device that may only chat (src/shared/device-role.ts), from GET /api/devices after each
    *  connect, and remembered for this address and key from the last answer. Absent until known; Beacon then shows everything. */
   role?: import('./device-role').DeviceRole

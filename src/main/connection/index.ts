@@ -1,3 +1,4 @@
+import { advertisesGitStatus } from '@shared/git-daemon'
 import { advertisesApprovalCritical, rawToApproval, type RawApprovalPush } from '@shared/approval-push'
 import { argumentsIncomplete } from '@shared/approval-arguments'
 import { APPROVAL_CRITICAL_WAIT_MS, CAP_INITIAL, approveRefusal, capStep, isApprovalAnswerPath, noteArgumentsCut, noteCritical, type ApprovalSurface, type CapEvent, type CapState } from '@shared/approval-critical'
@@ -98,7 +99,10 @@ export class ConnectionManager extends EventEmitter {
         onGatewayEvent: (ev: GatewayEvent) => {
           // The reply to each subscribe says what THIS daemon does. Read every time, on or off: the
           // Prometheus at an address can be upgraded, or rolled back, between two connections.
-          if (ev.type === 'subscribed') this.capEvent({ said: advertisesApprovalCritical(ev.payload) })
+          if (ev.type === 'subscribed') {
+            this.capEvent({ said: advertisesApprovalCritical(ev.payload) })
+            this.setGitStatus(advertisesGitStatus(ev.payload))
+          }
           // What each request said about being critical, kept for the answer (resolveApproval).
           // A request that is answered is done: its id is not held against a later request that happens to reuse it.
           if (ev.type === 'approval_resolved') {
@@ -195,6 +199,7 @@ export class ConnectionManager extends EventEmitter {
       ...(this.plainHome ? { notEncrypted: true } : {}),
       ...(this.role ? { role: this.role } : {}),
       ...(this.cap.value !== null ? { approvalCritical: this.cap.value } : {}),
+      ...(this.gitStatus !== null ? { gitStatus: this.gitStatus } : {}),
       ...(this.identity ? { identity: this.identity } : {})
     }
     this.emit('status', this.status)
@@ -260,6 +265,14 @@ export class ConnectionManager extends EventEmitter {
   private readonly criticalBook = new Map<string, boolean | undefined>()
   /** Requests whose arguments the daemon said it cut: answered on their card (resolveApproval). */
   private readonly cutBook = new Set<string>()
+  /** Whether this connection's Prometheus advertised git/1 (null: not said yet, or not connected). Read from every `subscribed` reply. */
+  private gitStatus: boolean | null = null
+  private setGitStatus(said: boolean): void {
+    if (this.gitStatus === said) return
+    this.gitStatus = said
+    this.status = { ...this.status, gitStatus: said }
+    this.emit('status', this.status)
+  }
   private capEvent(e: CapEvent): void {
     const was = this.cap.value
     const next = capStep(this.cap, e)
@@ -484,6 +497,7 @@ export class ConnectionManager extends EventEmitter {
     if (state === 'connected') this.wrongKey = null
     if (state === 'connected') this.askRole()
     this.capEvent(state === 'connected' ? 'connected' : 'left')
+    if (state !== 'connected') this.gitStatus = null // the next connection's `subscribed` says again
     this.status = {
       state,
       gateway: this.status.gateway,
@@ -495,6 +509,7 @@ export class ConnectionManager extends EventEmitter {
       ...(this.plainHome ? { notEncrypted: true } : {}),
       ...(this.role ? { role: this.role } : {}),
       ...(this.cap.value !== null ? { approvalCritical: this.cap.value } : {}),
+      ...(this.gitStatus !== null ? { gitStatus: this.gitStatus } : {}),
       ...(this.refused ? { refused: this.refused } : {}),
       ...(this.identity ? { identity: this.identity } : {})
     }
