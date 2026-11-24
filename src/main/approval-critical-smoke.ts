@@ -234,7 +234,7 @@ console.log('4. wiring')
     ['a new dial', /beforeRedial: async \(\) => \{\s*this\.capEvent\('dial'\)/],
     ['connected, and leaving it', /this\.capEvent\(state === 'connected' \? 'connected' : 'left'\)/],
     ['stop', /this\.halted = true\s*this\.capEvent\('stop'\)/],
-    ['a subscribed reply', /if \(ev\.type === 'subscribed'\) this\.capEvent\(\{ said: advertisesApprovalCritical\(ev\.payload\) \}\)/]
+    ['a subscribed reply', /if \(ev\.type === 'subscribed'\) \{\s*this\.capEvent\(\{ said: advertisesApprovalCritical\(ev\.payload\) \}\)/]
   ]
   for (const [what, re] of feeds) check(re.test(conn), `the connection tells the rule about ${what}`)
   const capFn = conn.slice(conn.indexOf('private capEvent('), conn.indexOf('private setWsAuth('))

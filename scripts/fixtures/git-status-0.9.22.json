@@ -1,0 +1,241 @@
+{
+ "_about": "Captured by running Prometheus 0.9.22 (GitWatch.snapshot, the answer GET /api/sessions/{id}/git sends) on throwaway repositories, with real gh output for the pull requests. Paths rewritten to /home/demo/work. Each case: body (the JSON answer) and etag.",
+ "borrowed_store": {
+  "body": {
+   "kind": "unreadable",
+   "read_at": 1795558283.732478,
+   "v": 1,
+   "why": "not_read"
+  },
+  "etag": "W/\"1fc5d3302171a9aa65d5\""
+ },
+ "changed_ahead_behind_no_gh": {
+  "body": {
+   "kind": "state",
+   "pr": null,
+   "read_at": 1795558282.94643,
+   "state": {
+    "ahead": 2,
+    "behind": 1,
+    "branch": "fix/gym-promote-rollback",
+    "changed": 3,
+    "commit": "b5f7fe7",
+    "conflicted": 0,
+    "operation": null,
+    "staged": 1,
+    "unstaged": 1,
+    "untracked": 1,
+    "upstream": "origin/fix/gym-promote-rollback"
+   },
+   "top": "/home/demo/work/local",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"7d9db83fbedebb6e327a\""
+ },
+ "changed_ahead_behind_open_pr": {
+  "body": {
+   "kind": "state",
+   "pr": {
+    "checks": "none",
+    "draft": false,
+    "mergeable": "conflicting",
+    "number": 71,
+    "state": "open",
+    "url": "https://github.com/OAraLabs/Beacon/pull/71"
+   },
+   "read_at": 1795558282.676793,
+   "state": {
+    "ahead": 2,
+    "behind": 1,
+    "branch": "fix/gym-promote-rollback",
+    "changed": 3,
+    "commit": "b5f7fe7",
+    "conflicted": 0,
+    "operation": null,
+    "staged": 1,
+    "unstaged": 1,
+    "untracked": 1,
+    "upstream": "origin/fix/gym-promote-rollback"
+   },
+   "top": "/home/demo/work/local",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"822df95276702431e30f\""
+ },
+ "clean_main": {
+  "body": {
+   "kind": "state",
+   "pr": null,
+   "read_at": 1795558282.32685,
+   "state": {
+    "ahead": null,
+    "behind": null,
+    "branch": "main",
+    "changed": 0,
+    "commit": "6904b17",
+    "conflicted": 0,
+    "operation": null,
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "upstream": null
+   },
+   "top": "/home/demo/work/clean",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"2e80f8514bbe3a3b3f2a\""
+ },
+ "detached_head": {
+  "body": {
+   "kind": "state",
+   "pr": null,
+   "read_at": 1795558283.5728462,
+   "state": {
+    "ahead": null,
+    "behind": null,
+    "branch": null,
+    "changed": 0,
+    "commit": "1d94c3f",
+    "conflicted": 0,
+    "operation": null,
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "upstream": null
+   },
+   "top": "/home/demo/work/detached",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"69c266b5a5505a1dd802\""
+ },
+ "draft_pr": {
+  "body": {
+   "kind": "state",
+   "pr": {
+    "checks": "passing",
+    "draft": true,
+    "mergeable": "conflicting",
+    "number": 46,
+    "state": "open",
+    "url": "https://github.com/OAraLabs/Beacon/pull/46"
+   },
+   "read_at": 1795558283.101867,
+   "state": {
+    "ahead": 0,
+    "behind": 0,
+    "branch": "ha/approval-card",
+    "changed": 0,
+    "commit": "1d94c3f",
+    "conflicted": 0,
+    "operation": null,
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "upstream": "origin/ha/approval-card"
+   },
+   "top": "/home/demo/work/draft_pr",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"da076a2122ba34e004e1\""
+ },
+ "merge_conflict": {
+  "body": {
+   "kind": "state",
+   "pr": null,
+   "read_at": 1795558283.4862678,
+   "state": {
+    "ahead": null,
+    "behind": null,
+    "branch": "main",
+    "changed": 1,
+    "commit": "4b48ac4",
+    "conflicted": 1,
+    "operation": "merge",
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "upstream": null
+   },
+   "top": "/home/demo/work/merging",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"7f12c34da9653ccaf8a7\""
+ },
+ "merged_pr": {
+  "body": {
+   "kind": "state",
+   "pr": {
+    "checks": "passing",
+    "draft": false,
+    "mergeable": "unknown",
+    "number": 65,
+    "state": "merged",
+    "url": "https://github.com/OAraLabs/Beacon/pull/65"
+   },
+   "read_at": 1795558283.2755609,
+   "state": {
+    "ahead": 0,
+    "behind": 0,
+    "branch": "feat/git-panel",
+    "changed": 0,
+    "commit": "1d94c3f",
+    "conflicted": 0,
+    "operation": null,
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "upstream": "origin/feat/git-panel"
+   },
+   "top": "/home/demo/work/merged_pr",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"de3bcd7f3aec4c1d9445\""
+ },
+ "no_commit_yet": {
+  "body": {
+   "kind": "state",
+   "pr": null,
+   "read_at": 1795558283.613194,
+   "state": {
+    "ahead": null,
+    "behind": null,
+    "branch": "main",
+    "changed": 0,
+    "commit": null,
+    "conflicted": 0,
+    "operation": null,
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "upstream": null
+   },
+   "top": "/home/demo/work/fresh",
+   "truncated": false,
+   "v": 1
+  },
+  "etag": "W/\"ced0cd495a016b0d3dfb\""
+ },
+ "no_work_folder": {
+  "body": {
+   "kind": "none",
+   "read_at": 1795558283.639703,
+   "v": 1
+  },
+  "etag": "W/\"9283422ce85fc4d6b2e6\""
+ },
+ "not_a_repository": {
+  "body": {
+   "kind": "none",
+   "read_at": 1795558283.630702,
+   "v": 1
+  },
+  "etag": "W/\"9283422ce85fc4d6b2e6\""
+ }
+}

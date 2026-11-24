@@ -110,6 +110,7 @@ export const ACTIVITY_EXCLUDED_KINDS: ReadonlySet<string> = new Set([
   'coding_acceptance',
   'computer_step',
   'computer_binding',
+  'workspace_git_changed',
   'computer_step_thumbnail',
   'subscribed'
 ])

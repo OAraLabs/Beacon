@@ -5,6 +5,8 @@ import { gitEmptyWords, gitGroups, gitMoreWords, prStateWords } from '@shared/gi
 import type { GitPr } from '@shared/git-pr'
 import { GIT_ACTIONS_NOTE, type GitAction } from '@shared/git-actions'
 import { diffLineShown, gitText } from '@shared/git-state'
+import { GIT_REMOTE_FILES_NOTE } from '@shared/git-daemon'
+import { useGitFilesHere } from '../git-store'
 
 /**
  * The Git panel under the header's branch chip: the changed files, each opening its diff, and
@@ -13,6 +15,10 @@ import { diffLineShown, gitText } from '@shared/git-state'
  */
 export function GitPanel({ sessionId, words, refreshKey, place, pr, actions, onAsk }: { sessionId: string; words: string; refreshKey?: unknown; place: { left: number; width: number; maxHeight: number }; pr: GitPr | null; actions: GitAction[]; onAsk?: (prompt: string) => void }) {
   const [detail, setDetail] = useState<GitDetail | null>(null)
+  // Files and diffs are read by main, from this computer's disk. With Prometheus elsewhere there is nothing to read here.
+  const filesHere = useGitFilesHere()
+  const filesHereRef = useRef(filesHere)
+  filesHereRef.current = filesHere
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [diffs, setDiffs] = useState<Record<string, GitDiff>>({})
   const live = useRef(true)
@@ -49,7 +55,7 @@ export function GitPanel({ sessionId, words, refreshKey, place, pr, actions, onA
   )
   const load = useCallback(() => {
     const b = window.beacon
-    if (!b) return
+    if (!b || filesHereRef.current !== true) return
     const mine = ++seq.current
     void b.git.detail(sessionId).then(
       (d) => {
@@ -63,7 +69,7 @@ export function GitPanel({ sessionId, words, refreshKey, place, pr, actions, onA
   }, [sessionId, ask])
   useEffect(() => {
     load()
-  }, [load, refreshKey])
+  }, [load, refreshKey, filesHere])
   // While the panel is open and showing, it is read again every few seconds: the same file edited
   // twice changes nothing the chip says, and the diff on screen should still be the current one.
   useEffect(() => {
@@ -87,8 +93,8 @@ export function GitPanel({ sessionId, words, refreshKey, place, pr, actions, onA
     <div className="git-panel" role="dialog" aria-label="Git" data-testid="git-panel" style={{ left: place.left, width: place.width, maxHeight: place.maxHeight }}>
       <div className="git-panel-head">{words}</div>
       {pr ? (
-        // Opens in the browser: main lets a window open only an https address, and this one is
-        // built from the repository's name and the number, never taken from an answer.
+        // Opens in the browser: main lets a window open only an https address, and this one was
+        // checked when the answer came in: github.com/owner/repo/pull/<its number> and nothing else.
         <a className={`git-pr-link is-${pr.state}`} href={pr.url} target="_blank" rel="noreferrer" data-testid="git-pr-link">
           {`Pull request #${pr.number}`}
           <span className="git-pr-link-what">{prStateWords(pr)}</span>
@@ -108,7 +114,13 @@ export function GitPanel({ sessionId, words, refreshKey, place, pr, actions, onA
           <div className="git-panel-note">{GIT_ACTIONS_NOTE}</div>
         </section>
       ) : null}
-      {detail === null ? <div className="git-panel-note">Reading…</div> : null}
+      {filesHere === false ? (
+        <div className="git-panel-note" data-testid="git-panel-remote">
+          {GIT_REMOTE_FILES_NOTE}
+        </div>
+      ) : detail === null ? (
+        <div className="git-panel-note">Reading…</div>
+      ) : null}
       {empty ? (
         <div className="git-panel-note" data-testid="git-panel-empty">
           {empty}
