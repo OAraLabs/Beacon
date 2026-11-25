@@ -1,3 +1,6 @@
+import { ensureInstanceSkin, seedInstanceSkins } from './instance-skin'
+import { THEME_INSTANCE_KEY } from '@shared/theme-instance'
+import { THEME_KEY } from '@shared/theme'
 import { app, BrowserWindow, Menu, Notification, Tray, globalShortcut, nativeImage, nativeTheme, powerMonitor, screen, session, shell,
   dialog, utilityProcess
 } from 'electron'
@@ -699,7 +702,11 @@ function bringUpConnection(gw: GatewayConfig, knownFp: string | null = null, kno
   cache = new CacheService(folder.repo, connection, { held: fp === null, onListed: (rows) => projects.setFilings(rows) })
   cache.attach()
   if (fp === null) confirmIdentity(conn, cache, gw, folder.id)
-  if (before !== null && before !== folder.id) broadcast(IPC.CACHE_FOLDER_CHANGED, null)
+  // The skin this Prometheus opens on is settled here, in its own folder: its own, or (a new one) the skin last worn, kept as its own
+  // from now on. It goes with the news, so the window wears it in the same step as the remount and never paints the old Prometheus's
+  // skin over the new one. Settled before the window reads anything, at launch too.
+  const skin = ensureInstanceSkin(folder.repo.getSetting(THEME_INSTANCE_KEY), folders!.app.getSetting(THEME_KEY), (v) => folder.repo.setSetting(THEME_INSTANCE_KEY, v))
+  if (before !== null && before !== folder.id) broadcast(IPC.CACHE_FOLDER_CHANGED, { theme: skin, dark: nativeTheme.shouldUseDarkColors })
   connection.start()
   pairingWatcher.reset() // a new connection may be a different computer, or a different kind of device
   pairingWatcher.start()
@@ -2204,6 +2211,12 @@ app.whenReady().then(() => {
   // The A6 sweep of orphaned per-conversation settings runs per folder, as each is opened.
   folders = new DaemonFolders(app.getPath('userData'))
   repo = folders
+  // The skin this Beacon wore becomes each Prometheus's own, once (@shared/theme-instance).
+  try {
+    seedInstanceSkins(folders, folders.listInstances().map((i) => i.id))
+  } catch (err) {
+    console.error('[theme] could not give each Prometheus its skin:', (err as Error).message)
+  }
   // Load the two window/notification choices before anything can fire one. Reading them here (not
   // lazily at the call site) means the gate uses a settled value from the first event onward — a
   // notification that arrives before the renderer has round-tripped the preference still respects it.

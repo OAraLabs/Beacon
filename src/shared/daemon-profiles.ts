@@ -20,6 +20,7 @@ import { SESSION_PROJECTS_SETTING_KEY, SESSION_UNFILED_SETTING_KEY } from './ses
 import { CHAT_PROJECTS_MIGRATED_KEY, CHAT_PROJECTS_SERVED_KEY } from './chat-projects-view'
 import { SPLIT_LAYOUT_KEY } from './split-panes'
 import { THEME_KEY } from './theme'
+import { THEME_INSTANCE_KEY, THEME_SEEDED_KEY } from './theme-instance'
 import { CLOSE_MODE_KEY, TRAY_HINT_SHOWN_KEY } from './tray-hint'
 
 /** hello's `fp`: the first 16 hex of the SHA-256 of the instance key, which Prometheus never regenerates. */
@@ -54,12 +55,14 @@ export const PROMETHEUS_SETTING_KEYS: readonly string[] = [
   TODAY_SEEN_KEY, // when Today was last on screen, for this Prometheus's "since you last looked"
   // The facts about that Prometheus's key (layout 3): which kind of credential it is, and the device role it last answered.
   CREDENTIAL_KIND_KEY,
-  'connection.deviceRole' // src/main/index.ts DEVICE_ROLE_KEY
+  'connection.deviceRole', // src/main/index.ts DEVICE_ROLE_KEY
+  THEME_INSTANCE_KEY // the skin chosen on THIS Prometheus (@shared/theme-instance)
 ]
 
 /** This Beacon's own, whichever Prometheus is open. */
 export const BEACON_SETTING_KEYS: readonly string[] = [
-  THEME_KEY,
+  THEME_KEY, // the skin last worn, whichever Prometheus is open: the paint before one is known, and a new one's start
+  THEME_SEEDED_KEY, // the one-time copy of that skin into each Prometheus's own
   CLOSE_MODE_KEY,
   TRAY_HINT_SHOWN_KEY,
   NOTIFY_PREFS_KEY,

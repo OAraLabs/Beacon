@@ -1,4 +1,5 @@
 import { coerceThemeChoice, THEMES, THEME_KEY, type Theme, type ThemeChoice } from '@shared/theme'
+import { THEME_INSTANCE_KEY, skinForInstance, type FolderChange } from '@shared/theme-instance'
 import { createThemeApplier } from '@shared/theme-applier'
 import { syncTitlebarOverlay, syncWcoAttribute } from './window-chrome'
 
@@ -30,7 +31,9 @@ const applier = createThemeApplier({
   isDark: () => window.beacon?.systemTheme.isDark() ?? Promise.resolve(true),
   onSystemChange: (cb) => window.beacon?.systemTheme.onChange(cb) ?? null,
   persist: async (choice) => {
-    await window.beacon?.settings.set(THEME_KEY, choice).catch(() => undefined)
+    // Two places: this Prometheus's own (kept in its folder), and the skin last worn here, which is what a window paints before it
+    // knows which Prometheus is open and what a Prometheus with none of its own starts on (@shared/theme-instance).
+    await Promise.all([window.beacon?.settings.set(THEME_INSTANCE_KEY, choice), window.beacon?.settings.set(THEME_KEY, choice)].map((p) => p?.catch(() => undefined)))
   }
 })
 
@@ -43,8 +46,24 @@ export function currentThemeChoice(): ThemeChoice | null {
 /** Read the persisted choice, apply it, return the PLATE actually worn. Defaults to NOX. Call once
  *  on app mount. An old-build-persisted garbage value coerces to the default plate, as before. */
 export async function loadAndApplyTheme(): Promise<Theme> {
-  const raw = await window.beacon?.settings.get(THEME_KEY).catch(() => null)
-  return applier.applyChoice(coerceThemeChoice(raw))
+  // The open Prometheus's own skin, else the skin last worn (an existing Beacon's one skin, or a Prometheus with none yet).
+  const [own, last] = await Promise.all([window.beacon?.settings.get(THEME_INSTANCE_KEY).catch(() => null), window.beacon?.settings.get(THEME_KEY).catch(() => null)])
+  // Main settles a Prometheus's skin when its folder opens (instance-skin.ts), so its own is there to read; the skin last worn is
+  // only the paint when no folder is open yet. The window never writes a skin for a Prometheus it did not pick on.
+  const { choice } = skinForInstance(own, last == null ? null : coerceThemeChoice(last))
+  return applier.applyChoice(choice)
+}
+
+/**
+ * Another Prometheus's folder is open (main says so, with that one's skin and whether the OS is dark): wear its skin now, in the
+ * same step as the remount, with no question to wait on, so the old Prometheus's skin is never painted over the new one. Main has
+ * already kept a new Prometheus's starting skin as its own; a skin missing here (it cannot be) keeps the one showing.
+ */
+export function wearInstanceTheme(change: FolderChange): void {
+  const { choice } = skinForInstance(change.theme, applier.currentChoice())
+  void applier.applyChoice(choice, change.dark)
+  // The skin last worn follows (a Beacon-wide setting, so it can land in no Prometheus's folder).
+  void window.beacon?.settings.set(THEME_KEY, choice).catch(() => undefined)
 }
 
 /** Persist + apply a theme CHOICE (a plate, or 'system'). Resolves to the plate worn afterwards. */
