@@ -1,3 +1,4 @@
+import { SoulTab } from './SoulTab'
 import { configTabInMode, configTabVisible } from '@shared/ui-mode'
 import { useUiMode } from '../ui-mode-store'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
@@ -57,7 +58,7 @@ import { OwnerOnlyNote, useDeviceRole } from './OwnerOnlyNote'
 const CONFIG_TAB_GROUPS: string[][] = (() => {
   const groups = [
     ['models', 'connectors', 'skills', 'profiles', 'grants', 'devices'],
-    ['telemetry', 'usage', 'memory', 'sentinel'],
+    ['telemetry', 'usage', 'memory', 'soul', 'sentinel'],
     ['wiki', 'cron', 'config', 'skin']
   ]
   const placed = new Set(groups.flat())
@@ -736,6 +737,7 @@ function TabView({ id, data, reload }: { id: string; data: unknown; reload: () =
   // seed GET is ignored here — the panel renders exactly as it did when it was a rail view.
   if (id === 'devices') return <DevicesPanel />
   if (id === 'skin') return <SkinTab />
+  if (id === 'soul') return <SoulTab />
   switch (id) {
     case 'models':
       return <ModelKeysTab data={data} />

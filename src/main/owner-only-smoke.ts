@@ -58,10 +58,10 @@ assert(
 // (/api/approvals/grants) and Config › Config are the owner's too: on an approved device they showed "No artifacts yet", "No pending
 // skill drafts", "No remembered grants" and "{}", empty readings that are really refusals.
 const VIEWS = ['artifacts', 'board', 'checkpoints', 'coding', 'documents', 'files', 'loop-manager', 'skills', 'status', 'wiki']
-const TABS = ['config', 'connectors', 'cron', 'grants', 'memory', 'models', 'profiles', 'sentinel', 'skills', 'telemetry', 'usage', 'wiki']
+const TABS = ['config', 'connectors', 'cron', 'grants', 'memory', 'models', 'profiles', 'sentinel', 'skills', 'soul', 'telemetry', 'usage', 'wiki']
 assert(
   JSON.stringify([...OWNER_ONLY_VIEWS].sort()) === JSON.stringify(VIEWS) && JSON.stringify([...OWNER_ONLY_CONFIG_TABS].sort()) === JSON.stringify(TABS),
-  'owner-only: Coding (Run, Loop Manager); Workspace › Files, Artifacts, Board, Documents, Wiki, Checkpoints, Skills; Activity › Status; Config › Models, Connectors, Skills, Profiles, Grants, Telemetry, Usage, Memory, Sentinel, Wiki, Cron, Config (and nothing an approved device may use: Chats, Integrations, Live, Tool Feed, Devices, Skin)',
+  'owner-only: Coding (Run, Loop Manager); Workspace › Files, Artifacts, Board, Documents, Wiki, Checkpoints, Skills; Activity › Status; Config › Models, Connectors, Skills, Profiles, Grants, Telemetry, Usage, Memory, Soul, Sentinel, Wiki, Cron, Config (and nothing an approved device may use: Chats, Integrations, Live, Tool Feed, Devices, Skin)',
   JSON.stringify({ views: OWNER_ONLY_VIEWS, tabs: OWNER_ONLY_CONFIG_TABS })
 )
 const RAW = /\b[45]\d\d\b|\/api\/|operator|daemon|too old|redeploy|HTTP|error|refused|forbidden|— · —|up 0s|Prometheus issue|\bnull\b|undefined/i

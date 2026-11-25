@@ -122,7 +122,7 @@ export function homeLabel(mode: UiMode): string {
  *  the daemon's internals and stay one switch away. */
 // Grants stays: the approval card offers lasting grants in every mode, and a grant that can be
 // given has to have a place where it can be seen and taken back.
-const EVERYDAY_CONFIG_TABS: readonly string[] = ['models', 'connectors', 'memory', 'cron', 'usage', 'grants', 'devices', 'skin']
+const EVERYDAY_CONFIG_TABS: readonly string[] = ['models', 'connectors', 'memory', 'soul', 'cron', 'usage', 'grants', 'devices', 'skin']
 
 export function configTabVisible(tabId: string, mode: UiMode): boolean {
   return mode === 'full' || EVERYDAY_CONFIG_TABS.includes(tabId)

@@ -634,6 +634,9 @@ export const CONFIG_TABS: ConfigTab[] = [
   // Telemetry is tool calls (tool_calls), Usage is tokens and money (subsystem_runs).
   { id: 'usage', label: 'Usage', path: '/api/usage' },
   { id: 'memory', label: 'Memory', path: '/api/memory/current' },
+  // Soul reads its own route (src/shared/soul.ts): the daemon's statements about the file (missing, a link, too large) are the
+  // content, which a seed GET that drops its error would lose. Pathless like Skin; the tab asks for itself.
+  { id: 'soul', label: 'Soul', path: '' },
   { id: 'sentinel', label: 'Sentinel', path: '/api/sentinel' },
   { id: 'wiki', label: 'Wiki', path: '/api/wiki/stats' },
   { id: 'cron', label: 'Cron', path: '/api/cron' },

@@ -282,7 +282,7 @@ async function main(): Promise<void> {
 
   // ── 9. config tabs: every tab path is an allowed daemon path ────────────────
   console.log('\n[smoke] === 9. config tabs ===')
-  assert(CONFIG_TABS.length === 14, 'fourteen config tabs (+ Devices, + Skin — the plate belongs where you change it, not in every session header)')
+  assert(CONFIG_TABS.length === 15, 'fifteen config tabs (+ Devices, + Skin — the plate belongs where you change it, not in every session header; + Soul)')
   // A tab is either daemon-backed (its path must be allowed) or LOCAL-ONLY (path ''). Skin is the
   // second kind: the plate is a renderer setting, so fetching anything would only invent a way to
   // fail. The check keeps its teeth — a non-empty path that is not allowed still fails.
@@ -290,7 +290,7 @@ async function main(): Promise<void> {
     CONFIG_TABS.every((t) => t.path === '' || isAllowedDaemonPath(t.path)),
     'every daemon-backed config tab path is allowed; a local-only tab declares no path'
   )
-  assert(CONFIG_TABS.filter((t) => t.path === '').length === 1 && CONFIG_TABS.find((t) => t.path === '')?.id === 'skin', 'exactly one local-only tab, and it is Skin (a pathless tab is a deliberate exception, not a typo)')
+  assert(CONFIG_TABS.filter((t) => t.path === '').map((t) => t.id).join() === 'soul,skin' && isAllowedDaemonPath('/api/soul'), 'exactly two pathless tabs: Skin (local-only) and Soul (reads /api/soul itself, an allowed path, so the daemon\'s statements about the file reach it)')
   assert(new Set(CONFIG_TABS.map((t) => t.id)).size === CONFIG_TABS.length, 'config tab ids are unique')
   assert(
     CONFIG_TABS.find((t) => t.id === 'grants')?.path === '/api/approvals/grants',
