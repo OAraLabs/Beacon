@@ -10,7 +10,7 @@ import { MainView } from './components/MainView'
 import { AppChrome } from './components/AppChrome'
 import { ConnectionSettings } from './components/ConnectionSettings'
 import { UnreachableBanner } from './components/UnreachableBanner'
-import { loadAndApplyTheme } from './theme/apply-theme'
+import { loadAndApplyTheme, wearInstanceTheme } from './theme/apply-theme'
 import { AddPhone } from './components/AddPhone'
 import { AddInstance } from './components/AddInstance'
 import { writeTrail } from './view-trail-store'
@@ -118,7 +118,10 @@ export default function App() {
       setSettingsOpen(true)
     })
     // Main opened another Prometheus's folder: what is on screen is the old one's, so remount the same way.
-    const offFolder = window.beacon?.connection.onFolderChanged(onChanged)
+    const offFolder = window.beacon?.connection.onFolderChanged((change) => {
+      wearInstanceTheme(change) // this Prometheus's skin, in the same step as the remount
+      onChanged()
+    })
     return () => {
       window.removeEventListener('beacon:open-settings', onOpen)
       window.removeEventListener('beacon:add-instance', onAdd)

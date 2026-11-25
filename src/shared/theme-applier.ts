@@ -28,7 +28,7 @@ export interface ThemeApplierDeps {
 export interface ThemeApplier {
   /** Apply a choice to the document. Resolves to the plate worn afterwards — its own, or, when a
    *  newer pick superseded it during the OS question, the newer pick's. */
-  applyChoice(choice: ThemeChoice): Promise<Theme>
+  applyChoice(choice: ThemeChoice, knownDark?: boolean): Promise<Theme>
   /** Apply, then persist, a choice. Resolves to the plate worn afterwards. A pick superseded while
    *  it waited on the OS persists nothing. */
   setThemeChoice(choice: ThemeChoice): Promise<Theme>
@@ -43,9 +43,11 @@ export function createThemeApplier(deps: ThemeApplierDeps): ThemeApplier {
   let unsubSystem: (() => void) | null = null
 
   /** Resolves to the plate put on, or null when a newer pick landed during the await. */
-  async function applyChoiceOrStale(choice: ThemeChoice): Promise<Theme | null> {
+  async function applyChoiceOrStale(choice: ThemeChoice, knownDark?: boolean): Promise<Theme | null> {
     current = choice
-    const osDark = choice === SYSTEM_CHOICE ? await deps.isDark().catch(() => true) : true
+    // `knownDark`: the caller already has the OS appearance (main sends it with a switch of Prometheus), so there is no
+    // round trip to wait on and the plate is worn before this call returns.
+    const osDark = choice !== SYSTEM_CHOICE ? true : knownDark !== undefined ? knownDark : await deps.isDark().catch(() => true)
     // A SYSTEMA pick waits on an IPC round trip; a plate pick does not. If another pick landed during
     // that wait, this call is STALE: wearing its plate would re-skin over the newer choice, and
     // subscribing would follow the OS for a choice no longer worn (PR 183 review).
@@ -68,8 +70,8 @@ export function createThemeApplier(deps: ThemeApplierDeps): ThemeApplier {
     return eff
   }
 
-  async function applyChoice(choice: ThemeChoice): Promise<Theme> {
-    return (await applyChoiceOrStale(choice)) ?? deps.worn()
+  async function applyChoice(choice: ThemeChoice, knownDark?: boolean): Promise<Theme> {
+    return (await applyChoiceOrStale(choice, knownDark)) ?? deps.worn()
   }
 
   async function setThemeChoice(choice: ThemeChoice): Promise<Theme> {

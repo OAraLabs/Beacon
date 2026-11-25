@@ -865,7 +865,8 @@ export interface BeaconBridge {
     onOpenSettings(cb: () => void): Unsubscribe
     /** Main opened another Prometheus's cache folder (hello named a different one at this address): everything on screen came from
      *  the old one, so the app remounts. */
-    onFolderChanged(cb: () => void): Unsubscribe
+    /** Another Prometheus's folder is open now. `change` says that one's skin and whether the OS is dark (@shared/theme-instance), so the window can wear it as it remounts. */
+    onFolderChanged(cb: (change: import('./theme-instance').FolderChange) => void): Unsubscribe
     /** Manual retry: drop + redial the WS now (resets the backoff clock). No-op before setup. */
     reconnect(): Promise<void>
     /** "It moved — trust the new key": pin the node key the Prometheus just signed with under its pinned instance_id, and connect. False
