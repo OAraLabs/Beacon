@@ -37,6 +37,7 @@ export const OWNER_ONLY_CONFIG_TABS: readonly string[] = [
   'profiles',
   'sentinel',
   'skills',
+  'soul',
   'telemetry',
   'usage',
   'wiki'
@@ -70,6 +71,7 @@ const AREAS: Record<string, { name: string; what: string }> = {
   telemetry: { name: 'Telemetry', what: 'how Prometheus has been doing' },
   usage: { name: 'Usage', what: 'what Prometheus has used and spent' },
   memory: { name: 'Memory', what: 'what your assistant remembers' },
+  soul: { name: 'Soul', what: "your assistant's persona" },
   sentinel: { name: 'Sentinel', what: 'what Prometheus does in the background' },
   cron: { name: 'Cron', what: 'scheduled jobs' },
   config: { name: 'Config', what: "Prometheus's settings" }

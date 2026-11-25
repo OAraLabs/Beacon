@@ -1,0 +1,41 @@
+{
+ "_about": "What Prometheus's GET /api/soul sends (web/server.py get_soul, 0.9.21+): the 200 body, and each status it answers about the file, plus the 404 an older daemon gives any unknown path. Same bodies the phone's tests pin.",
+ "document": {
+  "content": "# Soul\n\nYou are a careful, direct assistant for a small team.\n\n- Say what you did, and what you did not do.\n- Give the reason before the answer.\n- Never invent a fact; say you do not know.\n",
+  "bytes": 189,
+  "modified_at": 1793667600.0
+ },
+ "refusals": {
+  "missing": {
+   "status": 404,
+   "body": {
+    "error": "not_found"
+   }
+  },
+  "link": {
+   "status": 409,
+   "body": {
+    "error": "not_a_regular_file"
+   }
+  },
+  "too_large": {
+   "status": 413,
+   "body": {
+    "error": "too_large",
+    "limit": 262144
+   }
+  },
+  "unreadable": {
+   "status": 503,
+   "body": {
+    "error": "unreadable"
+   }
+  },
+  "route_absent": {
+   "status": 404,
+   "body": {
+    "detail": "Not Found"
+   }
+  }
+ }
+}
