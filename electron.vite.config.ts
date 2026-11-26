@@ -116,6 +116,7 @@ export default defineConfig({
           'git-actions-smoke': resolve('src/main/git-actions-smoke.ts'),
           'git-daemon-smoke': resolve('src/main/git-daemon-smoke.ts'),
           'soul-smoke': resolve('src/main/soul-smoke.ts'),
+          'approval-not-resolved-smoke': resolve('src/main/approval-not-resolved-smoke.ts'),
           'theme-instance-smoke': resolve('src/main/theme-instance-smoke.ts'),
           'approval-critical-smoke': resolve('src/main/approval-critical-smoke.ts'),
           'chat-projects-smoke': resolve('src/main/chat-projects-smoke.ts'),

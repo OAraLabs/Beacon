@@ -45,6 +45,7 @@
     "smoke:git-actions": "ELECTRON_RUN_AS_NODE=1 electron out/main/git-actions-smoke.js",
     "smoke:git-daemon": "ELECTRON_RUN_AS_NODE=1 electron out/main/git-daemon-smoke.js",
     "smoke:soul": "ELECTRON_RUN_AS_NODE=1 electron out/main/soul-smoke.js",
+    "smoke:approval-not-resolved": "ELECTRON_RUN_AS_NODE=1 electron out/main/approval-not-resolved-smoke.js",
     "smoke:theme-instance": "ELECTRON_RUN_AS_NODE=1 electron out/main/theme-instance-smoke.js",
     "smoke:approval-critical": "ELECTRON_RUN_AS_NODE=1 electron out/main/approval-critical-smoke.js",
     "smoke:chat-projects": "ELECTRON_RUN_AS_NODE=1 electron out/main/chat-projects-smoke.js",

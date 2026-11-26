@@ -41,21 +41,29 @@ const row = (id, task, over = {}) => ({
 })
 const OWNED = row('probe-worker-own', 'w8') // the daemon accepts this one (an owner device token)
 const REFUSED = row('probe-worker-ref', 'w7') // the daemon refuses this one (the API token)
+// A request Prometheus answers 200 {ok:false, message:"No pending request: …"} and still lists (answered already, its worker gone): what a real Mac showed after eight approvals.
+const GHOST = row('probe-worker-gho', 'w9')
+const NOT_PENDING = { ok: false, remembered: false, grant_id: null, message: `No pending request: ${GHOST.request_id}`, skipped: 0 }
 const REFUSAL = { error: "Only a person may approve a worker's request: the API token cannot do this: a model can read it. Answer it from Beacon or the chat it came from.", code: 'not_a_person' }
 
-const state = { pending: new Set([OWNED.request_id, REFUSED.request_id]), approves: { own: 0, ref: 0 }, denies: 0, listServed: 0 }
+const state = { pending: new Set([OWNED.request_id, REFUSED.request_id, GHOST.request_id]), approves: { own: 0, ref: 0, gho: 0 }, denies: 0, listServed: 0 }
 const gateway = createServer((req, res) => {
   res.setHeader('content-type', 'application/json')
   const url = req.url ?? ''
   if (req.method === 'GET' && url.startsWith('/api/approvals')) {
     state.listServed += 1
-    res.end(JSON.stringify([OWNED, REFUSED].filter((r) => state.pending.has(r.request_id))))
+    res.end(JSON.stringify([OWNED, REFUSED, GHOST].filter((r) => state.pending.has(r.request_id))))
     return
   }
   if (req.method === 'POST' && url === `/api/approvals/${OWNED.request_id}/approve`) {
     state.approves.own += 1
     state.pending.delete(OWNED.request_id)
     res.end(JSON.stringify({ ok: true, remembered: false, grant_id: null, message: 'approved', skipped: 0 }))
+    return
+  }
+  if (req.method === 'POST' && url === `/api/approvals/${GHOST.request_id}/approve`) {
+    state.approves.gho += 1
+    res.end(JSON.stringify(NOT_PENDING)) // 200, and it stays listed
     return
   }
   if (req.method === 'POST' && url === `/api/approvals/${REFUSED.request_id}/approve`) {
@@ -164,7 +172,7 @@ try {
     const area = document.querySelector('[data-approvals-area]').getBoundingClientRect()
     return { badgeH: Math.round(badge.height), areaH: Math.round(area.height) }
   })()`)
-  check(covered.areaH <= 48, `what is left on screen is small (${covered.areaH}px tall), not the card`, JSON.stringify(covered))
+  check(covered.badgeH <= 30, `what a put-away request leaves is a badge ${covered.badgeH}px tall, not a card (another request's card may still be showing: ${covered.areaH}px in all)`, JSON.stringify(covered))
   const toConfig = await click('nav[aria-label="Views"] [title="Config"]')
   const onConfig = await until(() => evaluate(`!!document.querySelector('[data-testid="config-tab-groups"]')`), (v) => v === true, 4000)
   check(toConfig === 'clicked' && onConfig, 'the app underneath is usable: Config opened from the rail while a request waits')
@@ -211,13 +219,36 @@ try {
   const denied = await click('.approval-btn-deny', 'w7')
   const gone = await until(() => view('w7'), (v) => !v.present, 5000)
   check(denied === 'clicked' && state.denies === 1 && !gone.present, 'Deny still works, and the card goes', `click=${denied} denies=${state.denies} present=${gone.present}`)
+
+  // ── 4. a request Prometheus says nothing is waiting for ─────────────────────────────────────
+  const g0 = await until(() => view('w9'), (v) => v.present, 6000)
+  check(g0.present && g0.approve, 'a request that is answered "no pending request" looks ordinary at first')
+  await sleep(1500)
+  const gtry = await click('.approval-btn-approve', 'w9')
+  check(gtry === 'clicked', `a real click on its Approve (${gtry})`)
+  const gsaid = await until(() => view('w9'), (v) => /nothing is waiting for this answer/.test(v.text), 6000)
+  check(state.approves.gho === 1, `one approve POST (${state.approves.gho})`)
+  check(gsaid.present && /nothing is waiting for this answer any more/.test(gsaid.text), 'the card says nothing is waiting for it, and why it may be', gsaid.text.slice(0, 300))
+  check(!gsaid.approve && gsaid.deny && gsaid.minimize && !gsaid.owner, 'Approve is gone (so it cannot be pressed eight times), Deny and Minimize stay, and no owner button: it is not that refusal')
+  check(!gsaid.text.includes(APP_ONLY), 'and it does not say it can be approved only here')
+  const gbanned = bannedHits(gsaid.text.replace(/edit_file targets[^\n]*/, '').replace(/path[\s\S]*plan\.md/, ''), WORDS)
+  check(gbanned.length === 0, "the card's own words keep to the plain-language list", gbanned.join(', '))
+  await sleep(7000)
+  const gstay = await view('w9')
+  check(gstay.present && /nothing is waiting/.test(gstay.text) && state.approves.gho === 1, 'across the polls that keep listing it the card stays as it is, and nothing more is sent')
+  await pressKey('a', 'KeyA', 65)
+  await sleep(400)
+  check(state.approves.gho === 1, 'and A sends nothing')
+  const gaway = await click('[data-testid="approval-minimize"]', 'w9')
+  const gbadge = await until(() => view('w9'), (v) => !v.present && /1 request waiting/.test(v.badge ?? ''), 4000)
+  check(gaway === 'clicked' && !gbadge.present, 'it can be put away to the badge, where it waits to expire')
 } catch (e) {
   console.error(`  FATAL ${e instanceof Error ? e.message : e}`)
   failures += 1
 } finally {
   gateway.close()
 }
-const MIN_CHECKS = 27
+const MIN_CHECKS = 37
 if (checks < MIN_CHECKS) {
   console.error(`  FAIL only ${checks} checks ran, expected ${MIN_CHECKS}`)
   failures += 1
