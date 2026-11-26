@@ -177,6 +177,7 @@ const noGrantNote: CSSProperties = {
 const keysHint: CSSProperties = { fontSize: 11.5, lineHeight: '16px', height: 16, color: 'var(--c-text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
 /** Said on a critical request's card; held (unseen) on every other card so the card never changes size when that flips. */
 const CRITICAL_NOTE = 'This request can be approved only here, with the button.'
+const minimizeBtn: CSSProperties = { fontSize: 10.5, padding: '1px 7px', borderRadius: 4, border: '1px solid var(--c-line)', background: 'transparent', color: 'var(--c-text-dim)', cursor: 'pointer', marginLeft: 8 }
 const criticalNote: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: 'var(--c-text-dim)' }
 // The remembered-grant option's styling moved to .approval-scope-btn in
 // styles.css: inline styles cannot express :hover / :focus-visible / :active,
@@ -215,7 +216,9 @@ export function ExecApprovalCard({
   onToggleDisclosure,
   critical = false,
   activeSessionId,
-  onResolve
+  onResolve,
+  onMinimize,
+  onMakeOwner
 }: {
   approval: ApprovalRequest
   /** Daemon rejection text (e.g. a 400 from a scope the daemon does not accept). Shown, not swallowed. */
@@ -238,6 +241,10 @@ export function ExecApprovalCard({
   activeSessionId?: string | null
   /** `from`: 'card' for this card's own buttons, 'key' for `A`/`D`. Main refuses an approve of a critical request that is not from 'card'. */
   onResolve: (d: ApprovalDecision, from: ApprovalSurface) => void
+  /** Put this card away to the badge: the request stays in the queue, still pending, until it is answered or expires. */
+  onMinimize?: () => void
+  /** Opens Settings at "Make this Beacon an owner": the way to be able to approve a worker's request from here. Offered only when this Beacon was refused for who it is. */
+  onMakeOwner?: () => void
 }) {
   // Payload order — the daemon emits these from approve_verbs(), so preserving insertion order
   // preserves ITS ordering decision instead of imposing one here. None at all for a worker's or
@@ -323,6 +330,11 @@ export function ExecApprovalCard({
           {approval.toolName} · {age(approval.createdAt)}
           {countdown ? ` · ${countdown}` : ''}
         </span>
+        {onMinimize ? (
+          <button className="approval-minimize" onClick={onMinimize} title="Put this away. It stays waiting until you answer it or it expires." aria-label="Minimize this request. It stays waiting." data-testid="approval-minimize" style={minimizeBtn}>
+            Minimize
+          </button>
+        ) : null}
       </div>
       <div style={{ padding: '11px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* No `cwd` line: the request carries a description and a tool name, and no working
@@ -404,7 +416,8 @@ export function ExecApprovalCard({
             advertises can change under a mouse that is already down (a reconnect that answers differently), and a note that appeared
             or went moved the Approve button between press and release. When the request is not critical the words are still laid
             out, invisible and hidden from a screen reader, so the space is held at any width. */}
-        {critical ? (
+        {critical && !cannotApprove ? (
+          // Said only when it is true: a request this Beacon was refused for who it is cannot be approved here at all.
           <div style={criticalNote} data-testid="approval-critical-note">
             {CRITICAL_NOTE}
           </div>
@@ -429,6 +442,11 @@ export function ExecApprovalCard({
               Approve once
             </button>
           )}
+          {cannotApprove && onMakeOwner ? (
+            <button className="approval-btn" onClick={onMakeOwner} data-testid="approval-make-owner">
+              Make this Beacon an owner
+            </button>
+          ) : null}
           <button className="approval-btn approval-btn-deny" onClick={() => onResolve({ kind: 'deny' }, 'card')}>
             Deny
           </button>

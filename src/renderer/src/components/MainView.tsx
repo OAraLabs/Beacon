@@ -1,7 +1,7 @@
 import { approveTooSoon, refusalWords, type ApprovalSurface } from '@shared/approval-critical'
 import { HOME_TARGET, type FileOffer } from '@shared/os-entry'
 import { OfferedFilesDialog } from './OfferedFilesDialog'
-import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect, type CSSProperties } from 'react'
 import type { ApprovalDecision, ApprovalRequest, SessionSummary } from '@shared/ipc'
 import {
   VOICE_SESSION_ID,
@@ -38,6 +38,7 @@ import { ArtifactsPanel } from './ArtifactsPanel'
 import { WikiPanel } from './WikiPanel'
 import { Sidebar } from './Sidebar'
 import { ChatShell } from './ChatShell'
+import { openMakeOwner } from './OwnerOnlyNote'
 import { ExecApprovalCard } from './ExecApprovalCard'
 import { cannotApproveLine } from '@shared/approval-refusal'
 import { NavRail } from './NavRail'
@@ -147,6 +148,9 @@ function inEditable(e: KeyboardEvent): boolean {
  *  Chats sidebar leaves you in Chats. A launch, or a reload, opens on DEFAULT_VIEW as before. */
 let keptView: ViewId | null = null
 
+/** The badge a put-away approval leaves behind: one line at the top centre, small enough to leave the app usable, and amber so it is not missed. */
+const approvalBadge: CSSProperties = { alignSelf: 'center', fontSize: 12, padding: '4px 12px', borderRadius: 999, border: '1px solid var(--c-warn)', background: 'var(--c-raise)', color: 'var(--c-text)', cursor: 'pointer' }
+
 export function MainView() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   // Owner of this Prometheus, or an approved device that may only chat (@shared/device-role).
@@ -207,6 +211,10 @@ export function MainView() {
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({})
   /** requestId → the line a worker's request shows once this Beacon has been told it may not approve it (401 not_a_person). */
   const [cannotApprove, setCannotApprove] = useState<Record<string, string>>({})
+  /** Requests put away to the badge. They are still pending, and still in `approvals`; only the card is hidden. A request that arrives later is not in it, so it is shown. */
+  const [minimized, setMinimized] = useState<ReadonlySet<string>>(() => new Set())
+  const minimizedRef = useRef(minimized)
+  minimizedRef.current = minimized
   /** The approvals as last rendered, for resolveApproval (a stable callback) to read the request it is answering. */
   const approvalsRef = useRef<ApprovalRequest[]>([])
   approvalsRef.current = approvals
@@ -226,6 +234,23 @@ export function MainView() {
       if (places.get(id)?.index !== index) places.set(id, { index, at: now })
     })
   }, [approvalIds])
+  // A request that is answered or expires leaves the queue; its place in the put-away set goes with it.
+  useEffect(() => {
+    setMinimized((s) => {
+      const live = new Set(approvals.map((a) => a.requestId))
+      const kept = [...s].filter((id) => live.has(id))
+      return kept.length === s.size ? s : new Set(kept)
+    })
+  }, [approvalIds])
+  /** Bring every put-away request back. Its card has just appeared under the pointer, so the settle guard starts again for each. */
+  const restoreApprovals = useCallback((): void => {
+    const now = Date.now()
+    for (const id of minimized) {
+      const place = approvalPlaces.current.get(id)
+      if (place) approvalPlaces.current.set(id, { ...place, at: now })
+    }
+    setMinimized(new Set())
+  }, [minimized])
   // Which requests may be approved only from their full card (Prometheus marked them critical).
   const criticalAdvertised = useApprovalCriticalAdvertised()
   const approvalCardOnly = useCallback((id: string) => isCardOnly(id, approvals, criticalAdvertised), [approvals, criticalAdvertised])
@@ -235,11 +260,24 @@ export function MainView() {
   const approvalsArea = useRef<HTMLDivElement | null>(null)
   /** From a row that cannot answer a request itself: put focus on THAT request's card, in view. */
   const showApproval = useCallback((id: string) => {
-    for (const el of approvalsArea.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []) {
-      if (el.dataset.approvalId !== id) continue
-      el.scrollIntoView({ block: 'nearest' })
-      el.focus()
+    const focus = (): void => {
+      for (const el of approvalsArea.current?.querySelectorAll<HTMLElement>('[data-approval-id]') ?? []) {
+        if (el.dataset.approvalId !== id) continue
+        el.scrollIntoView({ block: 'nearest' })
+        el.focus()
+      }
     }
+    // A request that was put away comes back first: a row asking to see it must find its card. The settle guard starts again for it.
+    const place = approvalPlaces.current.get(id)
+    if (place && minimizedRef.current.has(id)) approvalPlaces.current.set(id, { ...place, at: Date.now() })
+    setMinimized((m) => {
+      if (!m.has(id)) return m
+      const n = new Set(m)
+      n.delete(id)
+      return n
+    })
+    focus()
+    requestAnimationFrame(focus)
   }, [])
   /** The approval ids STILL in the daemon's queue, as a set. The progress pane's desktop log joins
    *  a step's `approvalRequestId` against this to decide whether to render an approve/deny control
@@ -1680,7 +1718,12 @@ export function MainView() {
           ref={approvalsArea}
           data-approvals-area=""
         >
-          {approvals.map((a) => (
+          {minimized.size > 0 ? (
+            <button className="approval-badge" onClick={restoreApprovals} data-testid="approval-badge" aria-label={`${minimized.size} approval request${minimized.size === 1 ? '' : 's'} waiting. Show ${minimized.size === 1 ? 'it' : 'them'}.`} style={approvalBadge}>
+              {minimized.size} request{minimized.size === 1 ? '' : 's'} waiting for you · Show
+            </button>
+          ) : null}
+          {approvals.filter((a) => !minimized.has(a.requestId)).map((a) => (
             <ExecApprovalCard
               key={a.requestId}
               approval={a}
@@ -1691,6 +1734,8 @@ export function MainView() {
               disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
               onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
               onResolve={(d, from) => void resolveApproval(a.requestId, d, from)}
+              onMinimize={() => setMinimized((s) => new Set(s).add(a.requestId))}
+              onMakeOwner={openMakeOwner}
             />
           ))}
         </div>
