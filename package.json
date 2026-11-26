@@ -300,6 +300,7 @@
     "probe:models-health": "node scripts/models-health-app-probe.mjs",
     "probe:pair-pin": "node scripts/pair-pin-app-probe.mjs",
     "probe:approval-not-a-person": "node scripts/approval-not-a-person-probe.mjs",
+    "probe:approval-worker-critical": "node scripts/approval-worker-critical-probe.mjs",
     "probe:harness-reap": "node scripts/cdp-harness-reap-probe.mjs",
     "probe:scratch-profile": "node scripts/scratch-profile-probe.mjs",
     "probe:hardening": "node scripts/hardening-probe.mjs"

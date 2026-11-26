@@ -377,10 +377,10 @@ console.log('\n=== 7. a critical request is approved from its full card and nowh
   // What Prometheus advertises can flip under a mouse that is already down, so the note's room is held on every card: the same words,
   // laid out and invisible (and hidden from a screen reader) when the request is not critical, the one place the words are written.
   check(
-    /\{critical \? \(\s*<div style=\{criticalNote\} data-testid="approval-critical-note">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\) : \(\s*<div style=\{\{ \.\.\.criticalNote, visibility: 'hidden' \}\} aria-hidden="true" data-testid="approval-critical-reserved">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\)\}/.test(card) &&
+    /\{critical && !cannotApprove \? \(\s*(?:\/\/[^\n]*\n\s*)?<div style=\{criticalNote\} data-testid="approval-critical-note">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\) : \(\s*<div style=\{\{ \.\.\.criticalNote, visibility: 'hidden' \}\} aria-hidden="true" data-testid="approval-critical-reserved">\s*\{CRITICAL_NOTE\}\s*<\/div>\s*\)\}/.test(card) &&
       (card.match(/This request can be approved only here/g) ?? []).length === 1 &&
       !/\{critical \? \([^)]*\) : null\}/.test(card),
-    "the critical note's room is held on every card, so the card is the same size whether or not the request is critical"
+    "the critical note's room is held on every card (the note itself only where it is true: not on a card this Beacon was refused for who it is), so the card is the same size whether or not the request is critical"
   )
 }
 
