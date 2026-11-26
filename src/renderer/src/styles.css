@@ -5681,12 +5681,19 @@ body.is-resizing-panel {
 .thread-popout.is-popped svg {
   transform: rotate(180deg);
 }
-/* A pop-out window: the conversation fills it (no rail, no sidebar, no dock). */
+/* A pop-out window: the conversation fills it (no rail, no sidebar, no dock).
+   `overflow: hidden` is what keeps the page the size of the window. Each message carries a visually-hidden
+   (position: absolute) role label whose containing block is `.app`, so the thread's own scroller does not clip it:
+   without a clip above `.app` they added up to a page thousands of pixels tall, and the window's scrollbar scrolled
+   past the conversation into blank space. The main window clips at .view-area; this window has no such ancestor. */
 .session-window {
   height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  overflow: hidden;
+  /* `clip` is not a scroll container at all, so nothing (a focus, a drag-select autoscroll) can scroll the header away with no scrollbar to undo it. */
+  overflow: clip;
 }
 .session-window > .app {
   flex: 1;
