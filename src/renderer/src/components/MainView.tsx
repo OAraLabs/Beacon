@@ -40,7 +40,7 @@ import { Sidebar } from './Sidebar'
 import { ChatShell } from './ChatShell'
 import { openMakeOwner } from './OwnerOnlyNote'
 import { ExecApprovalCard } from './ExecApprovalCard'
-import { cannotApproveLine } from '@shared/approval-refusal'
+import { cannotApproveLine, notResolvedLine } from '@shared/approval-refusal'
 import { NavRail } from './NavRail'
 import { StubPanel } from './StubPanel'
 import { ToolCallFeed } from './ToolCallFeed'
@@ -211,6 +211,8 @@ export function MainView() {
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({})
   /** requestId → the line a worker's request shows once this Beacon has been told it may not approve it (401 not_a_person). */
   const [cannotApprove, setCannotApprove] = useState<Record<string, string>>({})
+  /** requestId → the line a request shows once Prometheus said it had nothing waiting to answer (a 200 with ok:false): the card is kept, with why, and Approve goes. */
+  const [notWaiting, setNotWaiting] = useState<Record<string, string>>({})
   /** Requests put away to the badge. They are still pending, and still in `approvals`; only the card is hidden. A request that arrives later is not in it, so it is shown. */
   const [minimized, setMinimized] = useState<ReadonlySet<string>>(() => new Set())
   const minimizedRef = useRef(minimized)
@@ -223,6 +225,8 @@ export function MainView() {
    *  just appeared or moved is protected, so a change elsewhere in the stack costs nothing. */
   const approvalPlaces = useRef(new Map<string, { index: number; at: number }>())
   const approvalIds = approvals.map((a) => a.requestId).join('\n')
+  /** What the short rows (Today, Mission, the desktop prompts) offer: a request Prometheus said nothing is waiting for is not one. */
+  const rowApprovals = useMemo(() => approvals.filter((a) => !notWaiting[a.requestId]), [approvals, notWaiting])
   // A layout effect: recorded before the new stack is painted, so no click on what is now shown
   // can be judged against where things were.
   useLayoutEffect(() => {
@@ -236,6 +240,14 @@ export function MainView() {
   }, [approvalIds])
   // A request that is answered or expires leaves the queue; its place in the put-away set goes with it.
   useEffect(() => {
+    // Its refusal and "nothing is waiting" lines go with it: the same id listed again later is a new question.
+    const live0 = new Set(approvals.map((a) => a.requestId))
+    const keep = (m: Record<string, string>): Record<string, string> => {
+      const ids = Object.keys(m)
+      return ids.every((id) => live0.has(id)) ? m : Object.fromEntries(ids.filter((id) => live0.has(id)).map((id) => [id, m[id]]))
+    }
+    setCannotApprove(keep)
+    setNotWaiting(keep)
     setMinimized((s) => {
       const live = new Set(approvals.map((a) => a.requestId))
       const kept = [...s].filter((id) => live.has(id))
@@ -285,8 +297,8 @@ export function MainView() {
    *  Derived here, where the push and poll paths both land, rather than re-derived in the pane:
    *  one source of "is this still actionable", so the two cannot disagree. */
   const pendingApprovalIds = useMemo(
-    () => new Set(approvals.map((a) => a.requestId)),
-    [approvals]
+    () => new Set(rowApprovals.map((a) => a.requestId)),
+    [rowApprovals]
   )
 
   // ── Voice turns (feat/voice-turns) ─────────────────────────────────────────
@@ -1554,6 +1566,13 @@ export function MainView() {
         setCannotApprove((m) => ({ ...m, [requestId]: line }))
         return
       }
+      // Prometheus took the call and found nothing to answer: say so on the card, once, in place of Approve. The card stays (and can be put away).
+      const none = notResolvedLine(err)
+      if (none) {
+        // Not put back here: Prometheus has just said it is not waiting for this. A card that is still listed comes back with the next poll, carrying this line.
+        setNotWaiting((m) => ({ ...m, [requestId]: none }))
+        return
+      }
       // SPRINT-CONSENT: a rejected resolve is SHOWN, never swallowed. Beacon holds no verb list —
       // the daemon's normalise_scope is the sole authority — so a 400 here is the only signal that
       // the two vocabularies have drifted. Silently discarding it (the previous `.catch(() =>
@@ -1730,12 +1749,12 @@ export function MainView() {
               critical={approvalCardOnly(a.requestId)}
               activeSessionId={view === 'chat' ? active : null}
               error={approvalErrors[a.requestId] || null}
-              cannotApprove={cannotApprove[a.requestId] ?? null}
+              cannotApprove={cannotApprove[a.requestId] ?? notWaiting[a.requestId] ?? null}
               disclosureOpen={isDisclosureOpen(disclosedFor, a.requestId)}
               onToggleDisclosure={() => setDisclosedFor((s) => toggleDisclosure(s, a.requestId))}
               onResolve={(d, from) => void resolveApproval(a.requestId, d, from)}
               onMinimize={() => setMinimized((s) => new Set(s).add(a.requestId))}
-              onMakeOwner={openMakeOwner}
+              onMakeOwner={cannotApprove[a.requestId] ? openMakeOwner : undefined}
             />
           ))}
         </div>
@@ -1944,7 +1963,7 @@ export function MainView() {
             ownerGate === 'note' ? <OwnerOnlyNote area={view} /> : null
           ) : view === 'mission' && uiMode === 'everyday' ? (
             <TodayHome
-              approvals={approvals}
+              approvals={rowApprovals}
               approvalCardOnly={approvalRowCardOnly}
               onShowApproval={showApproval}
               onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}
@@ -1958,7 +1977,7 @@ export function MainView() {
             />
           ) : view === 'mission' ? (
             <MissionHome
-              approvals={approvals}
+              approvals={rowApprovals}
               approvalCardOnly={approvalRowCardOnly}
               onShowApproval={showApproval}
               onResolveApproval={(id, d) => void resolveApproval(id, d, 'row')}

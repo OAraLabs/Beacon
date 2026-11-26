@@ -1,3 +1,4 @@
+import { NOT_RESOLVED_CODE, readNotResolved } from '@shared/approval-refusal'
 import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { originOf, sameOrigin } from '@shared/key-origin'
 import { pinnedFromWire } from '@shared/session-pins'
@@ -404,6 +405,9 @@ export class RestClient {
       const code = refusalCode(text)
       throw new Error(`HTTP ${res.status}${code ? ` [${code}]` : ''}: POST /api/approvals/${requestId}/${verb} — ${text.slice(0, 200)}`)
     }
+    // A 200 can still say nothing was answered ({ok:false, message}); that is an error to show, not a success (@shared/approval-refusal).
+    const notResolved = readNotResolved(await fullText(res))
+    if (notResolved !== null) throw new Error(`HTTP 200 [${NOT_RESOLVED_CODE}]: POST /api/approvals/${requestId}/${verb} — ${notResolved}`)
   }
 
   /** DELETE /api/sessions/{id} — "forget": the daemon drops the in-memory session so it stops
