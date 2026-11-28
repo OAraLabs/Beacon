@@ -46,3 +46,39 @@ export function notResolvedLine(err: unknown): string | null {
   if (said === '' || /^No pending request/i.test(said)) return NOT_PENDING_LINE
   return `Prometheus did not take this answer: ${said}`
 }
+
+// A 410 from the approve or deny route: the request ended before this answer reached it (Prometheus `_no_longer_active`, since
+// 0.9.21). Its body says how: {"error": "no_longer_active", "resolution": "approved" | "denied" | "expired" | "withdrawn" | null}.
+// Shown as plain words, not the raw "HTTP 410 …" line it used to be.
+
+export const NO_LONGER_ACTIVE = 'no_longer_active'
+const ENDINGS = ['approved', 'denied', 'expired', 'withdrawn'] as const
+export type Ending = (typeof ENDINGS)[number] | 'unknown'
+
+/** How a no_longer_active 410's body says the request ended; 'unknown' when it does not say (no record of it at all). */
+export function endingOf(bodyText: string): Ending {
+  try {
+    const r = (JSON.parse(bodyText) as { resolution?: unknown } | null)?.resolution
+    return typeof r === 'string' && (ENDINGS as readonly string[]).includes(r) ? (r as Ending) : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+export const ENDED_LINES: Record<Ending, string> = {
+  approved: 'This request was already approved, so there was nothing left to answer.',
+  denied: 'This request was already denied, so this answer changed nothing.',
+  expired: 'This request ran out of time before it was answered. Nothing was approved.',
+  withdrawn: 'The worker that asked has stopped, so this request was withdrawn. Nothing was approved.',
+  // Not "nothing was approved": with no record, Prometheus cannot say whether something else approved it before it forgot.
+  unknown: 'Prometheus has no record of this request any more (it may have restarted), so this answer did nothing.'
+}
+
+/** The line for an answer that reached a request after it ended, or null when the error was not that. */
+export function endedLine(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err)
+  const m = new RegExp(`HTTP 410 \\[${NO_LONGER_ACTIVE}(?::([a-z]+))?\\]:`).exec(msg)
+  if (!m) return null
+  const ending = (m[1] ?? 'unknown') as Ending
+  return ENDED_LINES[ending] ?? ENDED_LINES.unknown
+}

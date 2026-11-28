@@ -44,21 +44,31 @@ const REFUSED = row('probe-worker-ref', 'w7') // the daemon refuses this one (th
 // A request Prometheus answers 200 {ok:false, message:"No pending request: …"} and still lists (answered already, its worker gone): what a real Mac showed after eight approvals.
 const GHOST = row('probe-worker-gho', 'w9')
 const NOT_PENDING = { ok: false, remembered: false, grant_id: null, message: `No pending request: ${GHOST.request_id}`, skipped: 0 }
+// A request that ended before the answer reached it: Prometheus's 410 (`_no_longer_active`), and the next poll no longer lists it.
+const ENDED = row('probe-worker-end', 'w10')
+const GONE_410 = { ok: false, remembered: false, grant_id: null, message: 'This request is no longer active: it expired unanswered.', skipped: 0, error: 'no_longer_active', resolution: 'expired', detail: 'This request is no longer active: it expired unanswered.' }
 const REFUSAL = { error: "Only a person may approve a worker's request: the API token cannot do this: a model can read it. Answer it from Beacon or the chat it came from.", code: 'not_a_person' }
 
-const state = { pending: new Set([OWNED.request_id, REFUSED.request_id, GHOST.request_id]), approves: { own: 0, ref: 0, gho: 0 }, denies: 0, listServed: 0 }
+const state = { pending: new Set([OWNED.request_id, REFUSED.request_id, GHOST.request_id, ENDED.request_id]), approves: { own: 0, ref: 0, gho: 0, end: 0 }, denies: 0, listServed: 0 }
 const gateway = createServer((req, res) => {
   res.setHeader('content-type', 'application/json')
   const url = req.url ?? ''
   if (req.method === 'GET' && url.startsWith('/api/approvals')) {
     state.listServed += 1
-    res.end(JSON.stringify([OWNED, REFUSED, GHOST].filter((r) => state.pending.has(r.request_id))))
+    res.end(JSON.stringify([OWNED, REFUSED, GHOST, ENDED].filter((r) => state.pending.has(r.request_id))))
     return
   }
   if (req.method === 'POST' && url === `/api/approvals/${OWNED.request_id}/approve`) {
     state.approves.own += 1
     state.pending.delete(OWNED.request_id)
     res.end(JSON.stringify({ ok: true, remembered: false, grant_id: null, message: 'approved', skipped: 0 }))
+    return
+  }
+  if (req.method === 'POST' && url === `/api/approvals/${ENDED.request_id}/approve`) {
+    state.approves.end += 1
+    state.pending.delete(ENDED.request_id) // it ended: the next poll does not list it
+    res.statusCode = 410
+    res.end(JSON.stringify(GONE_410))
     return
   }
   if (req.method === 'POST' && url === `/api/approvals/${GHOST.request_id}/approve`) {
@@ -242,13 +252,27 @@ try {
   const gaway = await click('[data-testid="approval-minimize"]', 'w9')
   const gbadge = await until(() => view('w9'), (v) => !v.present && /1 request waiting/.test(v.badge ?? ''), 4000)
   check(gaway === 'clicked' && !gbadge.present, 'it can be put away to the badge, where it waits to expire')
+
+  // ── 5. a request that ended before the answer reached it ─────────────────────────────────────
+  const e0 = await until(() => view('w10'), (v) => v.present, 6000)
+  check(e0.present && e0.approve, 'a request about to end looks ordinary')
+  await sleep(1500)
+  const etry = await click('.approval-btn-approve', 'w10')
+  const esaid = await until(() => view('w10'), (v) => /ran out of time/.test(v.text), 3000)
+  check(etry === 'clicked' && state.approves.end === 1, `one approve POST, answered 410 (${state.approves.end})`)
+  check(esaid.present && /ran out of time before it was answered\. Nothing was approved\./.test(esaid.text), 'the card says in words that it ran out of time and nothing was approved', esaid.text.slice(0, 300))
+  check(!/HTTP 410|no_longer_active|\{"ok"/.test(esaid.text) && !esaid.approve, 'no raw status, code or body, and no Approve')
+  await sleep(2500)
+  check((await view('w10')).present, 'the card stays up long enough to be read, though the poll no longer lists it')
+  const egone = await until(() => view('w10'), (v) => !v.present, 12000)
+  check(!egone.present, 'and then it goes')
 } catch (e) {
   console.error(`  FATAL ${e instanceof Error ? e.message : e}`)
   failures += 1
 } finally {
   gateway.close()
 }
-const MIN_CHECKS = 37
+const MIN_CHECKS = 43
 if (checks < MIN_CHECKS) {
   console.error(`  FAIL only ${checks} checks ran, expected ${MIN_CHECKS}`)
   failures += 1
