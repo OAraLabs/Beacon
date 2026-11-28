@@ -560,7 +560,7 @@ void (async () => {
     check((await throws.look([p1], dirs))[0].kind === 'slow' && (await throws.read(ok[0], 1000)) === UNANSWERED, 'if the helper cannot be started at all, nothing is looked at or read, and nothing is thrown')
     // A loop handing over paths on a dead disk cannot leave a pile of stuck helpers.
     let started = 0
-    const capLines: string[] = []
+    const capturedLines: string[] = []
     const capped = createLooker({
       start: () => {
         started++
@@ -571,10 +571,10 @@ void (async () => {
       idleMs: 150,
       stallsMax: 3,
       stallWindowMs: 300,
-      log: (l) => capLines.push(l)
+      log: (l) => capturedLines.push(l)
     })
     for (let i = 0; i < 6; i++) await capped.look([p1], dirs)
-    check(started === 3 && capLines.some((l) => /too many helpers have stopped answering/.test(l)), 'after a few helpers in a row have stopped answering, no more are started for a while', String(started))
+    check(started === 3 && capturedLines.some((l) => /too many helpers have stopped answering/.test(l)), 'after a few helpers in a row have stopped answering, no more are started for a while', String(started))
     await sleep(340)
     check((await capped.look([p1], dirs))[0].kind === 'slow' && started === 4, 'and then they are again')
   } finally {

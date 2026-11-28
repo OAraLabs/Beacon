@@ -134,7 +134,7 @@ console.log('\n=== 2. path → project ===')
   check(key('/home/op/notes.md') === null, 'a file directly in home is not a project')
   check(key('/home/op/projects/README.md') === null, 'a file directly in a container is not a project')
   check(key('/home/op') === null && key('/home/op/') === null, 'home itself is not a project')
-  check(key('/home/op/pilot') === 'pilot' && key('~/projects/reachout') === 'reachout', 'a bare project directory (cd target) is a project')
+  check(key('/home/op/pilot') === 'pilot' && key('~/projects/rosewood') === 'rosewood', 'a bare project directory (cd target) is a project')
   check(key('/home/op/projects') === null, 'a bare container is not a project')
   check(key('/tmp/beacon/x.ts') === null && key('/etc/hosts') === null, 'paths outside home are not projects')
   check(key('relative/path/x.ts') === null, 'a relative path is not resolved')
@@ -144,8 +144,8 @@ console.log('\n=== 2. path → project ===')
   check(hits === 'beacon-desktop,pilot', 'a shell command yields every project it names', hits)
   const twice = JSON.stringify({ command: 'ls /home/op/pilot/a /home/op/pilot/b' })
   check(projectsInToolInput(twice).length === 1, 'one call naming a project twice counts it once')
-  const quoted = JSON.stringify({ path: '/home/op/reachout/src/app.ts', content: 'line\n/home/op/other/x' })
-  check(projectsInToolInput(quoted).map((p) => p.key).sort().join(',') === 'other,reachout', 'a path stops at an escaped newline in JSON text')
+  const quoted = JSON.stringify({ path: '/home/op/rosewood/src/app.ts', content: 'line\n/home/op/other/x' })
+  check(projectsInToolInput(quoted).map((p) => p.key).sort().join(',') === 'other,rosewood', 'a path stops at an escaped newline in JSON text')
 }
 
 // ── 3. the suggestion and the grouping ───────────────────────────────────────
@@ -167,9 +167,9 @@ console.log('\n=== 3. suggestion + grouping ===')
   const both = JSON.stringify({ command: `cp ${B} ${P}` })
   check(suggestProject(tallyToolInputs([both, both, both])) === null, 'a tie at 100% (every call touches both) gets no suggestion')
   const mixedCase = suggestProject(
-    tallyToolInputs([call('/home/op/reachout/a'), call('/home/op/ReachOut/b'), call('/home/op/ReachOut/c')])
+    tallyToolInputs([call('/home/op/rosewood/a'), call('/home/op/RoseWood/b'), call('/home/op/RoseWood/c')])
   )
-  check(mixedCase?.key === 'reachout' && mixedCase.label === 'ReachOut' && mixedCase.share === 1, 'reachout + ReachOut are one project; the commoner spelling labels it', JSON.stringify(mixedCase))
+  check(mixedCase?.key === 'rosewood' && mixedCase.label === 'RoseWood' && mixedCase.share === 1, 'rosewood + RoseWood are one project; the commoner spelling labels it', JSON.stringify(mixedCase))
 
   let st = createProject(emptyProjectStore(), 'Beacon-Desktop').store
   const pid = st.projects[0].id

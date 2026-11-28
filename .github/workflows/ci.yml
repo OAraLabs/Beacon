@@ -81,6 +81,11 @@ jobs:
       # This matters here specifically — node-pty is a native module built by a
       # postinstall script, and a node_modules tree that predates the dependency
       # fails typecheck with "Cannot find module 'node-pty'" while looking healthy.
+      # Nothing tracked under .claude/ (an agent's private notes and settings), and no private name, machine name or
+      # home path in any tracked file. The names are known to the script only by digest (scripts/check_tracked_files.py).
+      - name: Tracked files (nothing under .claude/, no private name)
+        run: python3 scripts/check_tracked_files.py
+
       - name: Install dependencies
         run: npm ci
 

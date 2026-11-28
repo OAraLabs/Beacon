@@ -45,7 +45,7 @@ export function cleanProjectName(raw: string): string {
   return (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME)
 }
 
-/** Case-insensitive identity for names: `ReachOut` and `reachout` are one project. */
+/** Case-insensitive identity for names: `RoseWood` and `rosewood` are one project. */
 export function nameKey(name: string): string {
   return cleanProjectName(name).toLowerCase()
 }
@@ -111,7 +111,7 @@ function newId(s: ProjectStore): string {
 
 /**
  * Create a project, or return the existing one with the same name (case-insensitive), so
- * accepting `reachout` when `ReachOut` exists files into ReachOut instead of making a twin.
+ * accepting `rosewood` when `RoseWood` exists files into RoseWood instead of making a twin.
  * Returns `id: null` (store unchanged) for an empty name.
  */
 export function createProject(s: ProjectStore, rawName: string): { store: ProjectStore; id: string | null } {
