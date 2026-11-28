@@ -12,11 +12,11 @@
  * Run: npm run build && npm run smoke:approval-not-resolved
  */
 import { readFileSync } from 'node:fs'
-import { NOT_PENDING_LINE, NOT_RESOLVED_CODE, notResolvedLine, readNotResolved } from '@shared/approval-refusal'
+import { ENDED_LINES, NOT_PENDING_LINE, NOT_RESOLVED_CODE, endedLine, endingOf, notResolvedLine, readNotResolved } from '@shared/approval-refusal'
 import { isNotAPerson } from '@shared/daemon-api'
 import { RestClient } from './connection/rest'
 
-const MIN_CHECKS = 35
+const MIN_CHECKS = 56
 let checks = 0
 let failures = 0
 function check(cond: boolean, name: string, detail = ''): void {
@@ -88,6 +88,27 @@ async function main(): Promise<void> {
   check(notResolvedLine(new Error('HTTP 200: POST /api/approvals/c1/approve')) === null && notResolvedLine(new Error('fetch failed')) === null && notResolvedLine(null) === null && notResolvedLine(undefined) === null && notResolvedLine('x') === null, 'nothing else is mistaken for it')
   check(notResolvedLine(new Error('HTTP 500 [not_resolved]: POST /api/approvals/c1/approve — No pending request')) === null, 'only a 200 is')
 
+  console.log('2b. a request that ended first (410)')
+  // web/server.py _no_longer_active's exact body, for each way a request ends.
+  const gone = (resolution: string | null, why = 'the worker that asked ended'): string => {
+    const detail = resolution === 'withdrawn' ? `This request is no longer active: it was withdrawn (${why}). Nothing was approved.` : 'This request is no longer active.'
+    return JSON.stringify({ ok: false, remembered: false, grant_id: null, message: detail, skipped: 0, error: 'no_longer_active', resolution, detail })
+  }
+  for (const r of ['approved', 'denied', 'expired', 'withdrawn'] as const) {
+    const e = await resolve(gone(r), 410)
+    check(e !== null && e.message.startsWith(`HTTP 410 [no_longer_active:${r}]:`), `410 ${r}: the client tags how it ended`, e?.message.slice(0, 80))
+    check(endedLine(viaIpc(e as Error)) === ENDED_LINES[r], `and the card says it in words (${r})`)
+    check(notResolvedLine(e) === null && !isNotAPerson(e as Error), '…and it is not mistaken for another refusal')
+  }
+  const none = await resolve(gone(null), 410)
+  check(none !== null && endedLine(none) === ENDED_LINES.unknown, 'no record of it at all: says so')
+  // A long reason pushes `resolution` past the 200 characters the message keeps: it is read from the whole body.
+  const longWhy = await resolve(gone('withdrawn', 'x'.repeat(400)), 410)
+  check(longWhy !== null && endedLine(longWhy) === ENDED_LINES.withdrawn, 'how it ended is read from the whole body, not the cut message')
+  check(endingOf('not json') === 'unknown' && endingOf('{"resolution":"exploded"}') === 'unknown' && endingOf('{"resolution":7}') === 'unknown', 'a resolution Beacon does not know is "unknown", not shown')
+  check(endedLine(new Error('HTTP 410: POST /api/approvals/x/approve — gone')) === null && endedLine(new Error('HTTP 404 [no_longer_active]: x')) === null, 'a 410 without the code, or the code on another status, is not this')
+  check(Object.values(ENDED_LINES).every((l) => !/\b[45]\d\d\b|HTTP|\/api\/|no_longer|null|undefined/.test(l)) && /Nothing was approved/.test(ENDED_LINES.expired) && /Nothing was approved/.test(ENDED_LINES.withdrawn), 'the words carry no code or route, and say plainly when nothing was approved')
+
   console.log('3. wiring')
   const src = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8')
   const main = src('src/renderer/src/components/MainView.tsx')
@@ -98,8 +119,12 @@ async function main(): Promise<void> {
   check((main.match(/approvals=\{rowApprovals\}/g) ?? []).length === 2 && /new Set\(rowApprovals\.map/.test(main) && /approvals\.filter\(\(a\) => !notWaiting\[a\.requestId\]\)/.test(main), 'the short rows (Today, Mission, the desktop-prompt pane) stop offering a request Prometheus is not waiting for')
   check(/setCannotApprove\(keep\)\s*setNotWaiting\(keep\)/.test(main), 'the lines leave with the request, so the same id listed again later is a new question')
   check(!/const none = notResolvedLine\(err\)\s*if \(none\) \{\s*\/\/[^\n]*\n\s*setNotWaiting[\s\S]{0,120}setApprovals/.test(main), 'a request Prometheus says is gone is not put back by the answer (a still-listed one comes back with the poll)')
+  check(/const ended = endedLine\(err\)\s*if \(ended\) \{[\s\S]{0,600}setNotWaiting\(\(m\) => \(\{ \.\.\.m, \[requestId\]: ended \}\)\)/.test(main), 'a request that ended first: its card says how, in place of Approve')
+  check(/endedHold\.current\.set\(requestId, \{ approval, index: Math\.max\(0, at\), until: Date\.now\(\) \+ ENDED_HOLD_MS \}\)/.test(main) && /setApprovals\(withEndedHeld\(l\)\)/.test(main) && /withEndedHeld\(applyApprovalFrame\(prev/.test(main), 'the card is held a few seconds against the poll and frames, so its words are read')
+  check(!/Nothing was approved/.test(ENDED_LINES.unknown), 'with no record, it does not claim nothing was approved')
+  check(/code === NO_LONGER_ACTIVE \? `\$\{code\}:\$\{endingOf\(text\)\}`/.test(rest), 'the client reads how it ended from the whole body')
   check(/onMakeOwner=\{cannotApprove\[a\.requestId\] \? openMakeOwner : undefined\}/.test(main), 'and "Make this Beacon an owner" is offered only for that refusal')
-  check(/const line = approval \? cannotApproveLine\(approval, err\) : null\s*if \(line\) \{[\s\S]{0,200}return\s*\}[\s\S]{0,260}const none = notResolvedLine/.test(main), 'the refusal for who is asking is still checked first')
+  check(/const line = approval \? cannotApproveLine\(approval, err\) : null\s*if \(line\) \{[\s\S]{0,200}return\s*\}[\s\S]{0,1400}const none = notResolvedLine/.test(main), 'the refusal for who is asking is still checked first')
   check(/if \(!waits && approval\) setApprovals\(\(p\) => \(p\.some\(\(a\) => a\.requestId === requestId\) \? p : \[\.\.\.p\.slice\(0, Math\.max\(0, at\)\)/.test(main), 'a card taken down for the answer comes straight back, where it was')
 }
 

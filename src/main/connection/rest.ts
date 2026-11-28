@@ -1,4 +1,4 @@
-import { NOT_RESOLVED_CODE, readNotResolved } from '@shared/approval-refusal'
+import { NOT_RESOLVED_CODE, NO_LONGER_ACTIVE, endingOf, readNotResolved } from '@shared/approval-refusal'
 import { MCP_SERVERS_PATH } from '@shared/connectors'
 import { originOf, sameOrigin } from '@shared/key-origin'
 import { pinnedFromWire } from '@shared/session-pins'
@@ -403,7 +403,9 @@ export class RestClient {
     if (!res.ok) {
       const text = await fullText(res)
       const code = refusalCode(text)
-      throw new Error(`HTTP ${res.status}${code ? ` [${code}]` : ''}: POST /api/approvals/${requestId}/${verb} — ${text.slice(0, 200)}`)
+      // A request that ended first: how it ended rides with the code, read from the whole body (the 200-character cut can lose it).
+      const tag = code === NO_LONGER_ACTIVE ? `${code}:${endingOf(text)}` : code
+      throw new Error(`HTTP ${res.status}${tag ? ` [${tag}]` : ''}: POST /api/approvals/${requestId}/${verb} — ${text.slice(0, 200)}`)
     }
     // A 200 can still say nothing was answered ({ok:false, message}); that is an error to show, not a success (@shared/approval-refusal).
     const notResolved = readNotResolved(await fullText(res))

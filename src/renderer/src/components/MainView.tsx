@@ -40,7 +40,7 @@ import { Sidebar } from './Sidebar'
 import { ChatShell } from './ChatShell'
 import { openMakeOwner } from './OwnerOnlyNote'
 import { ExecApprovalCard } from './ExecApprovalCard'
-import { cannotApproveLine, notResolvedLine } from '@shared/approval-refusal'
+import { cannotApproveLine, endedLine, notResolvedLine } from '@shared/approval-refusal'
 import { NavRail } from './NavRail'
 import { StubPanel } from './StubPanel'
 import { ToolCallFeed } from './ToolCallFeed'
@@ -151,6 +151,9 @@ let keptView: ViewId | null = null
 /** The badge a put-away approval leaves behind: one line at the top centre, small enough to leave the app usable, and amber so it is not missed. */
 const approvalBadge: CSSProperties = { alignSelf: 'center', fontSize: 12, padding: '4px 12px', borderRadius: 999, border: '1px solid var(--c-warn)', background: 'var(--c-raise)', color: 'var(--c-text)', cursor: 'pointer' }
 
+/** How long a card stays up after Prometheus said its request had already ended, so the words saying how are seen. */
+const ENDED_HOLD_MS = 6_000
+
 export function MainView() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   // Owner of this Prometheus, or an approved device that may only chat (@shared/device-role).
@@ -213,6 +216,21 @@ export function MainView() {
   const [cannotApprove, setCannotApprove] = useState<Record<string, string>>({})
   /** requestId → the line a request shows once Prometheus said it had nothing waiting to answer (a 200 with ok:false): the card is kept, with why, and Approve goes. */
   const [notWaiting, setNotWaiting] = useState<Record<string, string>>({})
+  /** Cards whose request ended before the answer reached it (a 410), kept on screen until `until` so their line is read: the next poll
+   *  or frame would otherwise take them down at once (Prometheus no longer lists an ended request). */
+  const endedHold = useRef(new Map<string, { approval: ApprovalRequest; index: number; until: number }>())
+  const withEndedHeld = useCallback((list: ApprovalRequest[]): ApprovalRequest[] => {
+    const now = Date.now()
+    let out = list
+    for (const [id, h] of [...endedHold.current]) {
+      if (h.until <= now) {
+        endedHold.current.delete(id)
+        continue
+      }
+      if (!out.some((a) => a.requestId === id)) out = [...out.slice(0, h.index), h.approval, ...out.slice(h.index)]
+    }
+    return out
+  }, [])
   /** Requests put away to the badge. They are still pending, and still in `approvals`; only the card is hidden. A request that arrives later is not in it, so it is shown. */
   const [minimized, setMinimized] = useState<ReadonlySet<string>>(() => new Set())
   const minimizedRef = useRef(minimized)
@@ -1493,7 +1511,7 @@ export function MainView() {
     // PUSH path: frames update the list immediately (upsert by requestId).
     const offGateway = b.events.onGateway((ev: GatewayEvent) => {
       if (ev.type !== 'approval_pending' && ev.type !== 'approval_resolved') return
-      setApprovals((prev) => applyApprovalFrame(prev, { type: ev.type, payload: ev.payload }))
+      setApprovals((prev) => withEndedHeld(applyApprovalFrame(prev, { type: ev.type, payload: ev.payload })))
     })
     return () => {
       offGateway()
@@ -1508,7 +1526,7 @@ export function MainView() {
         .list()
         .then((l) => {
           if (!alive) return
-          setApprovals(l) // wholesale replace — the reconciler clears ghosts
+          setApprovals(withEndedHeld(l)) // wholesale replace — the reconciler clears ghosts (a card held to show how its request ended stays its few seconds)
           b.approvals.notifyCount(l.length)
           const fresh = l.filter((a) => !seenApprovals.current.has(a.requestId))
           for (const a of fresh) seenApprovals.current.add(a.requestId)
@@ -1564,6 +1582,16 @@ export function MainView() {
       const line = approval ? cannotApproveLine(approval, err) : null
       if (line) {
         setCannotApprove((m) => ({ ...m, [requestId]: line }))
+        return
+      }
+      // The request ended before this answer reached it (410): say how, in words, in place of Approve. The card is put back so the words
+      // are seen; the next poll no longer lists the request, and it goes.
+      const ended = endedLine(err)
+      if (ended) {
+        // Held on screen a few seconds whatever the poll or a frame says, so the words are read before the card goes.
+        if (approval) endedHold.current.set(requestId, { approval, index: Math.max(0, at), until: Date.now() + ENDED_HOLD_MS })
+        if (!waits && approval) setApprovals((p) => (p.some((a) => a.requestId === requestId) ? p : [...p.slice(0, Math.max(0, at)), approval, ...p.slice(Math.max(0, at))]))
+        setNotWaiting((m) => ({ ...m, [requestId]: ended }))
         return
       }
       // Prometheus took the call and found nothing to answer: say so on the card, once, in place of Approve. The card stays (and can be put away).
